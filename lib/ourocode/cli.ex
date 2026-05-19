@@ -121,34 +121,34 @@ defmodule Ourocode.CLI do
     options = Map.new(options)
     {result, options} = attach_loop_bindings(result, options)
 
-    {loop_result, daemon} =
+    loop_result =
       if Ourocode.Terminal.Tui.interactive?(options) do
-        # Interactive only: ooo workflows assume a reachable Ouroboros MCP
-        # server, so bring one up tied to this process. Non-interactive,
-        # smoke and piped paths never spawn it.
-        {:ok, daemon} = Ourocode.Runtime.McpDaemon.maybe_start()
-        {Ourocode.Terminal.Tui.run(result, options, &EventLoop.run/2), daemon}
+        Ourocode.Terminal.Tui.run(result, options, &EventLoop.run/2)
       else
         output = Map.get(options, :output, :stdio)
         ShellRenderer.draw_initial_frame(result, output)
-        {EventLoop.run(result, options), nil}
+        EventLoop.run(result, options)
       end
 
     case loop_result do
       {:ok, event_loop} ->
-        stop_all(result, daemon)
+        stop_all(result)
         {:ok, Map.put(result, :event_loop, event_loop)}
 
       {:error, _reason} = error ->
-        stop_all(result, daemon)
+        stop_all(result)
         error
     end
   end
 
   defp run_launch_flow(result, _options), do: result
 
-  defp stop_all(result, daemon) do
-    Ourocode.Runtime.McpDaemon.stop(daemon)
+  defp stop_all(result) do
+    case Map.get(result, :loop_bindings_agent) do
+      agent when is_pid(agent) -> Ourocode.Runtime.LoopBindings.stop(agent)
+      _none -> :ok
+    end
+
     stop_runtime(result)
   end
 
@@ -165,6 +165,7 @@ defmodule Ourocode.CLI do
           |> Map.put(:pane_snapshot, fn ->
             Ourocode.Runtime.LoopBindings.pane_snapshot(agent)
           end)
+          |> Map.put(:loop_bindings_agent, agent)
           |> Map.put(:wonder_answer, fn selection ->
             Ourocode.Runtime.LoopBindings.answer_wonder(agent, selection)
           end)

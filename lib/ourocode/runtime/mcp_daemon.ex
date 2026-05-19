@@ -55,7 +55,8 @@ defmodule Ourocode.Runtime.McpDaemon do
   """
   @spec maybe_start(keyword()) :: {:ok, handle()}
   def maybe_start(opts \\ []) do
-    spawn_fun = Keyword.get(opts, :spawn_fun, &spawn_server/2)
+    spawn_fun = Keyword.get(opts, :spawn_fun, &spawn_server/3)
+    llm_backend = Keyword.get(opts, :llm_backend)
 
     case resolve_target() do
       :disabled ->
@@ -65,7 +66,7 @@ defmodule Ourocode.Runtime.McpDaemon do
         {:ok, %{mode: :external, url: url}}
 
       {:spawn, host, port, url, explicit?} ->
-        case spawn_fun.(host, port) do
+        case spawn_fun.(host, port, llm_backend) do
           {:ok, erl_port, os_pid} ->
             # Default (per-instance) launches own the URL: export it so
             # LoopBindings + the interview invocation in this BEAM target
@@ -73,7 +74,14 @@ defmodule Ourocode.Runtime.McpDaemon do
             # OUROCODE_MCP_URL is the operator's and is left untouched.
             unless explicit?, do: System.put_env("OUROCODE_MCP_URL", url)
             await_ready(host, port, Keyword.get(opts, :wait?, true))
-            {:ok, %{mode: :spawned, port: erl_port, os_pid: os_pid, url: url}}
+            {:ok,
+             %{
+               mode: :spawned,
+               port: erl_port,
+               os_pid: os_pid,
+               url: url,
+               llm_backend: llm_backend
+             }}
 
           :unavailable ->
             {:ok, %{mode: :unavailable, url: url}}
@@ -183,8 +191,8 @@ defmodule Ourocode.Runtime.McpDaemon do
 
   # Prefer a direct `ouroboros` binary; fall back to `uvx` (zero-install run)
   # exactly as the Claude plugin launches it.
-  defp spawn_server(host, port) do
-    case server_command(host, port) do
+  defp spawn_server(host, port, llm_backend) do
+    case server_command(host, port, llm_backend) do
       {exe, args} ->
         sh = System.find_executable("sh") || "/bin/sh"
         log = Path.join(System.tmp_dir!(), "ourocode-mcp-#{port}.log")
@@ -216,7 +224,7 @@ defmodule Ourocode.Runtime.McpDaemon do
     end
   end
 
-  defp server_command(host, port) do
+  defp server_command(host, port, llm_backend) do
     serve_args = [
       "mcp",
       "serve",
@@ -227,6 +235,7 @@ defmodule Ourocode.Runtime.McpDaemon do
       "--port",
       Integer.to_string(port)
     ]
+    |> backend_args(llm_backend)
 
     # Prefer `uvx` — it pins the exact `[mcp,claude]` extras on every run, so
     # the server can't boot-then-die with "mcp package not installed" the way
@@ -244,6 +253,23 @@ defmodule Ourocode.Runtime.McpDaemon do
         :none
     end
   end
+
+  defp backend_args(args, nil), do: args
+  defp backend_args(args, ""), do: args
+
+  defp backend_args(args, "codex") do
+    args ++ ["--runtime", "codex", "--llm-backend", "codex"]
+  end
+
+  defp backend_args(args, "opencode") do
+    args ++ ["--runtime", "opencode", "--llm-backend", "opencode"]
+  end
+
+  defp backend_args(args, "claude_code") do
+    args ++ ["--llm-backend", "claude_code"]
+  end
+
+  defp backend_args(args, backend), do: args ++ ["--llm-backend", to_string(backend)]
 
   defp await_ready(_host, _port, false), do: :ok
 

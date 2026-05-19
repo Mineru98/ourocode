@@ -66,6 +66,7 @@ defmodule Ourocode.Terminal.Tui do
             |> Map.put(:output, output)
             |> Map.put(:read_line, read_line)
             |> Map.put(:prompt, @prompt)
+            |> attach_active_model_provider(state)
 
           loop_fun.(result, loop_options)
         after
@@ -80,6 +81,23 @@ defmodule Ourocode.Terminal.Tui do
         # No native helper: fall back to the plain line renderer + loop.
         ShellRenderer.draw_initial_frame(result, Map.get(Map.new(options), :output, :stdio))
         loop_fun.(result, options)
+    end
+  end
+
+  defp attach_active_model_provider(options, state) do
+    case Map.get(options, :on_prompt_input) do
+      fun when is_function(fun, 3) ->
+        Map.put(options, :on_prompt_input, fn task_request, input_event, startup_result ->
+          input_event =
+            input_event
+            |> Map.put(:active_model, active_model(state))
+            |> put_in([:payload, :active_model_id], active_model(state).id)
+
+          fun.(task_request, input_event, startup_result)
+        end)
+
+      _other ->
+        options
     end
   end
 

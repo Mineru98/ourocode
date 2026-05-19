@@ -69,7 +69,7 @@ defmodule Ourocode.Runtime.McpDaemonTest do
     System.delete_env("OUROCODE_MCP_AUTOSTART")
     System.delete_env("OUROCODE_MCP_URL")
 
-    spawn_fun = fn _host, _port -> {:ok, :fake_port, 999_999} end
+    spawn_fun = fn _host, _port, _llm_backend -> {:ok, :fake_port, 999_999} end
 
     assert {:ok, %{mode: :spawned, os_pid: 999_999, url: url}} =
              McpDaemon.maybe_start(spawn_fun: spawn_fun, wait?: false)
@@ -79,11 +79,28 @@ defmodule Ourocode.Runtime.McpDaemonTest do
     assert url =~ ~r{^http://127\.0\.0\.1:\d+/mcp$}
   end
 
+  test "auto launch forwards the requested LLM backend to the spawned server" do
+    System.delete_env("OUROCODE_MCP_AUTOSTART")
+    System.delete_env("OUROCODE_MCP_URL")
+    parent = self()
+
+    spawn_fun = fn host, port, llm_backend ->
+      send(parent, {:spawned_with, host, port, llm_backend})
+      {:ok, :fake_port, 101_010}
+    end
+
+    assert {:ok, %{mode: :spawned, llm_backend: "codex"}} =
+             McpDaemon.maybe_start(spawn_fun: spawn_fun, wait?: false, llm_backend: "codex")
+
+    assert_receive {:spawned_with, "127.0.0.1", port, "codex"}
+    assert is_integer(port)
+  end
+
   test "an explicit operator URL is never overwritten by a spawn" do
     System.delete_env("OUROCODE_MCP_AUTOSTART")
     System.put_env("OUROCODE_MCP_URL", "http://127.0.0.1:4998/mcp")
 
-    spawn_fun = fn _host, _port -> {:ok, :fake_port, 4242} end
+    spawn_fun = fn _host, _port, _llm_backend -> {:ok, :fake_port, 4242} end
 
     assert {:ok, %{mode: :spawned, url: "http://127.0.0.1:4998/mcp"}} =
              McpDaemon.maybe_start(spawn_fun: spawn_fun, wait?: false)

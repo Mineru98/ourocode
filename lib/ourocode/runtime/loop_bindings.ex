@@ -22,7 +22,9 @@ defmodule Ourocode.Runtime.LoopBindings do
   alias Ourocode.Dashboard.{ChildSessionPanes, ParentMcpPane}
   alias Ourocode.MCP.ParentCallResult
   alias Ourocode.MCP.Transport.StreamableHTTP
+  alias Ourocode.Model
   alias Ourocode.Model.Catalog
+  alias Ourocode.Runtime.McpDaemon
 
   alias Ourocode.Runtime.{
     Application,
@@ -61,9 +63,24 @@ defmodule Ourocode.Runtime.LoopBindings do
         interview: nil,
         interview_session: nil,
         interview_waiter: nil,
+        mcp_daemon: nil,
+        mcp_llm_backend: nil,
         paused: false
       }
     end)
+  end
+
+  @doc """
+  Stops any daemon owned by the bindings agent, then stops the state agent.
+  """
+  @spec stop(pid()) :: :ok
+  def stop(agent) when is_pid(agent) do
+    handle = Agent.get(agent, &Map.get(&1, :mcp_daemon))
+    McpDaemon.stop(handle)
+    Agent.stop(agent)
+    :ok
+  rescue
+    _exception -> :ok
   end
 
   @doc """
@@ -576,9 +593,9 @@ defmodule Ourocode.Runtime.LoopBindings do
   # --- prompt input: dispatch every ooo workflow route ---------------------
 
   defp on_prompt_input_fun(agent, runtime) do
-    fn task_request, _input_event, _startup_result ->
+    fn task_request, input_event, _startup_result ->
       if ouroboros_route?(task_request) do
-        dispatch_workflow(agent, runtime, task_request)
+        dispatch_workflow(agent, runtime, task_request, input_event)
       end
 
       :ok
@@ -588,16 +605,18 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp ouroboros_route?(%{routing_decision: %{execution_route: :ouroboros_workflow}}), do: true
   defp ouroboros_route?(_task_request), do: false
 
-  defp dispatch_workflow(agent, runtime, task_request) do
+  defp dispatch_workflow(agent, runtime, task_request, input_event) do
     parent_call_id = "parent-" <> to_string(task_request.id)
-    invoker = transport_invoker(agent, runtime, parent_call_id)
+    model = input_event_model(input_event) || Catalog.default()
+    {:ok, mcp_url} = ensure_mcp_daemon(agent, model)
+    invoker = transport_invoker(agent, runtime, parent_call_id, model)
 
     Dispatcher.dispatch(task_request,
       adapters: @ouroboros_adapters,
       context: %{
         request_id: "req-" <> to_string(task_request.id),
         parent_call_id: parent_call_id,
-        streamable_http_url: mcp_url(),
+        streamable_http_url: mcp_url,
         cwd: File.cwd!(),
         mcp_invoker: invoker
       }
@@ -618,9 +637,9 @@ defmodule Ourocode.Runtime.LoopBindings do
   # The invoker returns immediately; the transport call runs in a relay process
   # so the prompt loop never blocks on the network and streamed events reach
   # the inbox as they arrive.
-  defp transport_invoker(agent, runtime, parent_call_id) do
+  defp transport_invoker(agent, runtime, parent_call_id, model) do
     fn payload, _transport_options ->
-      start_relay(agent, runtime, parent_call_id, payload)
+      start_relay(agent, runtime, parent_call_id, payload, model)
       {:ok, %{parent_call_id: parent_call_id}}
     end
   end
@@ -628,14 +647,14 @@ defmodule Ourocode.Runtime.LoopBindings do
   # Interview calls drive the SKILL Path A loop (parse question → route →
   # answer back → repeat until seed-ready). Every other ouroboros workflow
   # keeps the byte-for-byte single-shot relay.
-  defp start_relay(agent, runtime, parent_call_id, payload) do
+  defp start_relay(agent, runtime, parent_call_id, payload, model) do
     if interview_payload?(payload) do
       spawn(fn ->
         run_interview_session(agent,
           parent_call_id: parent_call_id,
           initial_payload: payload,
           parent_call_fun: production_parent_call(agent, runtime, parent_call_id),
-          model: Catalog.default(),
+          model: model,
           project_dir: project_dir(runtime)
         )
       end)
@@ -649,6 +668,44 @@ defmodule Ourocode.Runtime.LoopBindings do
   end
 
   defp interview_payload?(_payload), do: false
+
+  defp input_event_model(%{active_model: %Model{} = model}), do: model
+  defp input_event_model(%{"active_model" => %Model{} = model}), do: model
+  defp input_event_model(_event), do: nil
+
+  defp ensure_mcp_daemon(agent, %Model{} = model) do
+    requested_backend = mcp_llm_backend(model)
+
+    Agent.get_and_update(agent, fn state ->
+      handle = Map.get(state, :mcp_daemon)
+      current_backend = Map.get(state, :mcp_llm_backend)
+
+      if reuse_mcp_daemon?(handle, current_backend, requested_backend) do
+        {{:ok, Map.get(handle, :url, mcp_url())}, state}
+      else
+        McpDaemon.stop(handle)
+        {:ok, new_handle} = McpDaemon.maybe_start(llm_backend: requested_backend)
+
+        next_state =
+          state
+          |> Map.put(:mcp_daemon, new_handle)
+          |> Map.put(:mcp_llm_backend, requested_backend)
+
+        {{:ok, Map.get(new_handle, :url, mcp_url())}, next_state}
+      end
+    end)
+  end
+
+  defp ensure_mcp_daemon(agent, _model), do: ensure_mcp_daemon(agent, Catalog.default())
+
+  defp reuse_mcp_daemon?(nil, _current_backend, _requested_backend), do: false
+  defp reuse_mcp_daemon?(%{mode: :external}, _current_backend, _requested_backend), do: true
+  defp reuse_mcp_daemon?(_handle, current_backend, requested_backend),
+    do: current_backend == requested_backend
+
+  defp mcp_llm_backend(%Model{id: id}) when id in [:codex, :codex_cli], do: "codex"
+  defp mcp_llm_backend(%Model{id: :claude}), do: "claude_code"
+  defp mcp_llm_backend(_model), do: System.get_env("OUROCODE_MCP_LLM_BACKEND")
 
   defp project_dir(runtime) when is_map(runtime),
     do: Map.get(runtime, :project_dir) || File.cwd!()
