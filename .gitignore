@@ -1,0 +1,15 @@
+/_build/
+/deps/
+/doc/
+/.elixir_ls/
+
+/rust/ourocode_ipc/target/
+
+# Build artifact (escript) — produced by `mix escript.build`
+/ourocode
+
+# Local runtime state (interview/journal working dirs)
+/.ourocode/
+
+# Stray seed artifacts
+/seed_*.yaml
