@@ -17,17 +17,30 @@ The project is currently optimized for local macOS development and early user te
 
 ## Quick Start
 
-Prerequisites:
-
-- Elixir and Mix
-- Rust/Cargo
-- Optional: Claude CLI, Codex CLI, Gemini CLI, or ChatGPT/Codex login
-
-Build and run:
+Install the latest prerelease build:
 
 ```bash
-./build.sh
-./ourocode
+curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
+```
+
+Then run:
+
+```bash
+ourocode
+```
+
+Optional model backends:
+
+- Claude CLI
+- Codex CLI
+- Gemini CLI
+- ChatGPT/Codex login
+
+For a local source checkout:
+
+```bash
+./install.sh
+ourocode
 ```
 
 Detect available model backends:
@@ -49,14 +62,16 @@ Ctrl-G          show active key help
 
 ## Install Locally
 
-For a local source checkout:
+Install from GitHub without cloning:
 
 ```bash
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
 ourocode
 ```
 
-`install.sh` installs `ourocode` into `~/.local/ourocode/<version>` and writes a launcher at `~/.local/bin/ourocode`. The launcher sets `OUROCODE_TTY` so the installed escript can find the bundled native tty helper.
+`install.sh` downloads the matching GitHub Release tarball, installs `ourocode` into `~/.local/ourocode/<version>`, and writes a launcher at `~/.local/bin/ourocode`. The launcher sets `OUROCODE_TTY` so the installed escript can find the bundled native tty helper.
+
+When run from a source checkout, the same installer uses bundled release binaries if present, or builds from source when needed. Set `OUROCODE_BUILD_FROM_SOURCE=1` to force a local build.
 
 Set `OUROCODE_SKIP_OUROBOROS=1` to skip the best-effort Ouroboros install step.
 

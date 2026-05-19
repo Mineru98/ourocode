@@ -2,11 +2,78 @@
 # Install ourocode from either a release tarball directory or a source checkout.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
 VERSION="${OUROCODE_VERSION:-0.1.0}"
 INSTALL_ROOT="${OUROCODE_INSTALL_ROOT:-$HOME/.local/ourocode}"
 INSTALL_DIR="${OUROCODE_INSTALL_DIR:-$INSTALL_ROOT/$VERSION}"
 BIN_DIR="${OUROCODE_BIN_DIR:-$HOME/.local/bin}"
+REPO="${OUROCODE_REPO:-Q00/ourocode}"
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+DOWNLOAD_TMP=""
+
+cleanup() {
+  if [ -n "$DOWNLOAD_TMP" ] && [ -d "$DOWNLOAD_TMP" ]; then
+    rm -rf "$DOWNLOAD_TMP"
+  fi
+}
+trap cleanup EXIT
+
+platform_name() {
+  local os arch
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m)"
+
+  case "$os" in
+    darwin) os="darwin" ;;
+    linux) os="linux" ;;
+    *)
+      echo "error: unsupported OS: $os" >&2
+      exit 1
+      ;;
+  esac
+
+  case "$arch" in
+    arm64|aarch64) arch="arm64" ;;
+    x86_64|amd64) arch="x86_64" ;;
+    *)
+      echo "error: unsupported architecture: $arch" >&2
+      exit 1
+      ;;
+  esac
+
+  printf '%s-%s' "$os" "$arch"
+}
+
+download_release() {
+  local platform name url archive
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "error: curl not found; install curl or download a release tarball manually." >&2
+    exit 1
+  fi
+
+  if ! command -v tar >/dev/null 2>&1; then
+    echo "error: tar not found; install tar or download a release tarball manually." >&2
+    exit 1
+  fi
+
+  platform="$(platform_name)"
+  name="ourocode-v${VERSION}-${platform}"
+  url="${OUROCODE_RELEASE_URL:-https://github.com/${REPO}/releases/download/v${VERSION}/${name}.tar.gz}"
+
+  DOWNLOAD_TMP="$(mktemp -d)"
+  archive="$DOWNLOAD_TMP/${name}.tar.gz"
+
+  echo "==> downloading release $name"
+  curl -fL "$url" -o "$archive"
+  tar -xzf "$archive" -C "$DOWNLOAD_TMP"
+
+  ROOT="$DOWNLOAD_TMP/$name"
+  if [ ! -x "$ROOT/ourocode" ] || [ ! -x "$ROOT/bin/ourocode_tty" ]; then
+    echo "error: release archive did not contain expected ourocode binaries." >&2
+    exit 1
+  fi
+}
 
 echo "==> ourocode install"
 
@@ -17,6 +84,13 @@ fi
 
 if [ "${OUROCODE_BUILD_FROM_SOURCE:-0}" = "1" ]; then
   need_build=1
+fi
+
+if [ "$need_build" = "1" ]; then
+  if [ "${OUROCODE_BUILD_FROM_SOURCE:-0}" != "1" ] && [ ! -f "$ROOT/mix.exs" ]; then
+    download_release
+    need_build=0
+  fi
 fi
 
 if [ "$need_build" = "1" ]; then
