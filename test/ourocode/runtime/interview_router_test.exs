@@ -1,0 +1,255 @@
+defmodule Ourocode.Runtime.InterviewRouterTest do
+  @moduledoc """
+  Drives the SKILL Path A router with a scripted text-stream model so the
+  text-protocol tool loop, the read-only sandbox, the Dialectic Rhythm Guard,
+  and the model-unavailable fallback are all deterministic.
+  """
+
+  use ExUnit.Case, async: true
+
+  alias Ourocode.Model
+  alias Ourocode.Runtime.InterviewRouter
+
+  # A fake Model whose `run` replays scripted turns in order. Each call pops
+  # the next scripted reply, so a multi-turn TOOL→ANSWER conversation is
+  # reproducible without a network or a real CLI.
+  defp scripted_model(replies, status \\ :ready) do
+    {:ok, agent} = Agent.start_link(fn -> replies end)
+
+    %Model{
+      id: :fake,
+      label: "fake",
+      kind: :cli,
+      status: status,
+      run: fn _prompt, _opts, on_chunk ->
+        reply =
+          Agent.get_and_update(agent, fn
+            [next | rest] -> {next, rest}
+            [] -> {"ASK_USER fallback (script exhausted)", []}
+          end)
+
+        # Mirror a real text-stream backend: emit the reply as a chunk so the
+        # router's on_reason sink is exercised, then return the full text.
+        if is_function(on_chunk, 1), do: on_chunk.(reply)
+        {:ok, reply}
+      end
+    }
+  end
+
+  defp ctx, do: %{project_dir: File.cwd!(), streak: 0}
+
+  test "single-turn ANSWER is parsed with its source prefix" do
+    model = scripted_model(["ANSWER [from-code] Elixir 1.15 escript CLI (mix.exs)"])
+
+    assert {:answer, payload, :code} =
+             InterviewRouter.decide("What language is this project?", ctx(), model)
+
+    assert payload =~ "[from-code]"
+    assert payload =~ "Elixir 1.15"
+  end
+
+  test "research-prefixed answers report the :research source" do
+    model = scripted_model(["ANSWER [from-research] Stripe allows 100 read ops/sec"])
+
+    assert {:answer, _payload, :research} =
+             InterviewRouter.decide("What is Stripe's rate limit?", ctx(), model)
+  end
+
+  test "ASK_USER routes a human-judgment question through verbatim" do
+    model = scripted_model(["ASK_USER Which payment provider should we integrate?"])
+
+    assert {:ask_user, "Which payment provider should we integrate?", _opts} =
+             InterviewRouter.decide("Greenfield or brownfield?", ctx(), model)
+  end
+
+  test "human judgment questions are digested by the answerer model" do
+    model =
+      scripted_model([
+        """
+        ASK_USER 현재 UX에서 어떤 순간이 가장 답답한가요?
+        - 인터뷰 흐름 | 질문과 답변 상태가 어디서 일어나는지 보기 어렵다
+        - TUI 질감 | 화면 구성이나 색상이 시각적으로 맞지 않는다
+        """
+      ])
+
+    question = "현재 UX에서 가장 **답답하거나 거슬리는** 순간이 어떤 건가요?"
+
+    assert {:ask_user, prompt, options} = InterviewRouter.decide(question, ctx(), model)
+    assert prompt == "현재 UX에서 어떤 순간이 가장 답답한가요?"
+    assert Enum.map(options, & &1.label) == ["인터뷰 흐름", "TUI 질감"]
+  end
+
+  test "ASK_USER carries model-suggested options (SKILL PATH 2) for wonderTool" do
+    model =
+      scripted_model([
+        """
+        ASK_USER Which payment provider should we integrate?
+        - Stripe | Best subscription tooling, USD-first
+        - Toss | KRW-native, required for Korean MAU
+        - Decide later | Defer this until the billing scope is clearer
+        """
+      ])
+
+    assert {:ask_user, prompt, options} =
+             InterviewRouter.decide("payment provider?", ctx(), model)
+
+    assert prompt == "Which payment provider should we integrate?"
+    assert length(options) == 3
+    assert %{label: "Stripe", description: "Best subscription tooling, USD-first"} = hd(options)
+    refute prompt =~ "Stripe"
+  end
+
+  test "ASK_USER can carry four digested options from a broad MCP question" do
+    model =
+      scripted_model([
+        """
+        ASK_USER ourocode 성장을 어디부터 파고들까요?
+        - 사용자 수 확대 | 더 많은 개발자가 쓰게 만드는 방향
+        - 기능적 완성도 | 부족한 핵심 기능을 채워 제품으로 성숙시키는 방향
+        - 생태계/커뮤니티 | 플러그인, 컨트리뷰터, 문서 등 외부 참여 기반을 키우는 방향
+        - 수익/비즈니스 | 지속 가능한 프로젝트 모델을 만드는 방향
+        """
+      ])
+
+    assert {:ask_user, prompt, options} =
+             InterviewRouter.decide("ourocode가 성장하기 위해 뭐가 필요할까요?", ctx(), model)
+
+    assert prompt == "ourocode 성장을 어디부터 파고들까요?"
+    assert length(options) == 4
+    assert Enum.at(options, 3).label == "수익/비즈니스"
+  end
+
+  test "ASK_USER streams the answerer model's reasoning to on_reason" do
+    me = self()
+    model = scripted_model(["thinking… this is a human decision\nASK_USER Pick the scope?"])
+
+    assert {:ask_user, _p, _o} =
+             InterviewRouter.decide("scope?", ctx(), model,
+               on_reason: fn chunk -> send(me, {:reason, chunk}) end
+             )
+
+    assert_receive {:reason, chunk}
+    assert chunk =~ "thinking" or chunk =~ "ASK_USER"
+  end
+
+  test "TOOL READ feeds a sandboxed file observation back, then ANSWER closes" do
+    model =
+      scripted_model([
+        "TOOL READ mix.exs",
+        "ANSWER [from-code] escript main_module is Ourocode.CLI (mix.exs)"
+      ])
+
+    traced = self()
+
+    assert {:answer, payload, :code} =
+             InterviewRouter.decide("What is the escript entrypoint?", ctx(), model,
+               on_trace: fn line -> send(traced, {:trace, line}) end
+             )
+
+    assert payload =~ "Ourocode.CLI"
+    assert_receive {:trace, "TOOL READ mix.exs (turn 1)"}
+  end
+
+  test "sandbox rejects parent-escape and absolute paths but keeps looping" do
+    model =
+      scripted_model([
+        "TOOL READ ../../../etc/passwd",
+        "TOOL READ /etc/passwd",
+        "ASK_USER I could not read that; what should I assume?"
+      ])
+
+    assert {:ask_user, prompt, _opts} =
+             InterviewRouter.decide("Where is the secret?", ctx(), model)
+
+    assert prompt =~ "what should I assume"
+  end
+
+  test "sandbox rejects shell-expansion, backslash, and null-byte path literals" do
+    model =
+      scripted_model([
+        "TOOL READ $HOME/.ssh/id_rsa",
+        "TOOL READ lib\\..\\secret",
+        "TOOL READ bad\0name",
+        "ASK_USER none of those worked; what should I assume?"
+      ])
+
+    assert {:ask_user, prompt, _opts} =
+             InterviewRouter.decide("Where are the keys?", ctx(), model)
+
+    assert prompt =~ "what should I assume"
+  end
+
+  test "sandbox rejects a symlink inside the project that escapes the root" do
+    root = Path.join(System.tmp_dir!(), "ourocode_sbx_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf(root) end)
+    # A link inside the project pointing OUT — a pure string-prefix check
+    # would wrongly accept `escape/anything`; resolve-then-contain rejects it.
+    File.ln_s!("/etc", Path.join(root, "escape"))
+
+    model =
+      scripted_model([
+        "TOOL READ escape/passwd",
+        "ASK_USER the link was blocked; what should I assume?"
+      ])
+
+    assert {:ask_user, prompt, _opts} =
+             InterviewRouter.decide(
+               "Read the host passwd",
+               %{project_dir: root, streak: 0},
+               model
+             )
+
+    assert prompt =~ "what should I assume"
+  end
+
+  test "model that is not ready routes every question to the user (Path B fallback)" do
+    model =
+      scripted_model(["ANSWER [from-code] should never be reached"], {:needs_auth, "/login"})
+
+    assert {:ask_user, "Greenfield or brownfield?", []} =
+             InterviewRouter.decide("Greenfield or brownfield?", ctx(), model)
+  end
+
+  test "Dialectic Rhythm Guard forces ASK_USER after 3 consecutive non-user answers" do
+    model = scripted_model(["ANSWER [from-code] would-be auto answer"])
+
+    assert {:ask_user, "What framework does it use?", []} =
+             InterviewRouter.decide(
+               "What framework does it use?",
+               %{project_dir: File.cwd!(), streak: 3},
+               model
+             )
+  end
+
+  test "turn cap falls back to ASK_USER when the model never commits" do
+    looping = for _ <- 1..10, do: "TOOL GLOB lib/**/*.ex"
+    model = scripted_model(looping)
+
+    assert {:ask_user, "What is the architecture?", []} =
+             InterviewRouter.decide("What is the architecture?", ctx(), model)
+  end
+
+  test "GREP is bounded to the project and returns matches" do
+    model =
+      scripted_model([
+        "TOOL GREP defmodule\\ Ourocode.Runtime.InterviewRouter",
+        "ANSWER [from-code] router module exists"
+      ])
+
+    assert {:answer, _payload, :code} =
+             InterviewRouter.decide("Does the router module exist?", ctx(), model)
+  end
+
+  test "unparseable model output never fabricates a decision" do
+    model = scripted_model(for _ <- 1..8, do: "I think the answer is probably yes ...")
+
+    assert {:ask_user, "Some question?", []} =
+             InterviewRouter.decide("Some question?", ctx(), model)
+  end
+
+  test "invalid arguments return a structured error, never a guess" do
+    model = scripted_model(["ANSWER x"])
+    assert {:error, :invalid_router_args} = InterviewRouter.decide(123, ctx(), model)
+  end
+end
