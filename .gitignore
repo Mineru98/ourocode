@@ -1,6 +1,7 @@
 /_build/
 /deps/
 /doc/
+/dist/
 /.elixir_ls/
 
 /rust/ourocode_ipc/target/
