@@ -157,7 +157,7 @@ defmodule Ourocode.Runtime.InterviewRouter do
           | {:tool, atom(), String.t()}
           | :unparseable
   def parse_directive(text) when is_binary(text) do
-    line = first_directive_line(text)
+    {line, directive_text} = first_directive_segment(text)
 
     cond do
       match = Regex.run(~r/\ATOOL\s+READ\s+(.+)\z/s, line) ->
@@ -170,10 +170,10 @@ defmodule Ourocode.Runtime.InterviewRouter do
         {:tool, :grep, String.trim(Enum.at(match, 1))}
 
       String.match?(line, ~r/\AANSWER\b/) ->
-        {:answer, payload_after(text, line, "ANSWER")}
+        {:answer, payload_after(directive_text, line, "ANSWER")}
 
       String.match?(line, ~r/\AASK_USER\b/) ->
-        parse_ask_user(payload_after(text, line, "ASK_USER"))
+        parse_ask_user(payload_after(directive_text, line, "ASK_USER"))
 
       true ->
         :unparseable
@@ -210,14 +210,37 @@ defmodule Ourocode.Runtime.InterviewRouter do
     {:ask_user, prompt, options}
   end
 
-  # The model is told to emit the directive as the first non-empty line.
-  # ANSWER/ASK_USER bodies may legitimately span multiple lines, so for those
-  # we keep the full text after the keyword; tool directives are single line.
-  defp first_directive_line(text) do
-    text
-    |> String.split("\n", trim: false)
-    |> Enum.map(&String.trim/1)
-    |> Enum.find("", &(&1 != ""))
+  @directive_re ~r/\A(?:TOOL\s+(?:READ|GLOB|GREP)\b|ANSWER\b|ASK_USER\b)/
+
+  # The model is told to emit the directive first, but some CLI wrappers
+  # prepend runner banners to stdout (Codex CLI prints a provider label and
+  # appends a `tokens used` footer). Scan to the first directive and discard
+  # known footers so strict routing survives real provider wrappers without
+  # accepting arbitrary prose as a decision.
+  defp first_directive_segment(text) do
+    lines = String.split(text, "\n", trim: false)
+
+    case Enum.find_index(lines, &(String.trim(&1) =~ @directive_re)) do
+      nil ->
+        {"", ""}
+
+      index ->
+        segment_lines =
+          lines
+          |> Enum.drop(index)
+          |> Enum.take_while(&(not cli_footer_line?(&1)))
+
+        line =
+          segment_lines
+          |> Enum.map(&String.trim/1)
+          |> Enum.find("", &(&1 != ""))
+
+        {line, Enum.join(segment_lines, "\n")}
+    end
+  end
+
+  defp cli_footer_line?(line) do
+    String.trim(line) in ["tokens used"]
   end
 
   defp payload_after(full_text, first_line, keyword) do

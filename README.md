@@ -95,15 +95,15 @@ README.md
 Generated artifacts:
 
 ```text
-dist/ourocode-v0.1.1-darwin-arm64.tar.gz
-dist/ourocode-v0.1.1-darwin-arm64.tar.gz.sha256
+dist/ourocode-v0.1.2-darwin-arm64.tar.gz
+dist/ourocode-v0.1.2-darwin-arm64.tar.gz.sha256
 ```
 
 Install from an unpacked release:
 
 ```bash
-tar -xzf dist/ourocode-v0.1.1-darwin-arm64.tar.gz
-cd ourocode-v0.1.1-darwin-arm64
+tar -xzf dist/ourocode-v0.1.2-darwin-arm64.tar.gz
+cd ourocode-v0.1.2-darwin-arm64
 ./install.sh
 ourocode
 ```

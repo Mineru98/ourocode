@@ -248,6 +248,29 @@ defmodule Ourocode.Runtime.InterviewRouterTest do
              InterviewRouter.decide("Some question?", ctx(), model)
   end
 
+  test "parser accepts directives wrapped by Codex CLI stdout banners" do
+    wrapped = """
+    Reading additional input from stdin...
+    OpenAI Codex v0.131.0
+    --------
+    model: gpt-5.5
+    --------
+    user
+    route this
+    codex
+    ASK_USER Which direction should we take?
+    - Polish UX | Improve the current terminal flow
+    - Package release | Focus on distribution
+    tokens used
+    7,120
+    ASK_USER Which direction should we take?
+    """
+
+    assert {:ask_user, prompt, options} = InterviewRouter.parse_directive(wrapped)
+    assert prompt == "Which direction should we take?"
+    assert Enum.map(options, & &1.label) == ["Polish UX", "Package release"]
+  end
+
   test "invalid arguments return a structured error, never a guess" do
     model = scripted_model(["ANSWER x"])
     assert {:error, :invalid_router_args} = InterviewRouter.decide(123, ctx(), model)
