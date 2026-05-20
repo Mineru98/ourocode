@@ -368,6 +368,66 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert snap.interview.mcp_reasoning_state["phase"] == "answer"
   end
 
+  test "interview reasoning is extracted from MCP result _meta", %{runtime: runtime} do
+    {:ok, agent, _options} = LoopBindings.attach(%{status: :healthy, runtime: runtime})
+
+    assert :ok ==
+             LoopBindings.enqueue(agent, %{
+               type: :child_event,
+               source: :ouroboros,
+               parent_call_id: "parent-iv-meta-2",
+               child_id: "child-iv-meta-2",
+               payload: %{
+                 "result" => %{
+                   "content" => [
+                     %{
+                       "type" => "text",
+                       "text" =>
+                         "Interview started. Session ID: iv-meta-2\n\nWhich UX area should improve?"
+                     }
+                   ],
+                   "_meta" => %{
+                     "session_id" => "iv-meta-2",
+                     "interview_reasoning" => %{
+                       "phase" => "start",
+                       "session_id" => "iv-meta-2",
+                       "next_action" => "ask user to answer pending question",
+                       "answered_rounds" => 0,
+                       "total_rounds" => 1,
+                       "pending_question" => true,
+                       "is_brownfield" => false,
+                       "ambiguity_score" => 0.64,
+                       "milestone" => "scope",
+                       "seed_ready" => false,
+                       "completion_candidate_streak" => 0,
+                       "streak_required" => 2,
+                       "question_chars" => 33
+                     }
+                   }
+                 }
+               }
+             })
+
+    snap = LoopBindings.pane_snapshot(agent)
+
+    assert snap.interview.question =~ "Which UX area should improve?"
+    assert snap.interview.session_id == "iv-meta-2"
+
+    assert snap.interview.mcp_reasoning == [
+             "phase: start",
+             "session: iv-meta-2",
+             "rounds: 0 answered / 1 total",
+             "pending: waiting for user answer",
+             "brownfield: false",
+             "ambiguity: 0.64",
+             "milestone: scope",
+             "seed-ready: false",
+             "stability: 0/2",
+             "question_chars: 33",
+             "next: ask user to answer pending question"
+           ]
+  end
+
   test "interview session loop: question → ANSWER → followup → seed-ready" do
     {:ok, agent} = LoopBindings.start_link()
 

@@ -1201,16 +1201,20 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp response_text(%{"result" => %{"content" => text}}) when is_binary(text), do: text
   defp response_text(_response), do: ""
 
-  defp response_meta(%{"result" => %{"meta" => meta}}) when is_map(meta), do: meta
-
-  defp response_meta(%{"result" => %{"structuredContent" => %{"meta" => meta}}})
-       when is_map(meta),
-       do: meta
-
   defp response_meta(response) do
-    response
-    |> response_text()
-    |> decode_text_meta()
+    result = if is_map(response["result"]), do: response["result"], else: %{}
+    structured = structured_content(result)
+
+    [
+      result["meta"],
+      result["_meta"],
+      structured["meta"],
+      structured["_meta"],
+      structured,
+      content_meta(result),
+      response |> response_text() |> decode_text_meta()
+    ]
+    |> merge_meta_candidates()
   end
 
   # Ouroboros writes the session id as `Session ID: <id>` (start),
@@ -1597,9 +1601,18 @@ defmodule Ourocode.Runtime.LoopBindings do
   end
 
   defp reasoning_lines(meta) when is_map(meta) do
-    meta
-    |> meta_value("internal_reasoning")
-    |> normalize_reasoning_lines()
+    [
+      meta_value(meta, "internal_reasoning"),
+      meta_value(meta, "mcp_reasoning"),
+      meta_value(meta, "reasoning"),
+      meta_value(meta, "interview_reasoning")
+    ]
+    |> Enum.find_value([], fn value ->
+      case normalize_reasoning_lines(value) do
+        [] -> nil
+        lines -> lines
+      end
+    end)
   end
 
   defp reasoning_lines(_meta), do: []
@@ -1618,7 +1631,98 @@ defmodule Ourocode.Runtime.LoopBindings do
     |> normalize_reasoning_lines()
   end
 
+  defp normalize_reasoning_lines(%{} = state) do
+    [
+      state_line(state, "phase", "phase"),
+      state_line(state, "session_id", "session"),
+      rounds_line(state),
+      state_line(state, "pending_question", "pending"),
+      state_line(state, "is_brownfield", "brownfield"),
+      state_line(state, "ambiguity_score", "ambiguity"),
+      state_line(state, "milestone", "milestone"),
+      state_line(state, "seed_ready", "seed-ready"),
+      state_line(state, "completion_qualified", "completion-qualified"),
+      completion_blockers_line(state),
+      stability_line(state),
+      state_line(state, "recoverable", "recoverable"),
+      state_line(state, "question_chars", "question_chars"),
+      state_line(state, "next_action", "next")
+    ]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.take(12)
+  end
+
   defp normalize_reasoning_lines(_value), do: []
+
+  defp structured_content(%{"structuredContent" => value}) when is_map(value), do: value
+  defp structured_content(%{"structured_content" => value}) when is_map(value), do: value
+  defp structured_content(_result), do: %{}
+
+  defp content_meta(%{"content" => content}) when is_list(content) do
+    content
+    |> Enum.find_value(%{}, fn
+      %{"meta" => meta} when is_map(meta) -> meta
+      %{"_meta" => meta} when is_map(meta) -> meta
+      %{"annotations" => %{"meta" => meta}} when is_map(meta) -> meta
+      %{meta: meta} when is_map(meta) -> meta
+      %{_meta: meta} when is_map(meta) -> meta
+      _part -> nil
+    end)
+  end
+
+  defp content_meta(_result), do: %{}
+
+  defp merge_meta_candidates(candidates) do
+    candidates
+    |> Enum.filter(&is_map/1)
+    |> Enum.reject(&(&1 == %{}))
+    |> Enum.reduce(%{}, fn candidate, acc -> Map.merge(acc, candidate) end)
+  end
+
+  defp state_line(state, key, label) do
+    case meta_value(state, key) do
+      value when value in [nil, "", []] -> nil
+      true when key == "pending_question" -> "#{label}: waiting for user answer"
+      false when key == "pending_question" -> nil
+      value -> "#{label}: #{format_reasoning_value(value)}"
+    end
+  end
+
+  defp rounds_line(state) do
+    answered = meta_value(state, "answered_rounds")
+    total = meta_value(state, "total_rounds")
+
+    if is_nil(answered) or is_nil(total),
+      do: nil,
+      else: "rounds: #{answered} answered / #{total} total"
+  end
+
+  defp completion_blockers_line(state) do
+    case meta_value(state, "completion_floor_failures") do
+      failures when is_list(failures) and failures != [] ->
+        "completion blocked: " <> Enum.map_join(failures, "; ", &format_reasoning_value/1)
+
+      _other ->
+        nil
+    end
+  end
+
+  defp stability_line(state) do
+    streak = meta_value(state, "completion_candidate_streak")
+    required = meta_value(state, "streak_required")
+
+    cond do
+      is_nil(streak) -> nil
+      is_nil(required) -> "stability: #{streak}"
+      true -> "stability: #{streak}/#{required}"
+    end
+  end
+
+  defp format_reasoning_value(value) when is_float(value),
+    do: :erlang.float_to_binary(value, decimals: 2)
+
+  defp format_reasoning_value(value) when is_binary(value), do: value
+  defp format_reasoning_value(value), do: to_string(value)
 
   defp decode_text_meta(text) when is_binary(text) do
     trimmed = String.trim(text)
@@ -1683,6 +1787,7 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp interview_text(event) when is_map(event) do
     payload = if is_map(event[:payload]), do: event[:payload], else: %{}
+    result = if is_map(payload["result"]), do: payload["result"], else: %{}
 
     [
       event[:token],
@@ -1696,7 +1801,8 @@ defmodule Ourocode.Runtime.LoopBindings do
       payload[:text],
       payload["text"],
       payload[:question],
-      payload["question"]
+      payload["question"],
+      response_text(%{"result" => result})
     ]
     |> Enum.find("", &(is_binary(&1) and &1 != ""))
   end
@@ -1705,9 +1811,26 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp interview_meta(event) when is_map(event) do
     payload = if is_map(event[:payload]), do: event[:payload], else: %{}
+    result = if is_map(payload["result"]), do: payload["result"], else: %{}
+    structured = structured_content(result)
 
-    [event[:meta], event["meta"], payload[:meta], payload["meta"]]
-    |> Enum.find(%{}, &is_map/1)
+    [
+      event[:meta],
+      event["meta"],
+      event[:_meta],
+      event["_meta"],
+      payload[:meta],
+      payload["meta"],
+      payload[:_meta],
+      payload["_meta"],
+      result["meta"],
+      result["_meta"],
+      structured["meta"],
+      structured["_meta"],
+      structured,
+      content_meta(result)
+    ]
+    |> merge_meta_candidates()
   end
 
   defp interview_meta(_event), do: %{}
