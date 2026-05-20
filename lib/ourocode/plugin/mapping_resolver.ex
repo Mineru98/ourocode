@@ -25,6 +25,7 @@ defmodule Ourocode.Plugin.MappingResolver do
     "mcp" => :mcp,
     "ouroboros_interview" => :ouroboros_interview,
     "ouroboros_seed" => :ouroboros_seed,
+    "ouroboros_run" => :ouroboros_run,
     "ouroboros_evolve" => :ouroboros_evolve,
     "ouroboros_ralph" => :ouroboros_ralph,
     "ouroboros_workflow_action" => :ouroboros_workflow,
@@ -43,6 +44,7 @@ defmodule Ourocode.Plugin.MappingResolver do
   @adapter_tuple_key_values %{
     "interview" => :interview,
     "seed" => :seed,
+    "run" => :run,
     "evolve" => :evolve,
     "ralph" => :ralph,
     "workflow" => :workflow,
@@ -221,7 +223,8 @@ defmodule Ourocode.Plugin.MappingResolver do
       adapters: registry |> registry_section(:adapters) |> normalize_active_adapter_keys(),
       renderers:
         registry |> registry_section(:renderers) |> normalize_active_mapping_keys(@renderer_keys),
-      actions: registry |> registry_section(:actions) |> normalize_active_mapping_keys(@action_keys)
+      actions:
+        registry |> registry_section(:actions) |> normalize_active_mapping_keys(@action_keys)
     }
   end
 

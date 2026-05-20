@@ -163,8 +163,7 @@ defmodule Ourocode.TaskRequestTest do
        :explicit_ouroboros_shortcut},
       {"Run Ouroboros workflow evolve for the plugin renderer", :ouroboros_workflow, :ouroboros,
        :auto, :ouroboros_workflow_terms},
-      {"MCP tools/call over streamable HTTP", :mcp_flow, :mcp, :streamable_http,
-       :mcp_flow_terms},
+      {"MCP tools/call over streamable HTTP", :mcp_flow, :mcp, :streamable_http, :mcp_flow_terms},
       {"Inspect mcp:stdio parent call stream", :mcp_flow, :mcp, :stdio, :mcp_flow_terms}
     ]
 
@@ -186,6 +185,7 @@ defmodule Ourocode.TaskRequestTest do
     cases = [
       {"ooo interview clarify cleanup policy", :interview},
       {"ouroboros seed create dispatcher contract", :seed},
+      {"ooo run seed_abc123.yaml", :run},
       {"Run Ouroboros workflow evolve for the plugin renderer", :evolve},
       {"ouroboros:ralph repair failing stream test", :ralph}
     ]

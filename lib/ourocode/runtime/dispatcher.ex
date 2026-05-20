@@ -18,7 +18,7 @@ defmodule Ourocode.Runtime.Dispatcher do
   @supported_routes [:runtime, :ouroboros_workflow, :mcp_flow]
   @supported_runtime_sources [:auto, :codex, :opencode, :claude_code, :ouroboros, :mcp]
   @supported_transports [:auto, :stdio, :streamable_http, :sse]
-  @supported_adapter_routes [:interview, :seed, :evolve, :ralph, :workflow]
+  @supported_adapter_routes [:interview, :seed, :run, :evolve, :ralph, :workflow]
   @forbidden_external_commands MapSet.new(["codex", "claude", "claude-code"])
   @shell_commands MapSet.new(["bash", "cmd", "fish", "powershell", "pwsh", "sh", "zsh"])
 

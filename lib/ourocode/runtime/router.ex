@@ -146,7 +146,13 @@ defmodule Ourocode.Runtime.Router do
         route(:runtime, :codex, transport_from_tokens(tokens), true, :explicit_codex_shortcut)
 
       first == "opencode" ->
-        route(:runtime, :opencode, transport_from_tokens(tokens), true, :explicit_opencode_shortcut)
+        route(
+          :runtime,
+          :opencode,
+          transport_from_tokens(tokens),
+          true,
+          :explicit_opencode_shortcut
+        )
 
       first in ["claude-code", "claude"] ->
         route(
@@ -257,6 +263,9 @@ defmodule Ourocode.Runtime.Router do
       Enum.any?(tokens, &(&1 in ["ralph", "ouroboros:ralph"])) ->
         :ralph
 
+      explicit_ouroboros_run?(tokens) ->
+        :run
+
       Enum.any?(tokens, &(&1 in ["workflow", "ouroboros:workflow"])) ->
         :workflow
 
@@ -264,6 +273,15 @@ defmodule Ourocode.Runtime.Router do
         :workflow
     end
   end
+
+  defp explicit_ouroboros_run?(["ooo", action | _tokens]) when action in ["run", "execute"],
+    do: true
+
+  defp explicit_ouroboros_run?(["ouroboros", action | _tokens]) when action in ["run", "execute"],
+    do: true
+
+  defp explicit_ouroboros_run?(tokens),
+    do: Enum.any?(tokens, &(&1 in ["ouroboros:run", "ouroboros:execute"]))
 
   defp transport_from_tokens(tokens) do
     cond do
@@ -291,6 +309,7 @@ defmodule Ourocode.Runtime.Router do
 
   defp adapter_route_label(:interview), do: "interview"
   defp adapter_route_label(:seed), do: "seed"
+  defp adapter_route_label(:run), do: "run"
   defp adapter_route_label(:evolve), do: "evolve"
   defp adapter_route_label(:ralph), do: "Ralph"
   defp adapter_route_label(:workflow), do: "workflow"

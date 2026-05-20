@@ -24,6 +24,7 @@ defmodule Ourocode.Plugin.AdapterMappingLoader do
     "mcp" => :mcp,
     "ouroboros_interview" => :ouroboros_interview,
     "ouroboros_seed" => :ouroboros_seed,
+    "ouroboros_run" => :ouroboros_run,
     "ouroboros_evolve" => :ouroboros_evolve,
     "ouroboros_ralph" => :ouroboros_ralph,
     "ouroboros_workflow_action" => :ouroboros_workflow,
@@ -42,6 +43,7 @@ defmodule Ourocode.Plugin.AdapterMappingLoader do
   @tuple_key_values %{
     "interview" => :interview,
     "seed" => :seed,
+    "run" => :run,
     "evolve" => :evolve,
     "ralph" => :ralph,
     "workflow" => :workflow,

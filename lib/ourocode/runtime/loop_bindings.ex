@@ -30,7 +30,8 @@ defmodule Ourocode.Runtime.LoopBindings do
     Application,
     Dispatcher,
     InterviewRouter,
-    InterviewWorkflowInvocation
+    InterviewWorkflowInvocation,
+    OuroborosWorkflowInvocation
   }
 
   alias Ourocode.WonderTool.{DecisionFlow, InteractionDetector}
@@ -44,7 +45,13 @@ defmodule Ourocode.Runtime.LoopBindings do
   @ouroboros_adapters %{
     {:ouroboros_workflow, :interview} => InterviewWorkflowInvocation,
     {:ouroboros, :interview} => InterviewWorkflowInvocation,
-    :ouroboros_interview => InterviewWorkflowInvocation
+    :ouroboros_interview => InterviewWorkflowInvocation,
+    {:ouroboros_workflow, :seed} => OuroborosWorkflowInvocation,
+    {:ouroboros, :seed} => OuroborosWorkflowInvocation,
+    :ouroboros_seed => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :run} => OuroborosWorkflowInvocation,
+    {:ouroboros, :run} => OuroborosWorkflowInvocation,
+    :ouroboros_run => OuroborosWorkflowInvocation
   }
 
   @type t :: pid()
@@ -65,6 +72,7 @@ defmodule Ourocode.Runtime.LoopBindings do
         interview_waiter: nil,
         mcp_daemon: nil,
         mcp_llm_backend: nil,
+        workflow: %{},
         paused: false
       }
     end)
@@ -622,13 +630,15 @@ defmodule Ourocode.Runtime.LoopBindings do
 
     Dispatcher.dispatch(task_request,
       adapters: @ouroboros_adapters,
-      context: %{
-        request_id: "req-" <> to_string(task_request.id),
-        parent_call_id: parent_call_id,
-        streamable_http_url: mcp_url,
-        cwd: File.cwd!(),
-        mcp_invoker: invoker
-      }
+      context:
+        %{
+          request_id: "req-" <> to_string(task_request.id),
+          parent_call_id: parent_call_id,
+          streamable_http_url: mcp_url,
+          cwd: File.cwd!(),
+          mcp_invoker: invoker
+        }
+        |> Map.merge(workflow_context(agent))
     )
     |> case do
       {:ok, _invocation} -> :ok
@@ -644,6 +654,21 @@ defmodule Ourocode.Runtime.LoopBindings do
   end
 
   defp parent_call_id(task_request), do: "parent-" <> to_string(task_request.id)
+
+  defp workflow_context(agent) do
+    Agent.get(agent, fn state ->
+      interview = state.interview || %{}
+      workflow = Map.get(state, :workflow, %{})
+
+      %{
+        latest_interview_session_id: Map.get(interview, :session_id),
+        latest_interview_ambiguity: Map.get(interview, :ambiguity),
+        latest_seed_path: Map.get(workflow, :latest_seed_path)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+    end)
+  end
 
   # The invoker returns immediately; the transport call runs in a relay process
   # so the prompt loop never blocks on the network and streamed events reach
@@ -764,7 +789,11 @@ defmodule Ourocode.Runtime.LoopBindings do
         enqueue_failure(agent, parent_call_id, {:transport_failed, reason})
         relay_flush(agent)
 
-      {:relay_worker_done, _ok} ->
+      {:relay_worker_done, {:ok, result}} ->
+        maybe_capture_seed_artifact(agent, runtime, result)
+        relay_flush(agent)
+
+      {:relay_worker_done, _other} ->
         relay_flush(agent)
     end
   end
@@ -776,6 +805,69 @@ defmodule Ourocode.Runtime.LoopBindings do
         relay_flush(agent)
     after
       @relay_grace_ms -> :ok
+    end
+  end
+
+  defp maybe_capture_seed_artifact(agent, runtime, %ParentCallResult{} = result) do
+    result.response
+    |> response_text()
+    |> capture_seed_artifact(agent, project_dir(runtime), response_meta(result.response))
+  end
+
+  defp maybe_capture_seed_artifact(_agent, _runtime, _result), do: :ok
+
+  defp capture_seed_artifact(text, agent, cwd, meta) when is_binary(text) and is_map(meta) do
+    with {:ok, seed_yaml} <- extract_seed_yaml(text),
+         seed_id when is_binary(seed_id) and seed_id != "" <- seed_id_from(meta, seed_yaml),
+         {:ok, path} <- write_seed_file(cwd, seed_id, seed_yaml) do
+      Agent.update(agent, fn state ->
+        workflow =
+          state
+          |> Map.get(:workflow, %{})
+          |> Map.put(:latest_seed_path, path)
+          |> Map.put(:latest_seed_id, seed_id)
+
+        %{state | workflow: workflow}
+      end)
+    else
+      _no_seed -> :ok
+    end
+  end
+
+  defp capture_seed_artifact(_text, _agent, _cwd, _meta), do: :ok
+
+  defp extract_seed_yaml(text) do
+    case String.split(text, "--- Seed YAML ---", parts: 2) do
+      [_before, yaml] ->
+        yaml = String.trim(yaml)
+        if yaml == "", do: :error, else: {:ok, yaml}
+
+      _other ->
+        :error
+    end
+  end
+
+  defp seed_id_from(meta, seed_yaml) do
+    meta_value(meta, "seed_id") || seed_id_from_yaml(seed_yaml)
+  end
+
+  defp seed_id_from_yaml(seed_yaml) do
+    case Regex.run(~r/^\s*seed_id:\s*([A-Za-z0-9_.-]+)/m, seed_yaml) ||
+           Regex.run(
+             ~r/^\s*metadata:\s*\n(?:\s+.+\n)*?\s+seed_id:\s*([A-Za-z0-9_.-]+)/m,
+             seed_yaml
+           ) do
+      [_, id] -> id
+      _none -> nil
+    end
+  end
+
+  defp write_seed_file(cwd, seed_id, seed_yaml) do
+    path = Path.join(Path.expand(cwd), seed_id <> ".yaml")
+
+    case File.write(path, seed_yaml <> "\n") do
+      :ok -> {:ok, path}
+      {:error, reason} -> {:error, reason}
     end
   end
 
