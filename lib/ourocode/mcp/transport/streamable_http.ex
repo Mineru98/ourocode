@@ -209,7 +209,7 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP do
            :post,
            {String.to_charlist(url), headers, ~c"application/json", body},
            [timeout: timeout, connect_timeout: timeout],
-           [body_format: :binary]
+           body_format: :binary
          ) do
       {:ok, {{_, status, _reason}, resp_headers, resp_body}} ->
         {:ok, status, resp_headers, resp_body}
@@ -453,6 +453,9 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP do
     state = emit_complete_sse_frames(status, headers, context, options, state)
 
     cond do
+      state.response ->
+        {:ok, state.response}
+
       state.content_length && state.bytes_seen >= state.content_length ->
         {:ok, state.response || response_from_sse_events(Enum.reverse(state.events))}
 

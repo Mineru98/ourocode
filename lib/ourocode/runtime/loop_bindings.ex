@@ -38,6 +38,7 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   @relay_grace_ms 2_000
   @max_interview_rounds 24
+  @router_decision_timeout_ms 15_000
   @router_trace_keep 6
   @reasoning_keep 60
   @dialogue_keep 40
@@ -886,6 +887,10 @@ defmodule Ourocode.Runtime.LoopBindings do
     model = Keyword.fetch!(opts, :model)
     project_dir = Keyword.get(opts, :project_dir) || File.cwd!()
     max_rounds = Keyword.get(opts, :max_rounds, @max_interview_rounds)
+
+    router_decision_timeout_ms =
+      Keyword.get(opts, :router_decision_timeout_ms, @router_decision_timeout_ms)
+
     push_initial_interview_prompt(agent, payload)
 
     interview_round(agent, %{
@@ -896,6 +901,7 @@ defmodule Ourocode.Runtime.LoopBindings do
       payload: payload,
       round: 1,
       max_rounds: max_rounds,
+      router_decision_timeout_ms: router_decision_timeout_ms,
       streak: 0,
       session_id: nil
     })
@@ -1076,7 +1082,7 @@ defmodule Ourocode.Runtime.LoopBindings do
     on_trace = fn line -> push_router_trace(agent, line) end
     on_reason = fn chunk -> push_reasoning(agent, chunk) end
 
-    case InterviewRouter.decide(question, ctx, st.model,
+    case decide_question(question, ctx, st.model, st.router_decision_timeout_ms,
            on_trace: on_trace,
            on_reason: on_reason
          ) do
@@ -1123,6 +1129,30 @@ defmodule Ourocode.Runtime.LoopBindings do
       {:error, reason} ->
         enqueue_failure(agent, st.parent_call_id, {:router_failed, reason})
         :ok
+    end
+  end
+
+  defp decide_question(question, ctx, model, timeout_ms, opts) do
+    task =
+      Task.async(fn ->
+        InterviewRouter.decide(question, ctx, model, opts)
+      end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, decision} ->
+        decision
+
+      {:exit, reason} ->
+        {:error, {:router_exited, reason}}
+
+      nil ->
+        trace = Keyword.get(opts, :on_trace, fn _line -> :ok end)
+
+        trace.(
+          "PATH 2 (router timeout #{timeout_ms}ms -> user): #{String.slice(question, 0, 80)}"
+        )
+
+        {:ask_user, question, []}
     end
   end
 

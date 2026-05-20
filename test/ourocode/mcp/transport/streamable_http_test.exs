@@ -1291,6 +1291,51 @@ defmodule Ourocode.MCP.Transport.StreamableHTTPTest do
             }} = Task.await(task, 1_000)
   end
 
+  test "returns as soon as an SSE JSON-RPC response arrives even if the stream stays open" do
+    final_result =
+      sse_frame(%{
+        "jsonrpc" => "2.0",
+        "id" => "call-http-open-1",
+        "result" => %{"ok" => true}
+      })
+
+    {:ok, server} =
+      start_fake_http_mcp_streaming_sse_server([
+        {:send, final_result},
+        {:sleep, 1_000}
+      ])
+
+    request = %{
+      jsonrpc: "2.0",
+      id: "call-http-open-1",
+      method: "tools/call",
+      params: %{name: "ooo.interview", arguments: %{task: "return before stream close"}}
+    }
+
+    task =
+      Task.async(fn ->
+        StreamableHTTP.execute_parent_call(
+          [
+            url: "http://127.0.0.1:#{server.port}/mcp",
+            parent_call_id: "parent-http-open-1",
+            runtime_source: "synthetic",
+            subscriber: self(),
+            timeout: 2_000
+          ],
+          request
+        )
+      end)
+
+    assert {:ok,
+            %ParentCallResult{
+              response: %{
+                "jsonrpc" => "2.0",
+                "id" => "call-http-open-1",
+                "result" => %{"ok" => true}
+              }
+            }} = Task.await(task, 500)
+  end
+
   test "routes the first streamable HTTP token for an existing childID to its child pane" do
     stream_events = [
       %{

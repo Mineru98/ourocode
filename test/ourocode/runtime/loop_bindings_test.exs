@@ -647,6 +647,64 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert LoopBindings.pane_snapshot(agent).interview.complete == :seed_ready
   end
 
+  test "interview session loop: slow router falls back to user question" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    pcf = fn payload ->
+      send(test_pid, {:followup, payload})
+
+      {:ok,
+       parent_result(%{
+         "result" => %{
+           "content" => [
+             %{
+               "type" => "text",
+               "text" => "(ambiguity: 0.80) Which audience should we serve first?"
+             }
+           ],
+           "meta" => %{"session_id" => "iv-timeout-1"}
+         }
+       })}
+    end
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-timeout",
+          initial_payload: %{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}},
+          parent_call_fun: pcf,
+          model: hanging_model(),
+          project_dir: File.cwd!(),
+          router_decision_timeout_ms: 20
+        )
+
+        send(test_pid, :loop_done)
+      end)
+
+    assert_receive {:followup, _initial}, 1_000
+
+    wait_for(fn ->
+      wt = LoopBindings.pane_snapshot(agent).wonder_tool
+      wt && wt.question_count == 1
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+    assert snap.interview.question =~ "audience"
+    assert Enum.any?(snap.interview.router, &String.contains?(&1, "router timeout"))
+
+    assert {:ok, decision} = LoopBindings.answer_wonder(agent, 1)
+    assert decision.selected_label == "Answer in my own words"
+
+    assert_receive {:followup, followup}, 1_000
+    assert followup["params"]["arguments"]["session_id"] == "iv-timeout-1"
+    assert followup["params"]["arguments"]["answer"] =~ "[from-user] Answer in my own words"
+
+    refute_receive :loop_done, 50
+    assert Process.alive?(loop)
+    Process.exit(loop, :kill)
+  end
+
   test "interview session loop: ASK_USER becomes a wonderTool, answer_wonder hands back" do
     {:ok, agent} = LoopBindings.start_link()
     test_pid = self()
@@ -1126,6 +1184,18 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
           [next | rest] -> {{:ok, next}, rest}
           [] -> {{:ok, "ASK_USER (script exhausted)"}, []}
         end)
+      end
+    }
+  end
+
+  defp hanging_model do
+    %Ourocode.Model{
+      id: :slow_fake,
+      label: "slow fake",
+      kind: :cli,
+      status: :ready,
+      run: fn _prompt, _opts, _on_chunk ->
+        Process.sleep(:infinity)
       end
     }
   end
