@@ -1299,7 +1299,7 @@ defmodule Ourocode.Terminal.Tui do
   @dialogue_tail 6
 
   @doc false
-  @spec dialogue_rows(map(), boolean()) :: [{String.t(), atom()}]
+  @spec dialogue_rows(map(), boolean()) :: [{String.t(), atom()} | :rule]
   def dialogue_rows(result, drop_trailing_mcp?) do
     turns =
       result
@@ -1321,6 +1321,7 @@ defmodule Ourocode.Terminal.Tui do
     |> Enum.take(-@dialogue_tail)
     |> Enum.reject(&internal_dialogue_turn?/1)
     |> Enum.map(&dialogue_row/1)
+    |> Enum.intersperse(:rule)
   end
 
   defp internal_dialogue_turn?(%{role: :main, text: text}) when is_binary(text),
@@ -3015,6 +3016,10 @@ defmodule Ourocode.Terminal.Tui do
   # unaffected.
   defp wrap_logical_line({text, style}, inner) when is_binary(text) do
     wrap_styled(text, style, inner)
+  end
+
+  defp wrap_logical_line(:rule, inner) do
+    [{String.duplicate("─", inner), :muted}]
   end
 
   defp wrap_logical_line(line, inner) when is_binary(line) do

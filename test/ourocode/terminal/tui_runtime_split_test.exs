@@ -402,7 +402,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     rows = Tui.dialogue_rows(result, false)
 
     # Oldest -> newest, each carrying an explicit speaker color.
-    assert [{mcp_line, :warn}, {main_line, :ok}] = rows
+    assert [{mcp_line, :warn}, :rule, {main_line, :ok}] = rows
     assert mcp_line == "MCP   (ambiguity 0.42) which stack?"
     assert main_line == "MAIN  [from-code] Elixir escript"
   end
@@ -441,12 +441,37 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
 
     # drop_trailing_mcp?: the newest turn is :mcp (the open question the
     # picker renders), so it is not duplicated in the history rows.
-    assert [{_q, :warn}, {you, :strong}] = Tui.dialogue_rows(result, true)
+    assert [{_q, :warn}, :rule, {you, :strong}] = Tui.dialogue_rows(result, true)
     assert you == "YOU   stdio"
-    refute Tui.dialogue_rows(result, true) |> Enum.any?(fn {t, _} -> t =~ "pick transport?" end)
+
+    refute Tui.dialogue_rows(result, true)
+           |> Enum.any?(fn
+             {t, _style} -> t =~ "pick transport?"
+             :rule -> false
+           end)
 
     # Without the drop it stays (plain/waiting state keeps the open question).
     assert Tui.dialogue_rows(result, false) |> List.last() |> elem(0) =~ "pick transport?"
+  end
+
+  test "interview transcript separates chat turns with horizontal rules" do
+    dialogue = [
+      %{role: :mcp, text: "Which user segment matters first?"},
+      %{role: :user, text: "Developers already using coding agents"}
+    ]
+
+    block =
+      {"INTERVIEW",
+       Tui.dialogue_rows(%{pane_snapshot: fn -> %{interview: %{dialogue: dialogue}} end}, false),
+       "type your answer + Enter"}
+
+    text =
+      Tui.frame_lines(@live_frame, [], "", 100, 24, %{interview_block: block})
+      |> Enum.join("\n")
+
+    assert text =~ "MCP Which user segment matters first?"
+    assert text =~ "YOU Developers already using coding agents"
+    assert text =~ "────"
   end
 
   test "scroll-back keeps older transcript reachable without truncation" do
