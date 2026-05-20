@@ -125,26 +125,67 @@ defmodule Ourocode.Model.Catalog do
 
   defp read_ouroboros_backend(path) when is_binary(path) do
     if File.regular?(path) do
-      case Ourocode.Config.parse_config_file(path) do
-        {:ok, %{data: data}} ->
-          data
-          |> configured_backend()
-          |> normalize_backend()
-
-        {:error, _reason} ->
-          nil
+      path
+      |> File.read()
+      |> case do
+        {:ok, text} -> backend_from_ouroboros_config_text(text)
+        {:error, _reason} -> nil
       end
     end
   end
 
   defp read_ouroboros_backend(_path), do: nil
 
-  defp configured_backend(data) when is_map(data) do
-    get_in(data, ["orchestrator", "runtime_backend"]) ||
-      get_in(data, ["llm", "backend"])
+  defp backend_from_ouroboros_config_text(text) when is_binary(text) do
+    sections =
+      text
+      |> String.split(~r/\R/)
+      |> Enum.reduce(%{current: nil, values: %{}}, &scan_ouroboros_backend_line/2)
+
+    sections.values[:orchestrator] || sections.values[:llm]
   end
 
-  defp configured_backend(_data), do: nil
+  defp backend_from_ouroboros_config_text(_text), do: nil
+
+  defp scan_ouroboros_backend_line(line, %{current: current, values: values} = acc) do
+    trimmed = strip_yaml_comment(line)
+
+    cond do
+      trimmed == "" ->
+        acc
+
+      top = Regex.run(~r/^([A-Za-z0-9_-]+):\s*$/, trimmed) ->
+        %{acc | current: Enum.at(top, 1)}
+
+      current == "orchestrator" ->
+        case yaml_scalar_value(trimmed, "runtime_backend") do
+          nil -> acc
+          backend -> %{acc | values: Map.put(values, :orchestrator, normalize_backend(backend))}
+        end
+
+      current == "llm" ->
+        case yaml_scalar_value(trimmed, "backend") do
+          nil -> acc
+          backend -> %{acc | values: Map.put(values, :llm, normalize_backend(backend))}
+        end
+
+      true ->
+        acc
+    end
+  end
+
+  defp strip_yaml_comment(line) do
+    line
+    |> String.replace(~r/\s+#.*$/, "")
+    |> String.trim()
+  end
+
+  defp yaml_scalar_value(line, key) do
+    case Regex.run(~r/^#{Regex.escape(key)}:\s*(.+?)\s*$/, line) do
+      [_, value] -> value |> String.trim() |> String.trim(~s("')) |> String.trim()
+      _no_match -> nil
+    end
+  end
 
   defp normalize_backend(value) when is_atom(value),
     do: value |> Atom.to_string() |> normalize_backend()

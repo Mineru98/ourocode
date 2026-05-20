@@ -81,6 +81,12 @@ defmodule Ourocode.Model.CatalogTest do
     path = Path.join(dir, "config.yaml")
 
     File.write!(path, """
+    economics:
+      tiers:
+        frugal:
+          intelligence_range:
+          - 9
+          - 11
     llm:
       backend: claude
     orchestrator:
