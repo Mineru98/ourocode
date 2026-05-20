@@ -382,6 +382,68 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert Enum.any?(snap.interview.router, &(&1 =~ "ANSWER [code]"))
   end
 
+  test "interview session transcript starts with the user's original prompt" do
+    {:ok, agent} = LoopBindings.start_link()
+
+    {:ok, calls} =
+      Agent.start_link(fn ->
+        [
+          parent_result(%{
+            "result" => %{
+              "content" => [
+                %{"type" => "text", "text" => "What change should this interview define?"}
+              ],
+              "meta" => %{"session_id" => "iv-user-first"}
+            }
+          }),
+          parent_result(%{
+            "result" => %{"content" => [%{"type" => "text", "text" => "📍 Next: ooo seed"}]}
+          })
+        ]
+      end)
+
+    pcf = fn _payload ->
+      {:ok, Agent.get_and_update(calls, fn [h | t] -> {h, t} end)}
+    end
+
+    prompt = "ooo interview improve the ourocode interview UX"
+    test_pid = self()
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-user-first",
+          initial_payload: %{
+            "params" => %{
+              "name" => "ouroboros_interview",
+              "arguments" => %{"initial_context" => prompt}
+            }
+          },
+          parent_call_fun: pcf,
+          model: scripted_model(["ASK_USER Which UX should improve?"]),
+          project_dir: File.cwd!()
+        )
+
+        send(test_pid, :user_first_loop_done)
+      end)
+
+    wait_for(fn ->
+      iv = LoopBindings.pane_snapshot(agent).interview
+      iv && iv.question =~ "Which UX should improve?"
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+    assert Enum.map(snap.interview.dialogue, & &1.role) |> Enum.reverse() == [:user, :mcp, :main]
+    assert List.last(Enum.reverse(snap.interview.dialogue)).text =~ "Which UX should improve?"
+    assert Enum.reverse(snap.interview.dialogue) |> hd() |> Map.fetch!(:text) == prompt
+
+    assert {:ok, "Developer workflow"} =
+             LoopBindings.answer_interview(agent, "Developer workflow")
+
+    assert_receive :user_first_loop_done, 1_000
+    assert Process.alive?(loop) == false
+  end
+
   test "interview session shows waiting state while MCP is generating a question" do
     {:ok, agent} = LoopBindings.start_link()
     test_pid = self()

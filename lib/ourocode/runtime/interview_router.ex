@@ -189,7 +189,11 @@ defmodule Ourocode.Runtime.InterviewRouter do
   # present it as a wonderTool checkpoint (SKILL PATH 2 "with suggested
   # options"); 0 options is valid (the caller pads to the wonderTool minimum).
   defp parse_ask_user(body) do
-    lines = String.split(body, "\n")
+    lines =
+      body
+      |> expand_inline_ask_user_options()
+      |> String.split("\n")
+
     {opt_lines, q_lines} = Enum.split_with(lines, &Regex.match?(@option_re, String.trim(&1)))
 
     options =
@@ -208,6 +212,44 @@ defmodule Ourocode.Runtime.InterviewRouter do
       |> String.trim()
 
     {:ask_user, prompt, options}
+  end
+
+  defp expand_inline_ask_user_options(body) do
+    lines = String.split(body, "\n")
+
+    if length(lines) == 1 do
+      expand_inline_ask_user_option_line(body)
+    else
+      body
+    end
+  end
+
+  defp expand_inline_ask_user_option_line(body) do
+    case Regex.run(~r/\s+-\s+[^|\n]+?\s*[|｜]/u, body, return: :index) do
+      [{start, _length}] ->
+        {question, rest} = String.split_at(body, start)
+        option_lines = inline_option_lines(rest)
+
+        if option_lines == [] do
+          body
+        else
+          ([String.trim(question)] ++ option_lines)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.join("\n")
+        end
+
+      _no_inline_options ->
+        body
+    end
+  end
+
+  defp inline_option_lines(rest) do
+    ~r/(?:^\s*-\s*|\s+-\s*)([^|\n]+?)\s*[|｜]\s*(.*?)(?=\s+-\s*[^|\n]+?\s*[|｜]|$)/u
+    |> Regex.scan(rest)
+    |> Enum.map(fn [_, label, desc] ->
+      "- #{String.trim(label)} | #{String.trim(desc)}"
+    end)
+    |> Enum.reject(&(&1 == "-  |"))
   end
 
   @directive_re ~r/\A(?:TOOL\s+(?:READ|GLOB|GREP)\b|ANSWER\b|ASK_USER\b)/

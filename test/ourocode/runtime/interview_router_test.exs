@@ -66,17 +66,17 @@ defmodule Ourocode.Runtime.InterviewRouterTest do
     model =
       scripted_model([
         """
-        ASK_USER 현재 UX에서 어떤 순간이 가장 답답한가요?
-        - 인터뷰 흐름 | 질문과 답변 상태가 어디서 일어나는지 보기 어렵다
-        - TUI 질감 | 화면 구성이나 색상이 시각적으로 맞지 않는다
+        ASK_USER Which part of the UX feels most frustrating?
+        - Interview flow | It is hard to see where questions and answers belong
+        - TUI polish | The layout or colors make the terminal hard to read
         """
       ])
 
-    question = "현재 UX에서 가장 **답답하거나 거슬리는** 순간이 어떤 건가요?"
+    question = "Which moment in the current UX feels most **frustrating or rough**?"
 
     assert {:ask_user, prompt, options} = InterviewRouter.decide(question, ctx(), model)
-    assert prompt == "현재 UX에서 어떤 순간이 가장 답답한가요?"
-    assert Enum.map(options, & &1.label) == ["인터뷰 흐름", "TUI 질감"]
+    assert prompt == "Which part of the UX feels most frustrating?"
+    assert Enum.map(options, & &1.label) == ["Interview flow", "TUI polish"]
   end
 
   test "ASK_USER carries model-suggested options (SKILL PATH 2) for wonderTool" do
@@ -103,20 +103,20 @@ defmodule Ourocode.Runtime.InterviewRouterTest do
     model =
       scripted_model([
         """
-        ASK_USER ourocode 성장을 어디부터 파고들까요?
-        - 사용자 수 확대 | 더 많은 개발자가 쓰게 만드는 방향
-        - 기능적 완성도 | 부족한 핵심 기능을 채워 제품으로 성숙시키는 방향
-        - 생태계/커뮤니티 | 플러그인, 컨트리뷰터, 문서 등 외부 참여 기반을 키우는 방향
-        - 수익/비즈니스 | 지속 가능한 프로젝트 모델을 만드는 방향
+        ASK_USER Which growth area should ourocode investigate first?
+        - Adoption | Help more developers start using it
+        - Product completeness | Fill missing core capabilities
+        - Ecosystem | Grow plugins, contributors, and docs
+        - Business model | Make the project sustainable
         """
       ])
 
     assert {:ask_user, prompt, options} =
-             InterviewRouter.decide("ourocode가 성장하기 위해 뭐가 필요할까요?", ctx(), model)
+             InterviewRouter.decide("What does ourocode need in order to grow?", ctx(), model)
 
-    assert prompt == "ourocode 성장을 어디부터 파고들까요?"
+    assert prompt == "Which growth area should ourocode investigate first?"
     assert length(options) == 4
-    assert Enum.at(options, 3).label == "수익/비즈니스"
+    assert Enum.at(options, 3).label == "Business model"
   end
 
   test "ASK_USER streams the answerer model's reasoning to on_reason" do
@@ -293,6 +293,19 @@ defmodule Ourocode.Runtime.InterviewRouterTest do
     assert {:ask_user, prompt, options} = InterviewRouter.parse_directive(echoed)
     assert prompt == "What change should this interview define?"
     assert Enum.map(options, & &1.label) == ["Bug fix", "Feature"]
+  end
+
+  test "parser splits Codex single-line ASK_USER options" do
+    text =
+      "ASK_USER Whose experience should the ourocode UX work improve? " <>
+        "- App user UX | Improve the screens and flows used by end users " <>
+        "- Developer workflow UX | Improve the CLI, agents, and coding workflow " <>
+        "- Both | Cover both areas while choosing a priority"
+
+    assert {:ask_user, prompt, options} = InterviewRouter.parse_directive(text)
+    assert prompt == "Whose experience should the ourocode UX work improve?"
+    assert Enum.map(options, & &1.label) == ["App user UX", "Developer workflow UX", "Both"]
+    assert Enum.at(options, 1).description =~ "CLI, agents"
   end
 
   test "invalid arguments return a structured error, never a guess" do

@@ -783,6 +783,7 @@ defmodule Ourocode.Runtime.LoopBindings do
     model = Keyword.fetch!(opts, :model)
     project_dir = Keyword.get(opts, :project_dir) || File.cwd!()
     max_rounds = Keyword.get(opts, :max_rounds, @max_interview_rounds)
+    push_initial_interview_prompt(agent, payload)
 
     interview_round(agent, %{
       pcf: pcf,
@@ -805,6 +806,23 @@ defmodule Ourocode.Runtime.LoopBindings do
 
       :ok
   end
+
+  defp push_initial_interview_prompt(agent, payload) do
+    case initial_context_from_payload(payload) do
+      text when is_binary(text) and text != "" -> push_dialogue(agent, :user, text)
+      _none -> :ok
+    end
+  end
+
+  defp initial_context_from_payload(payload) when is_map(payload) do
+    [
+      get_in(payload, ["params", "arguments", "initial_context"]),
+      get_in(payload, [:params, :arguments, :initial_context])
+    ]
+    |> Enum.find("", &(is_binary(&1) and String.trim(&1) != ""))
+  end
+
+  defp initial_context_from_payload(_payload), do: ""
 
   defp interview_round(agent, %{round: round, max_rounds: max, parent_call_id: pcid})
        when round > max do
