@@ -2,7 +2,7 @@
 # Install ourocode from either a release tarball directory or a source checkout.
 set -euo pipefail
 
-VERSION="${OUROCODE_VERSION:-0.1.7}"
+VERSION="${OUROCODE_VERSION:-0.1.8}"
 INSTALL_ROOT="${OUROCODE_INSTALL_ROOT:-$HOME/.local/ourocode}"
 INSTALL_DIR="${OUROCODE_INSTALL_DIR:-$INSTALL_ROOT/$VERSION}"
 BIN_DIR="${OUROCODE_BIN_DIR:-$HOME/.local/bin}"
