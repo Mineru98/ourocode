@@ -1233,12 +1233,12 @@ defmodule Ourocode.Terminal.Tui do
         # MCP turn IS the open question, kept in role color — not re-printed
         # plain) plus an animated activity line so it never looks frozen and
         # the operator sees the main session working.
-        lines = dialogue_rows(result, false) ++ interview_working_lines(result, tick)
+        lines = dialogue_rows(result, false) ++ interview_status_rows(result, tick)
         {wonder_marker(result), lines, wonder_hint(result)}
 
       session = interview_session(result) ->
         label = Map.get(session, :label, "ooo interview")
-        spinner = if paused?(result), do: [], else: [working_line(tick, nil)]
+        spinner = if paused?(result), do: [], else: [{working_line(tick, nil), :dim}]
         {wonder_marker(result), [label | spinner], interview_session_hint(result)}
 
       true ->
@@ -1372,6 +1372,21 @@ defmodule Ourocode.Terminal.Tui do
       []
     else
       [working_line(tick, trace)]
+    end
+  end
+
+  defp interview_status_rows(result, tick) do
+    status = interview_working_lines(result, tick)
+
+    cond do
+      status == [] ->
+        []
+
+      dialogue_rows(result, false) == [] ->
+        Enum.map(status, &{&1, :dim})
+
+      true ->
+        [:rule | Enum.map(status, &{&1, :dim})]
     end
   end
 
@@ -1865,7 +1880,7 @@ defmodule Ourocode.Terminal.Tui do
 
     screen =
       cond do
-        wonder_focus ->
+        wonder_focus and interview_present? ->
           screen
 
         login ->

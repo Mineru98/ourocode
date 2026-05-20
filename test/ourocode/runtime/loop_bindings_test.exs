@@ -13,6 +13,7 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
   alias Ourocode.MCP.LifecycleEvent
   alias Ourocode.Runtime.Application
   alias Ourocode.Runtime.LoopBindings
+  alias Ourocode.TaskRequest
 
   setup do
     {:ok, runtime} =
@@ -82,6 +83,37 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     }
 
     assert :ok == options[:on_prompt_input].(task_request, %{}, %{status: :healthy})
+  end
+
+  test "ooo interview prompt returns immediately and paints a pending transcript", %{
+    runtime: runtime
+  } do
+    previous_autostart = System.get_env("OUROCODE_MCP_AUTOSTART")
+    System.put_env("OUROCODE_MCP_AUTOSTART", "0")
+
+    on_exit(fn ->
+      if previous_autostart,
+        do: System.put_env("OUROCODE_MCP_AUTOSTART", previous_autostart),
+        else: System.delete_env("OUROCODE_MCP_AUTOSTART")
+    end)
+
+    {:ok, agent, options} = LoopBindings.attach(%{status: :healthy, runtime: runtime})
+    prompt = "ooo interview improve the onboarding flow"
+    {:ok, task_request} = TaskRequest.parse(prompt, id: "fast-interview")
+
+    input_event = %{
+      input_kind: :natural_language,
+      task_request_id: task_request.id,
+      task_input: prompt
+    }
+
+    assert :ok == options[:on_prompt_input].(task_request, input_event, %{status: :healthy})
+
+    snap = LoopBindings.pane_snapshot(agent)
+    assert snap.interview.waiting == true
+    assert snap.interview.status == "starting interview session"
+    assert snap.interview_session.parent_call_id == "parent-fast-interview"
+    assert [%{role: :user, text: ^prompt} | _] = snap.interview.dialogue
   end
 
   test "wonderTool checkpoint is detected live and answered back", %{runtime: runtime} do

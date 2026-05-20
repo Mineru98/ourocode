@@ -474,6 +474,45 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert text =~ "────"
   end
 
+  test "interview thinking status is separated from chat turns" do
+    dialogue = [
+      %{role: :user, text: "ooo interview improve onboarding"},
+      %{role: :mcp, text: "Which onboarding moment is rough?"}
+    ]
+
+    result =
+      %{pane_snapshot: fn -> %{interview: %{dialogue: dialogue, router: []}, paused: false} end}
+
+    block =
+      {"INTERVIEW",
+       Tui.dialogue_rows(result, false) ++ [:rule | Tui.interview_working_lines(result, 0)],
+       "type your answer + Enter"}
+
+    text =
+      Tui.frame_lines(@live_frame, [], "", 100, 24, %{interview_block: block})
+      |> Enum.join("\n")
+
+    assert text =~ "MCP Which onboarding moment is rough?"
+    assert text =~ "| thinking"
+    assert text =~ "────"
+  end
+
+  test "wonder focus without a block falls back to the transcript instead of blanking" do
+    text =
+      Tui.frame_lines(
+        @live_frame,
+        ["you> ooo interview improve onboarding", "ourocode> starting interview"],
+        "",
+        100,
+        24,
+        %{wonder_focus: true}
+      )
+      |> Enum.join("\n")
+
+    assert text =~ "ooo interview improve onboarding"
+    assert text =~ "starting interview"
+  end
+
   test "scroll-back keeps older transcript reachable without truncation" do
     history = for n <- 1..40, do: "ourocode> line-#{n}"
 

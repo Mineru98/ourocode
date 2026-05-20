@@ -595,7 +595,14 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp on_prompt_input_fun(agent, runtime) do
     fn task_request, input_event, _startup_result ->
       if ouroboros_route?(task_request) do
-        dispatch_workflow(agent, runtime, task_request, input_event)
+        parent_call_id = parent_call_id(task_request)
+
+        if interview_task?(task_request),
+          do: mark_interview_dispatching(agent, task_request, parent_call_id)
+
+        spawn(fn ->
+          dispatch_workflow(agent, runtime, task_request, input_event, parent_call_id)
+        end)
       end
 
       :ok
@@ -605,8 +612,10 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp ouroboros_route?(%{routing_decision: %{execution_route: :ouroboros_workflow}}), do: true
   defp ouroboros_route?(_task_request), do: false
 
-  defp dispatch_workflow(agent, runtime, task_request, input_event) do
-    parent_call_id = "parent-" <> to_string(task_request.id)
+  defp interview_task?(%{routing_decision: %{adapter_route: :interview}}), do: true
+  defp interview_task?(_task_request), do: false
+
+  defp dispatch_workflow(agent, runtime, task_request, input_event, parent_call_id) do
     model = input_event_model(input_event) || Catalog.default()
     {:ok, mcp_url} = ensure_mcp_daemon(agent, model)
     invoker = transport_invoker(agent, runtime, parent_call_id, model)
@@ -633,6 +642,8 @@ defmodule Ourocode.Runtime.LoopBindings do
         {:dispatch_exception, Exception.message(exception)}
       )
   end
+
+  defp parent_call_id(task_request), do: "parent-" <> to_string(task_request.id)
 
   # The invoker returns immediately; the transport call runs in a relay process
   # so the prompt loop never blocks on the network and streamed events reach
@@ -1230,6 +1241,40 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   # --- interview state helpers --------------------------------------------
 
+  defp mark_interview_dispatching(agent, task_request, parent_call_id) do
+    prompt = Map.get(task_request, :task_input, "")
+
+    Agent.update(agent, fn state ->
+      prev = state.interview || %{}
+
+      dialogue =
+        case String.trim(prompt) do
+          "" -> Map.get(prev, :dialogue, [])
+          text -> prepend_dialogue_turn(Map.get(prev, :dialogue, []), :user, text)
+        end
+
+      iv =
+        prev
+        |> Map.merge(%{
+          parent_call_id: parent_call_id,
+          question: Map.get(prev, :question, ""),
+          waiting: true,
+          status: "starting interview session",
+          dialogue: dialogue
+        })
+        |> Map.delete(:answered)
+
+      session = %{
+        parent_call_id: parent_call_id,
+        label: "ooo interview",
+        status: "starting interview session",
+        round: 0
+      }
+
+      %{state | interview: iv, interview_session: session, paused: false}
+    end)
+  end
+
   defp mark_interview_waiting(agent, st) do
     Agent.update(agent, fn state ->
       prev = state.interview || %{}
@@ -1330,9 +1375,7 @@ defmodule Ourocode.Runtime.LoopBindings do
       Agent.update(agent, fn state ->
         prev = state.interview || %{}
 
-        log =
-          [%{role: role, text: trimmed} | Map.get(prev, :dialogue, [])]
-          |> Enum.take(@dialogue_keep)
+        log = prepend_dialogue_turn(Map.get(prev, :dialogue, []), role, trimmed)
 
         %{state | interview: Map.put(prev, :dialogue, log)}
       end)
@@ -1340,6 +1383,13 @@ defmodule Ourocode.Runtime.LoopBindings do
   end
 
   defp push_dialogue(_agent, _role, _text), do: :ok
+
+  defp prepend_dialogue_turn([%{role: role, text: text} | _] = log, role, text), do: log
+
+  defp prepend_dialogue_turn(log, role, text) do
+    [%{role: role, text: text} | log]
+    |> Enum.take(@dialogue_keep)
+  end
 
   defp leaked_router_prompt?(text) when is_binary(text) do
     flat = String.replace(text, ~r/\s+/, " ")
