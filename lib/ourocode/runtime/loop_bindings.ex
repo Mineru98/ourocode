@@ -27,9 +27,11 @@ defmodule Ourocode.Runtime.LoopBindings do
   alias Ourocode.Runtime.McpDaemon
 
   alias Ourocode.Runtime.{
+    ActivitySnapshot,
     Application,
     Dispatcher,
     InterviewRouter,
+    InterviewResponse,
     InterviewWorkflowInvocation,
     OuroborosLogTailer,
     OuroborosSessionReasoning,
@@ -154,12 +156,24 @@ defmodule Ourocode.Runtime.LoopBindings do
       end)
 
     {activity_lines, offsets} = OuroborosLogTailer.tail(paths, offsets)
-    {session_reasoning, session_reasoning_state} = load_session_reasoning(session_id, has_reasoning?)
+
+    {session_reasoning, session_reasoning_state} =
+      load_session_reasoning(session_id, has_reasoning?)
+
     activity_context = load_activity_context(session_id)
 
     Agent.get_and_update(agent, fn state ->
-      state = refresh_ouroboros_activity(state, activity_lines, offsets, activity_context)
-      state = refresh_ouroboros_session_reasoning(state, session_reasoning, session_reasoning_state)
+      state =
+        ActivitySnapshot.refresh_activity(
+          state,
+          activity_lines,
+          offsets,
+          activity_context,
+          @activity_keep
+        )
+
+      state =
+        refresh_ouroboros_session_reasoning(state, session_reasoning, session_reasoning_state)
 
       %{
         runtime: %{parent_panes: state.parent, child_panes: state.child},
@@ -779,110 +793,10 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp reuse_mcp_daemon?(_handle, current_backend, requested_backend),
     do: current_backend == requested_backend
 
-  defp refresh_ouroboros_activity(state, lines, offsets, activity_context) do
-    activity =
-      (Map.get(state, :ouroboros_activity, []) ++ lines)
-      |> Enum.map(&enrich_activity_line(&1, activity_context))
-      |> dedupe_activity()
-      |> Enum.take(-@activity_keep)
-
-    interview =
-      case state.interview do
-        %{} = iv when activity != [] -> Map.put(iv, :mcp_activity, activity)
-        other -> other
-      end
-
-    %{state | ouroboros_log_offsets: offsets, ouroboros_activity: activity, interview: interview}
-  end
-
-  defp enrich_activity_line(line, %{initial_context: initial_context} = activity_context)
-       when is_binary(line) and is_binary(initial_context) do
-    cond do
-      String.contains?(line, " · initial: ") ->
-        line
-
-      String.contains?(line, "interview started") ->
-        line
-        |> String.replace(~r/\s*·\s*\d+\s+chars/u, "")
-        |> Kernel.<>(" · initial: #{initial_context}")
-
-      true ->
-        enrich_question_activity_line(line, activity_context)
-    end
-  end
-
-  defp enrich_activity_line(line, activity_context) when is_binary(line) do
-    enrich_question_activity_line(line, activity_context)
-  end
-
-  defp enrich_activity_line(line, _activity_context), do: line
-
-  defp enrich_question_activity_line(line, %{questions: questions}) when is_map(questions) do
-    cond do
-      String.contains?(line, " · question: ") ->
-        line
-
-      true ->
-        case Regex.run(~r/\bround\s+(\d+)\s+·\s+question generated\b/u, line) do
-          [_match, round] ->
-            case Integer.parse(round) do
-              {round_number, ""} ->
-                case Map.get(questions, round_number) do
-                  question when is_binary(question) and question != "" ->
-                    "round #{round_number} · question: #{question}"
-
-                  _none ->
-                    line
-                end
-
-              _error ->
-                line
-            end
-
-          _no_match ->
-            line
-        end
-    end
-  end
-
-  defp enrich_question_activity_line(line, _activity_context), do: line
-
-  defp dedupe_activity(lines) do
-    lines
-    |> Enum.reverse()
-    |> Enum.uniq_by(&activity_dedupe_key/1)
-    |> Enum.reverse()
-  end
-
-  defp activity_dedupe_key(line) when is_binary(line) do
-    line
-    |> String.replace(~r/^activity:\s*/u, "")
-    |> String.replace(~r/\s*·\s*\d+\s+chars/u, "")
-    |> String.replace(~r/\s+/u, " ")
-    |> String.trim()
-  end
-
-  defp activity_dedupe_key(line), do: line
-
   defp refresh_ouroboros_session_reasoning(state, [], _reasoning_state), do: state
 
   defp refresh_ouroboros_session_reasoning(state, lines, reasoning_state) when is_list(lines) do
-    interview =
-      case state.interview do
-        %{} = iv ->
-          if Map.get(iv, :mcp_reasoning, []) == [] do
-            iv
-            |> Map.put(:mcp_reasoning, lines)
-            |> maybe_put(:mcp_reasoning_state, reasoning_state)
-          else
-            iv
-          end
-
-        other ->
-          other
-      end
-
-    %{state | interview: interview}
+    ActivitySnapshot.refresh_session_reasoning(state, lines, reasoning_state)
   end
 
   defp reset_ouroboros_log_sources(state, handle) do
@@ -972,8 +886,8 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp maybe_capture_seed_artifact(agent, runtime, %ParentCallResult{} = result) do
     result.response
-    |> response_text()
-    |> capture_seed_artifact(agent, project_dir(runtime), response_meta(result.response))
+    |> InterviewResponse.text()
+    |> capture_seed_artifact(agent, project_dir(runtime), InterviewResponse.meta(result.response))
   end
 
   defp maybe_capture_seed_artifact(_agent, _runtime, _result), do: :ok
@@ -1010,7 +924,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   end
 
   defp seed_id_from(meta, seed_yaml) do
-    meta_value(meta, "seed_id") || seed_id_from_yaml(seed_yaml)
+    InterviewResponse.meta_value(meta, "seed_id") || seed_id_from_yaml(seed_yaml)
   end
 
   defp seed_id_from_yaml(seed_yaml) do
@@ -1105,10 +1019,10 @@ defmodule Ourocode.Runtime.LoopBindings do
 
     case st.pcf.(st.payload) do
       {:ok, result} ->
-        response = parent_response(result)
-        text = response_text(response)
-        meta = response_meta(response)
-        session_id = extract_session_id(text, meta) || st.session_id
+        response = InterviewResponse.parent_response(result)
+        text = InterviewResponse.text(response)
+        meta = InterviewResponse.meta(response)
+        session_id = InterviewResponse.extract_session_id(text, meta) || st.session_id
 
         # Classify by the response TEXT, not `meta`/`isError`. Verified
         # against the live Ouroboros server: the FastMCP adapter returns
@@ -1169,7 +1083,7 @@ defmodule Ourocode.Runtime.LoopBindings do
         {:server_error, server_failure_message(text)}
 
       true ->
-        {:question, question_from(text)}
+        {:question, InterviewResponse.question_from(text)}
     end
   end
 
@@ -1238,7 +1152,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp resume_hint(session_id), do: "  (session=#{session_id}, resume available)"
 
   defp route_question(agent, st, question) do
-    question = clean_markdown(question)
+    question = InterviewResponse.clean_markdown(question)
     ctx = %{project_dir: st.project_dir, streak: st.streak}
     on_trace = fn line -> push_router_trace(agent, line) end
     on_reason = fn chunk -> push_reasoning(agent, chunk) end
@@ -1250,7 +1164,13 @@ defmodule Ourocode.Runtime.LoopBindings do
       {:answer, payload_text, source} ->
         if leaked_router_prompt?(payload_text) do
           push_router_trace(agent, "router: discarded echoed prompt and asked user")
-          push_dialogue(agent, :main, "→ asking you: " <> clean_markdown(question))
+
+          push_dialogue(
+            agent,
+            :main,
+            "→ asking you: " <> InterviewResponse.clean_markdown(question)
+          )
+
           enqueue(agent, ask_user_wonder_event(st.parent_call_id, st.round, question, []))
 
           case await_user_answer(agent, st.parent_call_id, question) do
@@ -1273,7 +1193,7 @@ defmodule Ourocode.Runtime.LoopBindings do
         # options, padded to the wonderTool 2-option minimum). The user may
         # pick an option (→ answer_wonder) or free-type (→ answer_interview);
         # both hand the text back to this blocked relay via interview_waiter.
-        push_dialogue(agent, :main, "→ asking you: " <> clean_markdown(prompt))
+        push_dialogue(agent, :main, "→ asking you: " <> InterviewResponse.clean_markdown(prompt))
         enqueue(agent, ask_user_wonder_event(st.parent_call_id, st.round, prompt, options))
 
         case await_user_answer(agent, st.parent_call_id, prompt) do
@@ -1342,7 +1262,7 @@ defmodule Ourocode.Runtime.LoopBindings do
           %{
             "id" => "interview",
             "header" => "Interview",
-            "question" => clean_markdown(prompt),
+            "question" => InterviewResponse.clean_markdown(prompt),
             "options" => wonder_options(options, prompt)
           }
         ]
@@ -1390,7 +1310,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp prompt_option_hints(_prompt), do: []
 
   defp option_candidate_text(prompt) do
-    text = clean_markdown(prompt)
+    text = InterviewResponse.clean_markdown(prompt)
 
     case Regex.split(~r/[?？:：]/u, text, parts: 2) do
       [_before, rest] -> rest
@@ -1435,7 +1355,7 @@ defmodule Ourocode.Runtime.LoopBindings do
       iv =
         prev
         |> Map.merge(%{
-          question: clean_markdown(prompt),
+          question: InterviewResponse.clean_markdown(prompt),
           parent_call_id: parent_call_id || prev[:parent_call_id],
           waiting: false,
           status: "waiting for your answer"
@@ -1504,76 +1424,6 @@ defmodule Ourocode.Runtime.LoopBindings do
         result
     end
   end
-
-  # --- interview response parsing -----------------------------------------
-
-  defp parent_response(%ParentCallResult{response: response}) when is_map(response),
-    do: response
-
-  defp parent_response(%{response: response}) when is_map(response), do: response
-  defp parent_response(%{"response" => response}) when is_map(response), do: response
-  defp parent_response(_result), do: %{}
-
-  defp response_text(%{"result" => %{"content" => content}}) when is_list(content) do
-    content
-    |> Enum.map(fn part -> (is_map(part) && (part["text"] || part[:text])) || nil end)
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.join("\n")
-  end
-
-  defp response_text(%{"result" => %{"content" => text}}) when is_binary(text), do: text
-  defp response_text(_response), do: ""
-
-  defp response_meta(response) do
-    result = if is_map(response["result"]), do: response["result"], else: %{}
-    structured = structured_content(result)
-
-    [
-      result["meta"],
-      result["_meta"],
-      structured["meta"],
-      structured["_meta"],
-      structured,
-      content_meta(result),
-      response |> response_text() |> decode_text_meta()
-    ]
-    |> merge_meta_candidates()
-  end
-
-  # Ouroboros writes the session id as `Session ID: <id>` (start),
-  # `session_id="<id>"` (resume hint), or bare `Session <id>` (resume). The
-  # `meta` fallback stays for transports/tests that still carry it.
-  @session_id_re ~r/(?:session[_\s]?id)\s*[=:]\s*"?([A-Za-z0-9_\-\.]+)"?|(?<![A-Za-z])Session\s+([A-Za-z][\w\-\.]+)/i
-
-  defp extract_session_id(text, meta) do
-    case meta_value(meta, "session_id") do
-      id when is_binary(id) and id != "" ->
-        id
-
-      _none ->
-        case Regex.run(@session_id_re, text || "") do
-          [_, id] when is_binary(id) and id != "" -> id
-          [_, "", id] when is_binary(id) and id != "" -> id
-          _no_match -> nil
-        end
-    end
-  end
-
-  defp question_from(text) do
-    case parse_ambiguity(text) do
-      {:ok, _score, question} -> clean_markdown(question)
-      :none -> text |> strip_interview_preamble() |> clean_markdown()
-    end
-  end
-
-  defp strip_interview_preamble(text) when is_binary(text) do
-    text
-    |> String.replace(~r/\A\s*Interview started\.\s*Session ID:\s*\S+\s*/i, "")
-    |> String.replace(~r/\A\s*Session ID:\s*\S+\s*/i, "")
-    |> String.trim()
-  end
-
-  defp strip_interview_preamble(text), do: to_string(text || "")
 
   # --- interview state helpers --------------------------------------------
 
@@ -1663,13 +1513,13 @@ defmodule Ourocode.Runtime.LoopBindings do
       iv =
         prev
         |> Map.merge(%{
-          question: question_from(text),
+          question: InterviewResponse.question_from(text),
           parent_call_id: parent_call_id || prev[:parent_call_id],
           waiting: false
         })
         |> maybe_put(:session_id, session_id)
-        |> maybe_put(:milestone, meta_value(meta, "milestone"))
-        |> maybe_put(:seed_ready, meta_value(meta, "seed_ready"))
+        |> maybe_put(:milestone, InterviewResponse.meta_value(meta, "milestone"))
+        |> maybe_put(:seed_ready, InterviewResponse.meta_value(meta, "seed_ready"))
         |> Map.delete(:answered)
 
       %{state | interview: iv, paused: false}
@@ -1749,7 +1599,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   # The operator asked to see that score immediately, so the MCP turn keeps
   # it inline instead of stripping it to the right-hand telemetry pane.
   defp mcp_turn_text(text) do
-    case parse_ambiguity(text) do
+    case InterviewResponse.parse_ambiguity(text) do
       {:ok, score, question} when is_float(score) ->
         "(ambiguity #{:erlang.float_to_binary(score, decimals: 2)}) #{question}"
 
@@ -1849,17 +1699,17 @@ defmodule Ourocode.Runtime.LoopBindings do
   # ambiguity`) and structured `meta` carries milestone/seed-ready. We extract
   # only what is genuinely on the wire — never fabricate PATH routing.
   defp maybe_detect_interview(state, event) do
-    text = interview_text(event)
-    meta = interview_meta(event)
+    text = InterviewResponse.interview_text(event)
+    meta = InterviewResponse.interview_meta(event)
 
-    case parse_ambiguity(text) do
+    case InterviewResponse.parse_ambiguity(text) do
       {:ok, score, question} ->
         prev = state.interview || %{}
 
         interview =
           prev
           |> Map.merge(%{
-            question: clean_markdown(question),
+            question: InterviewResponse.clean_markdown(question),
             ambiguity: score,
             parent_call_id: Map.get(event, :parent_call_id) || prev[:parent_call_id],
             child_id: Map.get(event, :child_id) || prev[:child_id],
@@ -1881,7 +1731,7 @@ defmodule Ourocode.Runtime.LoopBindings do
             interview =
               prev
               |> Map.merge(%{
-                question: clean_markdown(text),
+                question: InterviewResponse.clean_markdown(text),
                 parent_call_id: Map.get(event, :parent_call_id) || prev[:parent_call_id],
                 child_id: Map.get(event, :child_id) || prev[:child_id],
                 waiting: false
@@ -1901,19 +1751,19 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp merge_interview_meta(interview, meta) when is_map(interview) do
     interview
-    |> maybe_put(:ambiguity, numeric_meta_value(meta, "ambiguity_score"))
-    |> maybe_put(:milestone, meta_value(meta, "milestone"))
-    |> maybe_put(:seed_ready, meta_value(meta, "seed_ready"))
-    |> maybe_put(:breakdown, meta_value(meta, "ambiguity_breakdown"))
-    |> maybe_put(:session_id, meta_value(meta, "session_id"))
-    |> maybe_put(:mcp_reasoning, reasoning_lines(meta))
-    |> maybe_put(:mcp_reasoning_state, meta_value(meta, "interview_reasoning"))
+    |> maybe_put(:ambiguity, InterviewResponse.numeric_meta_value(meta, "ambiguity_score"))
+    |> maybe_put(:milestone, InterviewResponse.meta_value(meta, "milestone"))
+    |> maybe_put(:seed_ready, InterviewResponse.meta_value(meta, "seed_ready"))
+    |> maybe_put(:breakdown, InterviewResponse.meta_value(meta, "ambiguity_breakdown"))
+    |> maybe_put(:session_id, InterviewResponse.meta_value(meta, "session_id"))
+    |> maybe_put(:mcp_reasoning, InterviewResponse.reasoning_lines(meta))
+    |> maybe_put(:mcp_reasoning_state, InterviewResponse.meta_value(meta, "interview_reasoning"))
   end
 
   defp interview_meta?(meta) when is_map(meta) do
     Enum.any?(
       ["internal_reasoning", "interview_reasoning", "ambiguity_score", "milestone", "seed_ready"],
-      &(not is_nil(meta_value(meta, &1)))
+      &(not is_nil(InterviewResponse.meta_value(meta, &1)))
     )
   end
 
@@ -1922,250 +1772,6 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, []), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp numeric_meta_value(meta, key) do
-    case meta_value(meta, key) do
-      value when is_float(value) -> value
-      value when is_integer(value) -> value / 1
-      value when is_binary(value) -> parse_float(value)
-      _other -> nil
-    end
-  end
-
-  defp reasoning_lines(meta) when is_map(meta) do
-    [
-      meta_value(meta, "internal_reasoning"),
-      meta_value(meta, "mcp_reasoning"),
-      meta_value(meta, "reasoning"),
-      meta_value(meta, "interview_reasoning")
-    ]
-    |> Enum.find_value([], fn value ->
-      case normalize_reasoning_lines(value) do
-        [] -> nil
-        lines -> lines
-      end
-    end)
-  end
-
-  defp reasoning_lines(_meta), do: []
-
-  defp normalize_reasoning_lines(lines) when is_list(lines) do
-    lines
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.take(12)
-  end
-
-  defp normalize_reasoning_lines(line) when is_binary(line) do
-    line
-    |> String.split(~r/\r?\n/)
-    |> normalize_reasoning_lines()
-  end
-
-  defp normalize_reasoning_lines(%{} = state) do
-    [
-      state_line(state, "phase", "phase"),
-      state_line(state, "session_id", "session"),
-      rounds_line(state),
-      state_line(state, "pending_question", "pending"),
-      state_line(state, "is_brownfield", "brownfield"),
-      state_line(state, "ambiguity_score", "ambiguity"),
-      state_line(state, "milestone", "milestone"),
-      state_line(state, "seed_ready", "seed-ready"),
-      state_line(state, "completion_qualified", "completion-qualified"),
-      completion_blockers_line(state),
-      stability_line(state),
-      state_line(state, "recoverable", "recoverable"),
-      state_line(state, "question_chars", "question_chars"),
-      state_line(state, "next_action", "next")
-    ]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.take(12)
-  end
-
-  defp normalize_reasoning_lines(_value), do: []
-
-  defp structured_content(%{"structuredContent" => value}) when is_map(value), do: value
-  defp structured_content(%{"structured_content" => value}) when is_map(value), do: value
-  defp structured_content(_result), do: %{}
-
-  defp content_meta(%{"content" => content}) when is_list(content) do
-    content
-    |> Enum.find_value(%{}, fn
-      %{"meta" => meta} when is_map(meta) -> meta
-      %{"_meta" => meta} when is_map(meta) -> meta
-      %{"annotations" => %{"meta" => meta}} when is_map(meta) -> meta
-      %{meta: meta} when is_map(meta) -> meta
-      %{_meta: meta} when is_map(meta) -> meta
-      _part -> nil
-    end)
-  end
-
-  defp content_meta(_result), do: %{}
-
-  defp merge_meta_candidates(candidates) do
-    candidates
-    |> Enum.filter(&is_map/1)
-    |> Enum.reject(&(&1 == %{}))
-    |> Enum.reduce(%{}, fn candidate, acc -> Map.merge(acc, candidate) end)
-  end
-
-  defp state_line(state, key, label) do
-    case meta_value(state, key) do
-      value when value in [nil, "", []] -> nil
-      true when key == "pending_question" -> "#{label}: waiting for user answer"
-      false when key == "pending_question" -> nil
-      value -> "#{label}: #{format_reasoning_value(value)}"
-    end
-  end
-
-  defp rounds_line(state) do
-    answered = meta_value(state, "answered_rounds")
-    total = meta_value(state, "total_rounds")
-
-    if is_nil(answered) or is_nil(total),
-      do: nil,
-      else: "rounds: #{answered} answered / #{total} total"
-  end
-
-  defp completion_blockers_line(state) do
-    case meta_value(state, "completion_floor_failures") do
-      failures when is_list(failures) and failures != [] ->
-        "completion blocked: " <> Enum.map_join(failures, "; ", &format_reasoning_value/1)
-
-      _other ->
-        nil
-    end
-  end
-
-  defp stability_line(state) do
-    streak = meta_value(state, "completion_candidate_streak")
-    required = meta_value(state, "streak_required")
-
-    cond do
-      is_nil(streak) -> nil
-      is_nil(required) -> "stability: #{streak}"
-      true -> "stability: #{streak}/#{required}"
-    end
-  end
-
-  defp format_reasoning_value(value) when is_float(value),
-    do: :erlang.float_to_binary(value, decimals: 2)
-
-  defp format_reasoning_value(value) when is_binary(value), do: value
-  defp format_reasoning_value(value), do: to_string(value)
-
-  defp decode_text_meta(text) when is_binary(text) do
-    trimmed = String.trim(text)
-
-    if String.starts_with?(trimmed, "{") do
-      case Ourocode.Json.decode(trimmed) do
-        {:ok, %{} = body} -> body
-        _error -> %{}
-      end
-    else
-      %{}
-    end
-  end
-
-  defp decode_text_meta(_text), do: %{}
-
-  defp meta_value(meta, key) when is_map(meta) do
-    case Map.fetch(meta, key) do
-      {:ok, value} -> value
-      :error -> Map.get(meta, safe_atom(key))
-    end
-  end
-
-  defp meta_value(_meta, _key), do: nil
-
-  defp safe_atom(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
-  end
-
-  @ambiguity_re ~r/\(ambiguity:\s*([0-9]*\.?[0-9]+)\)\s*(.*)/s
-
-  defp parse_ambiguity(text) when is_binary(text) do
-    case Regex.run(@ambiguity_re, text) do
-      [_, score, question] ->
-        {:ok, parse_float(score), String.trim(question)}
-
-      _no_match ->
-        :none
-    end
-  end
-
-  defp parse_ambiguity(_text), do: :none
-
-  defp parse_float(value) do
-    case Float.parse(value) do
-      {f, _rest} -> f
-      :error -> nil
-    end
-  end
-
-  defp clean_markdown(text) when is_binary(text) do
-    text
-    |> String.replace(~r/(\*\*|__)(.*?)\1/s, "\\2")
-    |> String.replace(~r/`([^`]+)`/, "\\1")
-    |> String.replace(~r/^\s{0,3}\#{1,6}\s+/m, "")
-    |> String.trim()
-  end
-
-  defp clean_markdown(text), do: to_string(text)
-
-  defp interview_text(event) when is_map(event) do
-    payload = if is_map(event[:payload]), do: event[:payload], else: %{}
-    result = if is_map(payload["result"]), do: payload["result"], else: %{}
-
-    [
-      event[:token],
-      event[:content],
-      event[:text],
-      event[:question],
-      payload[:token],
-      payload["token"],
-      payload[:content],
-      payload["content"],
-      payload[:text],
-      payload["text"],
-      payload[:question],
-      payload["question"],
-      response_text(%{"result" => result})
-    ]
-    |> Enum.find("", &(is_binary(&1) and &1 != ""))
-  end
-
-  defp interview_text(_event), do: ""
-
-  defp interview_meta(event) when is_map(event) do
-    payload = if is_map(event[:payload]), do: event[:payload], else: %{}
-    result = if is_map(payload["result"]), do: payload["result"], else: %{}
-    structured = structured_content(result)
-
-    [
-      event[:meta],
-      event["meta"],
-      event[:_meta],
-      event["_meta"],
-      payload[:meta],
-      payload["meta"],
-      payload[:_meta],
-      payload["_meta"],
-      result["meta"],
-      result["_meta"],
-      structured["meta"],
-      structured["_meta"],
-      structured,
-      content_meta(result)
-    ]
-    |> merge_meta_candidates()
-  end
-
-  defp interview_meta(_event), do: %{}
 
   defp safe_apply(module, pane_state, event) do
     module.apply_event(pane_state, event)

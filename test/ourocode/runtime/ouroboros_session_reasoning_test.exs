@@ -78,13 +78,12 @@ defmodule Ourocode.Runtime.OuroborosSessionReasoningTest do
       })
     )
 
-    assert Ourocode.Runtime.OuroborosSessionReasoning.load_activity_context(
-             "interview_activity"
-           ) == %{
-             session_id: "interview_activity",
-             initial_context: "ooo interview improve the right panel",
-             questions: %{1 => "Which panel should surface the MCP reasoning?"}
-           }
+    assert Ourocode.Runtime.OuroborosSessionReasoning.load_activity_context("interview_activity") ==
+             %{
+               session_id: "interview_activity",
+               initial_context: "ooo interview improve the right panel",
+               questions: %{1 => "Which panel should surface the MCP reasoning?"}
+             }
   end
 
   test "missing persisted state returns no reasoning" do
