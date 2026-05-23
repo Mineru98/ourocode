@@ -217,6 +217,71 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     refute "seed-ready: no" in right
   end
 
+  test "right column can show Ouroboros activity without pretending it is reasoning" do
+    result = %{
+      pane_snapshot: fn ->
+        %{
+          interview: %{
+            status: "waiting for mcp follow-up question",
+            mcp_activity: [
+              "interview started · session 1",
+              "round 1 · question generated · 128 chars"
+            ]
+          },
+          paused: false
+        }
+      end
+    }
+
+    right = Tui.interview_reasoning_lines(result)
+    activity = Tui.mcp_activity_lines(result)
+
+    refute Enum.any?(right, &String.starts_with?(&1, "activity:"))
+    assert "activity: interview started · session 1" in activity
+    assert "activity: round 1 · question generated · 128 chars" in activity
+  end
+
+  test "right column puts activity log in its own lower stream" do
+    text =
+      Tui.frame_lines(@live_frame, ["you> ooo interview"], "", 120, 30, %{
+        interview_reasoning: ["phase: answer"],
+        mcp_activity: [
+          "activity: interview started · session 1",
+          "activity: round 1 · question generated · 128 chars"
+        ]
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "interview live"
+    assert text =~ "MCP parent"
+    assert text =~ "child stream"
+    assert text =~ "activity log live"
+
+    assert line_index(String.split(text, "\n"), "activity log") >
+             line_index(String.split(text, "\n"), "child stream")
+  end
+
+  test "right column wraps long MCP and activity lines instead of ellipsizing" do
+    text =
+      Tui.frame_lines(@live_frame, ["you> ooo interview"], "", 120, 34, %{
+        interview_reasoning: [
+          "next: ask user to answer pending question with a deliberately long status that must wrap inside the sidebar"
+        ],
+        mcp_activity: [
+          "activity: round 1 · question: \"Which exact right panel surface should show the internal MCP reasoning and activity stream for the user?\""
+        ]
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "must"
+    assert text =~ "wrap inside the sidebar"
+    assert text =~ "Which exact"
+    assert text =~ "right panel surface should show the internal"
+    assert text =~ "MCP reasoning and activity stream for the"
+    assert text =~ "user?\""
+    refute text =~ "..."
+  end
+
   test "active interview owns the left panel instead of duplicating activity below it" do
     block =
       {"INTERVIEW",

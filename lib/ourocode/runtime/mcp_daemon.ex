@@ -68,20 +68,16 @@ defmodule Ourocode.Runtime.McpDaemon do
       {:spawn, host, port, url, explicit?} ->
         case spawn_fun.(host, port, llm_backend) do
           {:ok, erl_port, os_pid} ->
-            # Default (per-instance) launches own the URL: export it so
-            # LoopBindings + the interview invocation in this BEAM target
-            # *this* server, not the stale fixed-port default. An explicit
-            # OUROCODE_MCP_URL is the operator's and is left untouched.
-            unless explicit?, do: System.put_env("OUROCODE_MCP_URL", url)
-            await_ready(host, port, Keyword.get(opts, :wait?, true))
-            {:ok,
-             %{
-               mode: :spawned,
-               port: erl_port,
-               os_pid: os_pid,
-               url: url,
-               llm_backend: llm_backend
-             }}
+            log_path = nil
+
+            finish_spawn(explicit?, url, erl_port, os_pid, llm_backend, log_path,
+              wait?: Keyword.get(opts, :wait?, true)
+            )
+
+          {:ok, erl_port, os_pid, log_path} ->
+            finish_spawn(explicit?, url, erl_port, os_pid, llm_backend, log_path,
+              wait?: Keyword.get(opts, :wait?, true)
+            )
 
           :unavailable ->
             {:ok, %{mode: :unavailable, url: url}}
@@ -89,6 +85,26 @@ defmodule Ourocode.Runtime.McpDaemon do
     end
   rescue
     _exception -> {:ok, %{mode: :unavailable, url: mcp_url() || @default_url}}
+  end
+
+  defp finish_spawn(explicit?, url, erl_port, os_pid, llm_backend, log_path, opts) do
+    # Default (per-instance) launches own the URL: export it so
+    # LoopBindings + the interview invocation in this BEAM target
+    # *this* server, not the stale fixed-port default. An explicit
+    # OUROCODE_MCP_URL is the operator's and is left untouched.
+    unless explicit?, do: System.put_env("OUROCODE_MCP_URL", url)
+    uri = URI.parse(url)
+    await_ready(uri.host || "127.0.0.1", uri.port || 4000, Keyword.get(opts, :wait?, true))
+
+    handle = %{
+      mode: :spawned,
+      port: erl_port,
+      os_pid: os_pid,
+      url: url,
+      llm_backend: llm_backend
+    }
+
+    {:ok, if(is_binary(log_path), do: Map.put(handle, :log_path, log_path), else: handle)}
   end
 
   @doc """
@@ -217,7 +233,7 @@ defmodule Ourocode.Runtime.McpDaemon do
             _none -> nil
           end
 
-        {:ok, erl_port, os_pid}
+        {:ok, erl_port, os_pid, log}
 
       :none ->
         :unavailable
@@ -225,17 +241,18 @@ defmodule Ourocode.Runtime.McpDaemon do
   end
 
   defp server_command(host, port, llm_backend) do
-    serve_args = [
-      "mcp",
-      "serve",
-      "--transport",
-      "streamable-http",
-      "--host",
-      host,
-      "--port",
-      Integer.to_string(port)
-    ]
-    |> backend_args(llm_backend)
+    serve_args =
+      [
+        "mcp",
+        "serve",
+        "--transport",
+        "streamable-http",
+        "--host",
+        host,
+        "--port",
+        Integer.to_string(port)
+      ]
+      |> backend_args(llm_backend)
 
     # Prefer `uvx` — it pins the exact `[mcp,claude]` extras on every run, so
     # the server can't boot-then-die with "mcp package not installed" the way

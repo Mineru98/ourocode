@@ -31,6 +31,8 @@ defmodule Ourocode.Runtime.LoopBindings do
     Dispatcher,
     InterviewRouter,
     InterviewWorkflowInvocation,
+    OuroborosLogTailer,
+    OuroborosSessionReasoning,
     OuroborosWorkflowInvocation
   }
 
@@ -42,6 +44,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   @router_trace_keep 6
   @reasoning_keep 60
   @dialogue_keep 40
+  @activity_keep 24
 
   @ouroboros_adapters %{
     {:ouroboros_workflow, :interview} => InterviewWorkflowInvocation,
@@ -74,6 +77,9 @@ defmodule Ourocode.Runtime.LoopBindings do
         mcp_daemon: nil,
         mcp_llm_backend: nil,
         workflow: %{},
+        ouroboros_activity: [],
+        ouroboros_log_offsets: %{},
+        ouroboros_log_paths: [],
         paused: false
       }
     end)
@@ -135,7 +141,26 @@ defmodule Ourocode.Runtime.LoopBindings do
           required(:paused) => boolean()
         }
   def pane_snapshot(agent) when is_pid(agent) do
-    Agent.get(agent, fn state ->
+    {paths, offsets, session_id, has_reasoning?} =
+      Agent.get(agent, fn state ->
+        interview = state.interview || %{}
+
+        {
+          Map.get(state, :ouroboros_log_paths, []),
+          Map.get(state, :ouroboros_log_offsets, %{}),
+          Map.get(interview, :session_id),
+          Map.get(interview, :mcp_reasoning, []) != []
+        }
+      end)
+
+    {activity_lines, offsets} = OuroborosLogTailer.tail(paths, offsets)
+    {session_reasoning, session_reasoning_state} = load_session_reasoning(session_id, has_reasoning?)
+    activity_context = load_activity_context(session_id)
+
+    Agent.get_and_update(agent, fn state ->
+      state = refresh_ouroboros_activity(state, activity_lines, offsets, activity_context)
+      state = refresh_ouroboros_session_reasoning(state, session_reasoning, session_reasoning_state)
+
       %{
         runtime: %{parent_panes: state.parent, child_panes: state.child},
         wonder_tool: state.wonder,
@@ -143,8 +168,19 @@ defmodule Ourocode.Runtime.LoopBindings do
         interview_session: state.interview_session,
         paused: state.paused
       }
+      |> then(&{&1, state})
     end)
   end
+
+  defp load_session_reasoning(session_id, false) when is_binary(session_id),
+    do: OuroborosSessionReasoning.load(session_id)
+
+  defp load_session_reasoning(_session_id, _has_reasoning?), do: {[], %{}}
+
+  defp load_activity_context(session_id) when is_binary(session_id),
+    do: OuroborosSessionReasoning.load_activity_context(session_id)
+
+  defp load_activity_context(_session_id), do: %{}
 
   @doc """
   Clears an active wonderTool flow after it has been answered or cancelled.
@@ -713,24 +749,26 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp ensure_mcp_daemon(agent, %Model{} = model) do
     requested_backend = mcp_llm_backend(model)
 
-    Agent.get_and_update(agent, fn state ->
-      handle = Map.get(state, :mcp_daemon)
-      current_backend = Map.get(state, :mcp_llm_backend)
+    {handle, current_backend} =
+      Agent.get(agent, fn state ->
+        {Map.get(state, :mcp_daemon), Map.get(state, :mcp_llm_backend)}
+      end)
 
-      if reuse_mcp_daemon?(handle, current_backend, requested_backend) do
-        {{:ok, Map.get(handle, :url, mcp_url())}, state}
-      else
-        McpDaemon.stop(handle)
-        {:ok, new_handle} = McpDaemon.maybe_start(llm_backend: requested_backend)
+    if reuse_mcp_daemon?(handle, current_backend, requested_backend) do
+      {:ok, Map.get(handle, :url, mcp_url())}
+    else
+      McpDaemon.stop(handle)
+      {:ok, new_handle} = McpDaemon.maybe_start(llm_backend: requested_backend)
 
-        next_state =
-          state
-          |> Map.put(:mcp_daemon, new_handle)
-          |> Map.put(:mcp_llm_backend, requested_backend)
+      Agent.update(agent, fn state ->
+        state
+        |> Map.put(:mcp_daemon, new_handle)
+        |> Map.put(:mcp_llm_backend, requested_backend)
+        |> reset_ouroboros_log_sources(new_handle)
+      end)
 
-        {{:ok, Map.get(new_handle, :url, mcp_url())}, next_state}
-      end
-    end)
+      {:ok, Map.get(new_handle, :url, mcp_url())}
+    end
   end
 
   defp ensure_mcp_daemon(agent, _model), do: ensure_mcp_daemon(agent, Catalog.default())
@@ -740,6 +778,129 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp reuse_mcp_daemon?(_handle, current_backend, requested_backend),
     do: current_backend == requested_backend
+
+  defp refresh_ouroboros_activity(state, lines, offsets, activity_context) do
+    activity =
+      (Map.get(state, :ouroboros_activity, []) ++ lines)
+      |> Enum.map(&enrich_activity_line(&1, activity_context))
+      |> dedupe_activity()
+      |> Enum.take(-@activity_keep)
+
+    interview =
+      case state.interview do
+        %{} = iv when activity != [] -> Map.put(iv, :mcp_activity, activity)
+        other -> other
+      end
+
+    %{state | ouroboros_log_offsets: offsets, ouroboros_activity: activity, interview: interview}
+  end
+
+  defp enrich_activity_line(line, %{initial_context: initial_context} = activity_context)
+       when is_binary(line) and is_binary(initial_context) do
+    cond do
+      String.contains?(line, " · initial: ") ->
+        line
+
+      String.contains?(line, "interview started") ->
+        line
+        |> String.replace(~r/\s*·\s*\d+\s+chars/u, "")
+        |> Kernel.<>(" · initial: #{initial_context}")
+
+      true ->
+        enrich_question_activity_line(line, activity_context)
+    end
+  end
+
+  defp enrich_activity_line(line, activity_context) when is_binary(line) do
+    enrich_question_activity_line(line, activity_context)
+  end
+
+  defp enrich_activity_line(line, _activity_context), do: line
+
+  defp enrich_question_activity_line(line, %{questions: questions}) when is_map(questions) do
+    cond do
+      String.contains?(line, " · question: ") ->
+        line
+
+      true ->
+        case Regex.run(~r/\bround\s+(\d+)\s+·\s+question generated\b/u, line) do
+          [_match, round] ->
+            case Integer.parse(round) do
+              {round_number, ""} ->
+                case Map.get(questions, round_number) do
+                  question when is_binary(question) and question != "" ->
+                    "round #{round_number} · question: #{question}"
+
+                  _none ->
+                    line
+                end
+
+              _error ->
+                line
+            end
+
+          _no_match ->
+            line
+        end
+    end
+  end
+
+  defp enrich_question_activity_line(line, _activity_context), do: line
+
+  defp dedupe_activity(lines) do
+    lines
+    |> Enum.reverse()
+    |> Enum.uniq_by(&activity_dedupe_key/1)
+    |> Enum.reverse()
+  end
+
+  defp activity_dedupe_key(line) when is_binary(line) do
+    line
+    |> String.replace(~r/^activity:\s*/u, "")
+    |> String.replace(~r/\s*·\s*\d+\s+chars/u, "")
+    |> String.replace(~r/\s+/u, " ")
+    |> String.trim()
+  end
+
+  defp activity_dedupe_key(line), do: line
+
+  defp refresh_ouroboros_session_reasoning(state, [], _reasoning_state), do: state
+
+  defp refresh_ouroboros_session_reasoning(state, lines, reasoning_state) when is_list(lines) do
+    interview =
+      case state.interview do
+        %{} = iv ->
+          if Map.get(iv, :mcp_reasoning, []) == [] do
+            iv
+            |> Map.put(:mcp_reasoning, lines)
+            |> maybe_put(:mcp_reasoning_state, reasoning_state)
+          else
+            iv
+          end
+
+        other ->
+          other
+      end
+
+    %{state | interview: interview}
+  end
+
+  defp reset_ouroboros_log_sources(state, handle) do
+    paths =
+      [
+        Map.get(handle || %{}, :log_path),
+        OuroborosLogTailer.canonical_log_path()
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    offsets = Map.new(paths, &{&1, OuroborosLogTailer.file_size(&1)})
+
+    state
+    |> Map.put(:ouroboros_log_paths, paths)
+    |> Map.put(:ouroboros_log_offsets, offsets)
+    |> Map.put(:ouroboros_activity, [])
+  end
 
   defp mcp_llm_backend(%Model{id: id}) when id in [:codex, :codex_cli], do: "codex"
   defp mcp_llm_backend(%Model{id: :claude}), do: "claude_code"
@@ -1182,7 +1343,7 @@ defmodule Ourocode.Runtime.LoopBindings do
             "id" => "interview",
             "header" => "Interview",
             "question" => clean_markdown(prompt),
-            "options" => wonder_options(options)
+            "options" => wonder_options(options, prompt)
           }
         ]
       }
@@ -1192,7 +1353,13 @@ defmodule Ourocode.Runtime.LoopBindings do
   # wonderTool requires at least 2 options; the model may give fewer. Keep the
   # model's options first, then pad with generic affordances (free-type / skip)
   # so the checkpoint always renders. The baseline schema supports 2-4 choices.
-  defp wonder_options(model_options) do
+  defp wonder_options(model_options, prompt) do
+    model_options =
+      case model_options do
+        [] -> prompt_option_hints(prompt)
+        other -> other
+      end
+
     mapped =
       model_options
       |> Enum.take(4)
@@ -1203,6 +1370,40 @@ defmodule Ourocode.Runtime.LoopBindings do
     (mapped ++ @generic_ask_options)
     |> Enum.uniq_by(& &1["label"])
     |> Enum.take(max(2, length(mapped)))
+  end
+
+  defp prompt_option_hints(prompt) when is_binary(prompt) do
+    prompt
+    |> option_candidate_text()
+    |> split_option_candidates()
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&String.trim(&1, " .!?;:"))
+    |> Enum.reject(&(String.length(&1) < 2))
+    |> Enum.uniq()
+    |> Enum.take(4)
+    |> Enum.map(fn label ->
+      %{label: label, description: "Focus the interview on #{label}"}
+    end)
+  end
+
+  defp prompt_option_hints(_prompt), do: []
+
+  defp option_candidate_text(prompt) do
+    text = clean_markdown(prompt)
+
+    case Regex.split(~r/[?？:：]/u, text, parts: 2) do
+      [_before, rest] -> rest
+      [only] -> only
+    end
+  end
+
+  defp split_option_candidates(text) do
+    text
+    |> String.replace(~r/\b(?:or|versus|vs\.?)\b/iu, ",")
+    |> String.replace(~r/\b(?:and)\b/iu, ",")
+    |> String.replace(~r/\s*(?:아니면|또는|혹은)\s*/u, ",")
+    |> String.split(~r/\s*[,，、]\s*/u)
   end
 
   defp followup(agent, st, answer_text, new_streak) do
@@ -1361,9 +1562,18 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp question_from(text) do
     case parse_ambiguity(text) do
       {:ok, _score, question} -> clean_markdown(question)
-      :none -> clean_markdown(String.trim(text || ""))
+      :none -> text |> strip_interview_preamble() |> clean_markdown()
     end
   end
+
+  defp strip_interview_preamble(text) when is_binary(text) do
+    text
+    |> String.replace(~r/\A\s*Interview started\.\s*Session ID:\s*\S+\s*/i, "")
+    |> String.replace(~r/\A\s*Session ID:\s*\S+\s*/i, "")
+    |> String.trim()
+  end
+
+  defp strip_interview_preamble(text), do: to_string(text || "")
 
   # --- interview state helpers --------------------------------------------
 

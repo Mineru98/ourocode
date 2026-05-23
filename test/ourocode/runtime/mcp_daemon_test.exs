@@ -96,6 +96,18 @@ defmodule Ourocode.Runtime.McpDaemonTest do
     assert is_integer(port)
   end
 
+  test "spawned handle exposes its redirected log path when available" do
+    System.delete_env("OUROCODE_MCP_AUTOSTART")
+    System.delete_env("OUROCODE_MCP_URL")
+
+    spawn_fun = fn _host, _port, _llm_backend ->
+      {:ok, :fake_port, 101_011, "/tmp/ourocode-mcp-test.log"}
+    end
+
+    assert {:ok, %{mode: :spawned, log_path: "/tmp/ourocode-mcp-test.log"}} =
+             McpDaemon.maybe_start(spawn_fun: spawn_fun, wait?: false)
+  end
+
   test "an explicit operator URL is never overwritten by a spawn" do
     System.delete_env("OUROCODE_MCP_AUTOSTART")
     System.put_env("OUROCODE_MCP_URL", "http://127.0.0.1:4998/mcp")
@@ -131,7 +143,10 @@ defmodule Ourocode.Runtime.McpDaemonTest do
 
     # The signalled server is gone — `kill -0` now fails (no such process).
     Process.sleep(150)
-    assert {_err, code} = System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true)
+
+    assert {_err, code} =
+             System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true)
+
     assert code != 0
   end
 

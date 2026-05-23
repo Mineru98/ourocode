@@ -428,6 +428,199 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
            ]
   end
 
+  test "pane snapshot tails Ouroboros activity into the interview state" do
+    {:ok, agent} = LoopBindings.start_link()
+
+    path =
+      Path.join(System.tmp_dir!(), "ourocode-loop-log-#{System.unique_integer([:positive])}.log")
+
+    on_exit(fn -> File.rm(path) end)
+
+    File.write!(path, "")
+
+    Agent.update(agent, fn state ->
+      %{
+        state
+        | interview: %{status: "waiting for mcp follow-up question"},
+          ouroboros_log_paths: [path],
+          ouroboros_log_offsets: %{path => 0}
+      }
+    end)
+
+    File.write!(
+      path,
+      "2026-05-21T18:56:42.260163Z [info     ] interview.question_generated filename=interview.py interview_id=interview_1 lineno=520 question_length=133 round_number=1\n"
+    )
+
+    snap = LoopBindings.pane_snapshot(agent)
+
+    assert snap.interview.mcp_activity == [
+             "round 1 · question generated · 133 chars"
+           ]
+  end
+
+  test "pane snapshot falls back to persisted Ouroboros interview session state" do
+    previous_ouroboros_home = System.get_env("OUROCODE_OUROBOROS_HOME")
+    home = Path.join(System.tmp_dir!(), "ourocode-home-#{System.unique_integer([:positive])}")
+    ouroboros_home = Path.join(home, ".ouroboros")
+    File.mkdir_p!(Path.join([ouroboros_home, "data"]))
+    System.put_env("OUROCODE_OUROBOROS_HOME", ouroboros_home)
+
+    on_exit(fn ->
+      if previous_ouroboros_home,
+        do: System.put_env("OUROCODE_OUROBOROS_HOME", previous_ouroboros_home),
+        else: System.delete_env("OUROCODE_OUROBOROS_HOME")
+
+      File.rm_rf(home)
+    end)
+
+    {:ok, agent} = LoopBindings.start_link()
+
+    File.write!(
+      Path.join([ouroboros_home, "data", "interview_interview_snapshot.json"]),
+      Ourocode.Json.encode!(%{
+        "interview_id" => "interview_snapshot",
+        "status" => "in_progress",
+        "rounds" => [
+          %{
+            "round_number" => 1,
+            "question" => "Which MCP state should the UI surface?",
+            "user_response" => nil
+          }
+        ],
+        "is_brownfield" => false,
+        "completion_candidate_streak" => 0
+      })
+    )
+
+    Agent.update(agent, fn state ->
+      %{state | interview: %{session_id: "interview_snapshot", question: "Which MCP state?"}}
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+
+    assert snap.interview.mcp_reasoning == [
+             "phase: question",
+             "session: interview_snapshot",
+             "rounds: 0 answered / 1 total",
+             "pending: waiting for user answer",
+             "brownfield: false",
+             "stability: 0",
+             "status: in_progress",
+             "question_chars: 38",
+             "next: ask user to answer pending question",
+             "source: session_state"
+           ]
+
+    assert snap.interview.mcp_reasoning_state["source"] == "session_state"
+  end
+
+  test "pane snapshot enriches activity lengths with persisted session text" do
+    previous_ouroboros_home = System.get_env("OUROCODE_OUROBOROS_HOME")
+    home = Path.join(System.tmp_dir!(), "ourocode-home-#{System.unique_integer([:positive])}")
+    ouroboros_home = Path.join(home, ".ouroboros")
+    log_path = Path.join(home, "ouroboros.log")
+    File.mkdir_p!(Path.join([ouroboros_home, "data"]))
+    System.put_env("OUROCODE_OUROBOROS_HOME", ouroboros_home)
+
+    on_exit(fn ->
+      if previous_ouroboros_home,
+        do: System.put_env("OUROCODE_OUROBOROS_HOME", previous_ouroboros_home),
+        else: System.delete_env("OUROCODE_OUROBOROS_HOME")
+
+      File.rm_rf(home)
+    end)
+
+    File.write!(
+      Path.join([ouroboros_home, "data", "interview_interview_activity.json"]),
+      Ourocode.Json.encode!(%{
+        "interview_id" => "interview_activity",
+        "initial_context" => "ooo interview improve the right panel",
+        "rounds" => [
+          %{
+            "round_number" => 1,
+            "question" => "Which panel should surface the MCP reasoning?",
+            "user_response" => nil
+          }
+        ],
+        "is_brownfield" => true
+      })
+    )
+
+    File.write!(
+      log_path,
+      [
+        "2026-05-22T07:35:45Z [info     ] interview.started filename=interview.py initial_context_length=39 interview_id=interview_activity is_brownfield=True lineno=392\n",
+        "2026-05-22T07:35:45Z [info     ] interview.started filename=interview.py initial_context_length=39 interview_id=interview_activity is_brownfield=True lineno=392\n",
+        "2026-05-22T07:35:46Z [info     ] interview.question_generated filename=interview.py interview_id=interview_activity lineno=520 question_length=114 round_number=1\n"
+      ]
+    )
+
+    {:ok, agent} = LoopBindings.start_link()
+
+    Agent.update(agent, fn state ->
+      %{
+        state
+        | interview: %{session_id: "interview_activity", question: "Which panel?"},
+          ouroboros_log_paths: [log_path],
+          ouroboros_log_offsets: %{log_path => 0}
+      }
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+
+    assert snap.interview.mcp_activity == [
+             "interview started · session activity · brownfield · initial: ooo interview improve the right panel",
+             "round 1 · question: Which panel should surface the MCP reasoning?"
+           ]
+
+    assert LoopBindings.pane_snapshot(agent).interview.mcp_activity == snap.interview.mcp_activity
+  end
+
+  test "MCP response meta reasoning takes precedence over persisted session fallback" do
+    previous_ouroboros_home = System.get_env("OUROCODE_OUROBOROS_HOME")
+    home = Path.join(System.tmp_dir!(), "ourocode-home-#{System.unique_integer([:positive])}")
+    ouroboros_home = Path.join(home, ".ouroboros")
+    File.mkdir_p!(Path.join([ouroboros_home, "data"]))
+    System.put_env("OUROCODE_OUROBOROS_HOME", ouroboros_home)
+
+    on_exit(fn ->
+      if previous_ouroboros_home,
+        do: System.put_env("OUROCODE_OUROBOROS_HOME", previous_ouroboros_home),
+        else: System.delete_env("OUROCODE_OUROBOROS_HOME")
+
+      File.rm_rf(home)
+    end)
+
+    {:ok, agent} = LoopBindings.start_link()
+
+    File.write!(
+      Path.join([ouroboros_home, "data", "interview_interview_snapshot.json"]),
+      Ourocode.Json.encode!(%{
+        "interview_id" => "interview_snapshot",
+        "status" => "in_progress",
+        "rounds" => [
+          %{"round_number" => 1, "question" => "Fallback question?", "user_response" => nil}
+        ],
+        "is_brownfield" => false
+      })
+    )
+
+    Agent.update(agent, fn state ->
+      %{
+        state
+        | interview: %{
+            session_id: "interview_snapshot",
+            mcp_reasoning: ["phase: start", "source: response_meta"]
+          }
+      }
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+
+    assert snap.interview.mcp_reasoning == ["phase: start", "source: response_meta"]
+  end
+
   test "interview session loop: question → ANSWER → followup → seed-ready" do
     {:ok, agent} = LoopBindings.start_link()
 
@@ -702,6 +895,106 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
 
     refute_receive :loop_done, 50
     assert Process.alive?(loop)
+    Process.exit(loop, :kill)
+  end
+
+  test "interview fallback wonderTool derives choices from candidate axes in the question" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    pcf = fn payload ->
+      send(test_pid, {:followup, payload})
+
+      {:ok,
+       parent_result(%{
+         "result" => %{
+           "content" => [
+             %{
+               "type" => "text",
+               "text" =>
+                 "Interview started. Session ID: iv-candidates-1\n\nWhich UX area should improve first? CLI flow, error messages, onboarding, result display"
+             }
+           ],
+           "meta" => %{"session_id" => "iv-candidates-1"}
+         }
+       })}
+    end
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-candidates",
+          initial_payload: %{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}},
+          parent_call_fun: pcf,
+          model: hanging_model(),
+          project_dir: File.cwd!(),
+          router_decision_timeout_ms: 20
+        )
+      end)
+
+    assert_receive {:followup, _initial}, 1_000
+
+    wait_for(fn ->
+      wt = LoopBindings.pane_snapshot(agent).wonder_tool
+      wt && wt.question_count == 1
+    end)
+
+    [%{options: options}] = LoopBindings.pane_snapshot(agent).wonder_tool.request.questions
+    labels = Enum.map(options, & &1.label)
+
+    assert labels == ["CLI flow", "error messages", "onboarding", "result display"]
+    assert LoopBindings.pane_snapshot(agent).interview.question =~ "Which UX area"
+    refute LoopBindings.pane_snapshot(agent).interview.question =~ "Interview started"
+
+    Process.exit(loop, :kill)
+  end
+
+  test "interview fallback wonderTool handles Korean candidate axes before a trailing question mark" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    pcf = fn payload ->
+      send(test_pid, {:followup, payload})
+
+      {:ok,
+       parent_result(%{
+         "result" => %{
+           "content" => [
+             %{
+               "type" => "text",
+               "text" =>
+                 "개선하고 싶은 대상은 무엇인가요? CLI 사용 흐름, 에러 메시지/피드백, 설정/온보딩, 결과물 표시, 아니면 다른 작업 흐름인가요?"
+             }
+           ],
+           "meta" => %{"session_id" => "iv-ko-candidates-1"}
+         }
+       })}
+    end
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-ko-candidates",
+          initial_payload: %{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}},
+          parent_call_fun: pcf,
+          model: hanging_model(),
+          project_dir: File.cwd!(),
+          router_decision_timeout_ms: 20
+        )
+      end)
+
+    assert_receive {:followup, _initial}, 1_000
+
+    wait_for(fn ->
+      wt = LoopBindings.pane_snapshot(agent).wonder_tool
+      wt && wt.question_count == 1
+    end)
+
+    [%{options: options}] = LoopBindings.pane_snapshot(agent).wonder_tool.request.questions
+    labels = Enum.map(options, & &1.label)
+
+    assert labels == ["CLI 사용 흐름", "에러 메시지/피드백", "설정/온보딩", "결과물 표시"]
+
     Process.exit(loop, :kill)
   end
 

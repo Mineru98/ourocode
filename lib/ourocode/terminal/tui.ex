@@ -20,6 +20,7 @@ defmodule Ourocode.Terminal.Tui do
   @prompt "ourocode> "
   @min_width 40
   @min_height 16
+  @model_cache_ttl_ms 2_000
 
   @doc """
   Returns true only for a real interactive terminal session.
@@ -877,7 +878,10 @@ defmodule Ourocode.Terminal.Tui do
 
   defp handle_enter("/" <> _ = line, _r, _o, _s, _c, _ro), do: {:submit, line}
 
-  defp handle_enter("ooo" <> _ = line, _r, _o, _s, _c, _ro), do: {:submit, line}
+  defp handle_enter("ooo" <> _ = line, result, output, state, cols, rows) do
+    redraw(result, output, state, "", cols, rows)
+    {:submit, line}
+  end
 
   defp handle_enter(prompt, result, output, state, cols, rows) do
     chat(prompt, result, output, state, cols, rows)
@@ -1087,11 +1091,27 @@ defmodule Ourocode.Terminal.Tui do
       "ourocode-main"
   end
 
-  # The live model list is re-detected each time so status (sign-in, CLI
-  # availability) is always fresh; the chosen id only picks within it.
   defp active_model(state) do
-    models = Catalog.list()
-    Catalog.fetch(models, model_id(state)) || Catalog.default()
+    now = System.monotonic_time(:millisecond)
+
+    Agent.get_and_update(state, fn current ->
+      id = current.model_id
+
+      case current.model_cache do
+        %{id: ^id, expires_at: expires_at, model: %Model{} = model} when expires_at > now ->
+          {model, current}
+
+        _stale ->
+          models = Catalog.list()
+          model = Catalog.fetch(models, id) || Catalog.default()
+
+          {model,
+           %{
+             current
+             | model_cache: %{id: id, expires_at: now + @model_cache_ttl_ms, model: model}
+           }}
+      end
+    end)
   end
 
   defp auth_label(state) do
@@ -1131,6 +1151,7 @@ defmodule Ourocode.Terminal.Tui do
       view_opts(state)
       |> Map.put(:interview_block, interview_block_lines(result, nav, tick(state)))
       |> Map.put(:interview_reasoning, interview_reasoning_lines(result, tick(state)))
+      |> Map.put(:mcp_activity, mcp_activity_lines(result))
       |> Map.put(:wonder_focus, wonder_active?(result) and not paused?(result))
       |> Map.put(:interview_paused, paused?(result))
 
@@ -1660,6 +1681,36 @@ defmodule Ourocode.Terminal.Tui do
 
   defp mcp_reasoning_lines(_iv), do: []
 
+  @doc false
+  def mcp_activity_lines(result) do
+    case interview_state(result) do
+      %{mcp_activity: lines} when is_list(lines) -> format_mcp_activity_lines(lines)
+      _none -> []
+    end
+  end
+
+  defp format_mcp_activity_lines(lines) do
+    lines
+    |> Enum.take(-80)
+    |> Enum.map(&activity_display_line/1)
+    |> Enum.reject(&(&1 == "activity: "))
+  end
+
+  defp activity_display_line(line) do
+    line = plain_line(line)
+
+    if String.starts_with?(line, "activity: "),
+      do: line,
+      else: "activity: " <> line
+  end
+
+  defp plain_line(text) do
+    text
+    |> to_string()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
   defp fallback_reasoning_lines(%{mcp_reasoning: lines}) when is_list(lines) and lines != [],
     do: []
 
@@ -1813,6 +1864,7 @@ defmodule Ourocode.Terminal.Tui do
     interview_block = Map.get(opts, :interview_block)
     wonder_focus = Map.get(opts, :wonder_focus, false)
     reasoning = Map.get(opts, :interview_reasoning, [])
+    mcp_activity = Map.get(opts, :mcp_activity, [])
     activity = maybe_focus_paused_interview_activity(activity, opts)
     interview_present? = match?({_marker, _lines, _hint}, interview_block)
     interview_owns_left? = interview_present? and not Map.get(opts, :interview_paused, false)
@@ -1837,7 +1889,7 @@ defmodule Ourocode.Terminal.Tui do
       |> draw_header(width, kv, opts)
 
     scroll = Map.get(opts, :scroll, 0)
-    split? = mcp_active?(sections) or reasoning != []
+    split? = mcp_active?(sections) or reasoning != [] or mcp_activity != []
 
     # A live picker is an intentional checkpoint: mute the rest of the body
     # and let the decision UI own the available space so it cannot be missed.
@@ -1907,7 +1959,8 @@ defmodule Ourocode.Terminal.Tui do
             body_activity,
             sections,
             scroll,
-            reasoning
+            reasoning,
+            mcp_activity
           )
 
         interview_owns_left? ->
@@ -2890,7 +2943,8 @@ defmodule Ourocode.Terminal.Tui do
          activity,
          sections,
          scroll,
-         reasoning
+         reasoning,
+         mcp_activity
        ) do
     left_w = split_left_w(width)
     right_w = width - left_w - 1
@@ -2908,7 +2962,8 @@ defmodule Ourocode.Terminal.Tui do
         activity,
         sections,
         scroll,
-        reasoning
+        reasoning,
+        mcp_activity
       )
     end
   end
@@ -2923,7 +2978,8 @@ defmodule Ourocode.Terminal.Tui do
          activity,
          sections,
          scroll,
-         reasoning
+         reasoning,
+         mcp_activity
        ) do
     right_x = left_w + 1
     panel_h = max(bottom - right_top + 1, 1)
@@ -2937,17 +2993,33 @@ defmodule Ourocode.Terminal.Tui do
     body = section_body(sections, "Parent/Child Sessions")
     parent_lines = runtime_pane_lines(body, "parent ")
     child_lines = runtime_pane_lines(body, "child ")
+    reasoning_rows = wrap_sidebar_lines(reasoning, inner_w)
+    parent_rows = wrap_sidebar_lines(parent_lines, inner_w)
+    child_rows = wrap_sidebar_lines(child_lines, inner_w)
+    activity_rows = wrap_sidebar_lines(mcp_activity, inner_w)
 
-    # The interview reasoning section sits on top of the MCP telemetry so the
-    # "why this question" is the first thing the eye lands on; it only renders
-    # when the wire actually carried reasoning.
-    iv_h = if reasoning == [], do: 0, else: min(length(reasoning), max(div(region, 3), 1)) + 2
+    activity_h =
+      if activity_rows == [],
+        do: 0,
+        else: min(max(div(region, 3), 5), max(region - 5, 3))
 
-    rest = max(region - iv_h, 2)
-    {parent_body_h, child_body_h} = mcp_section_heights(parent_lines, child_lines, rest)
+    activity_gap = if activity_h == 0, do: 0, else: 1
+    upper_region = max(region - activity_h - activity_gap, 2)
+
+    # The interview reasoning section sits on top of the MCP telemetry when
+    # the backend actually sends reasoning metadata. Raw Ouroboros logs are
+    # rendered separately in the bottom activity stream.
+    iv_h =
+      if reasoning_rows == [],
+        do: 0,
+        else: min(length(reasoning_rows), max(div(upper_region, 3), 1)) + 2
+
+    rest = max(upper_region - iv_h, 2)
+    {parent_body_h, child_body_h} = mcp_section_heights(parent_rows, child_rows, rest)
 
     parent_top = inner_top + iv_h
     child_top = parent_top + 1 + parent_body_h + 1
+    activity_top = inner_top + upper_region + activity_gap
 
     # OpenCode separates the sidebar from the conversation with whitespace,
     # not a full-height rule. The transcript stops a few columns short of the
@@ -2965,9 +3037,17 @@ defmodule Ourocode.Terminal.Tui do
       transcript_clip_w
     )
     |> Screen.fill_rect(right_x, right_top, right_w, panel_h, :p_fill)
-    |> maybe_draw_interview_section(inner_x, inner_top, inner_w, reasoning, iv_h)
-    |> draw_mcp_section(inner_x, parent_top, inner_w, "MCP parent", parent_lines, parent_body_h)
-    |> draw_mcp_section(inner_x, child_top, inner_w, "child stream", child_lines, child_body_h)
+    |> maybe_draw_interview_section(inner_x, inner_top, inner_w, reasoning_rows, iv_h)
+    |> draw_mcp_section(inner_x, parent_top, inner_w, "MCP parent", parent_rows, parent_body_h)
+    |> draw_mcp_section(inner_x, child_top, inner_w, "child stream", child_rows, child_body_h)
+    |> maybe_draw_activity_section(
+      inner_x,
+      activity_top,
+      inner_w,
+      activity_rows,
+      activity_h,
+      scroll
+    )
   end
 
   defp draw_transcript_if_room(screen, width, top, bottom, activity, hint, scroll, clip \\ nil)
@@ -2984,6 +3064,25 @@ defmodule Ourocode.Terminal.Tui do
 
   defp maybe_draw_interview_section(screen, x, y, w, reasoning, iv_h) do
     draw_mcp_section(screen, x, y, w, "interview", reasoning, max(iv_h - 2, 1))
+  end
+
+  defp maybe_draw_activity_section(screen, _x, _y, _w, [], _h, _scroll), do: screen
+  defp maybe_draw_activity_section(screen, _x, _y, _w, _lines, h, _scroll) when h < 2, do: screen
+
+  defp maybe_draw_activity_section(screen, x, y, w, lines, h, scroll) do
+    draw_mcp_activity_section(screen, x, y, w, "activity log", lines, h - 1, scroll)
+  end
+
+  defp wrap_sidebar_lines(lines, w) when is_list(lines) do
+    width = max(w - 1, 1)
+
+    lines
+    |> Enum.flat_map(fn line ->
+      line
+      |> plain_line()
+      |> wrap_text(width)
+    end)
+    |> Enum.reject(&(&1 == ""))
   end
 
   # The pinned, prominent interview block (OpenCode message-block style: an
@@ -3143,11 +3242,45 @@ defmodule Ourocode.Terminal.Tui do
     rows
     |> Enum.with_index(1)
     |> Enum.reduce(screen, fn {{text, style}, offset}, acc ->
-      Screen.put_text(acc, x, y + offset, truncate_with_ellipsis(text, w - 1), style)
+      Screen.put_text(acc, x, y + offset, Screen.truncate(text, w - 1), style)
     end)
   end
 
   defp draw_mcp_section(screen, _x, _y, _w, _title, _lines, _body_h), do: screen
+
+  defp draw_mcp_activity_section(screen, x, y, w, title, lines, body_h, scroll)
+       when w >= 4 and body_h >= 1 do
+    rows =
+      lines
+      |> scroll_tail(body_h, scroll)
+      |> Enum.map(&{&1, :p_muted})
+
+    screen
+    |> Screen.put_text(x, y, title, :p_title)
+    |> Screen.put_text(x + String.length(title) + 1, y, "live", :warn)
+    |> then(fn screen ->
+      rows
+      |> Enum.with_index(1)
+      |> Enum.reduce(screen, fn {{text, style}, offset}, acc ->
+        Screen.put_text(acc, x, y + offset, Screen.truncate(text, w - 1), style)
+      end)
+    end)
+  end
+
+  defp draw_mcp_activity_section(screen, _x, _y, _w, _title, _lines, _body_h, _scroll),
+    do: screen
+
+  defp scroll_tail(lines, body_h, scroll) do
+    total = length(lines)
+
+    if total <= body_h do
+      lines
+    else
+      offset = max(scroll, 0)
+      start = max(total - body_h - offset, 0)
+      lines |> Enum.slice(start, body_h)
+    end
+  end
 
   defp mcp_section_status([]), do: {"idle", :p_muted}
 
@@ -3163,18 +3296,6 @@ defmodule Ourocode.Terminal.Tui do
       line =~ ~r/failed|error/i -> :p_err
       line == "idle" -> :p_muted
       true -> :p_dim
-    end
-  end
-
-  defp truncate_with_ellipsis(text, max_width) when max_width <= 3 do
-    Screen.truncate(text, max_width)
-  end
-
-  defp truncate_with_ellipsis(text, max_width) do
-    if Screen.text_width(text) > max_width do
-      Screen.truncate(text, max_width - 3) <> "..."
-    else
-      text
     end
   end
 
@@ -3517,6 +3638,7 @@ defmodule Ourocode.Terminal.Tui do
           tick: 0,
           size: {120, 40},
           model_id: nil,
+          model_cache: nil,
           scroll: 0,
           wonder_nav: nil,
           history: PromptStore.load_history(),
@@ -3554,8 +3676,7 @@ defmodule Ourocode.Terminal.Tui do
 
   defp scroll_by(state, delta), do: put_scroll(state, scroll_off(state) + delta)
 
-  defp model_id(state), do: Agent.get(state, & &1.model_id)
-  defp put_model_id(state, id), do: Agent.update(state, &%{&1 | model_id: id})
+  defp put_model_id(state, id), do: Agent.update(state, &%{&1 | model_id: id, model_cache: nil})
   defp size(state), do: Agent.get(state, & &1.size)
   defp put_size(state, wh), do: Agent.update(state, &%{&1 | size: wh})
   defp get_mode(state), do: Agent.get(state, & &1.mode)
@@ -3563,7 +3684,7 @@ defmodule Ourocode.Terminal.Tui do
   defp pidx(state), do: Agent.get(state, & &1.pidx)
   defp put_pidx(state, index), do: Agent.update(state, &%{&1 | pidx: index})
   defp login_state(state), do: Agent.get(state, & &1.login)
-  defp put_login(state, login), do: Agent.update(state, &%{&1 | login: login})
+  defp put_login(state, login), do: Agent.update(state, &%{&1 | login: login, model_cache: nil})
   defp streaming?(state), do: Agent.get(state, & &1.streaming)
   defp set_streaming(state, on), do: Agent.update(state, &%{&1 | streaming: on})
   defp key_help?(state), do: Agent.get(state, & &1.key_help)
