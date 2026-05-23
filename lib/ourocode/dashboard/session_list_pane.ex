@@ -110,7 +110,8 @@ defmodule Ourocode.Dashboard.SessionListPane do
     external_ids = map_value(session, :external_ids, %{})
 
     row = %{
-      session_id: first_present(session, external_ids, [:session_id, :native_session_id, :thread_id]),
+      session_id:
+        first_present(session, external_ids, [:session_id, :native_session_id, :thread_id]),
       child_id:
         first_present(session, external_ids, [
           :child_id,
@@ -191,14 +192,17 @@ defmodule Ourocode.Dashboard.SessionListPane do
 
   defp integer_value(map, key, default) do
     case value(map, key) do
-      value when is_integer(value) -> value
+      value when is_integer(value) ->
+        value
+
       value when is_binary(value) ->
         case Integer.parse(value) do
           {integer, ""} -> integer
           _ -> default
         end
 
-      _ -> default
+      _ ->
+        default
     end
   end
 

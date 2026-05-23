@@ -70,6 +70,7 @@ defmodule Ourocode.Plugin.AdapterMappingLoaderTest do
              )
 
     assert module_name == inspect(OfficialMappedAdapter)
+
     assert %{
              "algorithm" => "hmac-sha256",
              "key_id" => ^key_id,

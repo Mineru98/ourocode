@@ -270,7 +270,10 @@ defmodule Ourocode.JournalCleanupRecoveryTest do
 
     assert :ok = CleanupRecoveryIndex.verify_idempotent_replay(index)
     assert :ok = CleanupRecoveryIndex.verify_idempotent_replay(index)
-    assert :ok = CleanupRecoveryIndex.verify_idempotent_replay(index, "session:session-cancelled-1")
+
+    assert :ok =
+             CleanupRecoveryIndex.verify_idempotent_replay(index, "session:session-cancelled-1")
+
     assert :ok = CleanupRecoveryIndex.verify_idempotent_replay(index, "child:child-cancelled-1")
   end
 
@@ -578,6 +581,7 @@ defmodule Ourocode.JournalCleanupRecoveryTest do
 
     assert :ok = CleanupRecoveryIndex.verify_idempotent_replay(recovered_index)
     assert :ok = CleanupRecoveryIndex.verify_idempotent_replay(recovered_index)
+
     assert :ok =
              CleanupRecoveryIndex.verify_idempotent_replay(
                recovered_index,
@@ -652,7 +656,9 @@ defmodule Ourocode.JournalCleanupRecoveryTest do
   end
 
   defp journal_path(name) do
-    path = Path.join(System.tmp_dir!(), "ourocode-#{name}-#{System.unique_integer([:positive])}.jsonl")
+    path =
+      Path.join(System.tmp_dir!(), "ourocode-#{name}-#{System.unique_integer([:positive])}.jsonl")
+
     File.rm(path)
     path
   end

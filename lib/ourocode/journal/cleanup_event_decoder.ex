@@ -246,7 +246,8 @@ defmodule Ourocode.Journal.CleanupEventDecoder do
 
       string_value(event, :parent_call_id) && transport(event) ->
         {:ok,
-         "transport:" <> Atom.to_string(transport(event)) <> ":" <> string_value(event, :parent_call_id)}
+         "transport:" <>
+           Atom.to_string(transport(event)) <> ":" <> string_value(event, :parent_call_id)}
 
       true ->
         {:error, :missing_cleanup_identity}
@@ -298,7 +299,8 @@ defmodule Ourocode.Journal.CleanupEventDecoder do
   end
 
   defp session_id(event) do
-    string_value(event, :session_id) || Map.get(map_value(event, :external_ids, %{}), "session_id")
+    string_value(event, :session_id) ||
+      Map.get(map_value(event, :external_ids, %{}), "session_id")
   end
 
   defp normalize_event(%_{} = event), do: event |> Map.from_struct() |> normalize_event()
@@ -342,9 +344,11 @@ defmodule Ourocode.Journal.CleanupEventDecoder do
   defp top_level_key("stale_cleanup_timeout_ms"), do: :stale_cleanup_timeout_ms
   defp top_level_key("stream_cursor"), do: :stream_cursor
   defp top_level_key("stream_kind"), do: :stream_kind
+
   defp top_level_key("stream_subscription_cleanup_timeout_ms") do
     :stream_subscription_cleanup_timeout_ms
   end
+
   defp top_level_key("transport"), do: :transport
   defp top_level_key("type"), do: :type
   defp top_level_key("updated_at_ms"), do: :updated_at_ms
@@ -373,7 +377,9 @@ defmodule Ourocode.Journal.CleanupEventDecoder do
 
   defp integer_value(event, key) do
     case value(event, key) do
-      value when is_integer(value) -> value
+      value when is_integer(value) ->
+        value
+
       value when is_binary(value) ->
         case Integer.parse(value) do
           {integer, ""} -> integer
@@ -401,7 +407,10 @@ defmodule Ourocode.Journal.CleanupEventDecoder do
   defp string_to_existing_cleanup_atom("idle_timeout"), do: :idle_timeout
   defp string_to_existing_cleanup_atom("noop"), do: :noop
   defp string_to_existing_cleanup_atom("operation_timeout"), do: :operation_timeout
-  defp string_to_existing_cleanup_atom("release_runtime_resources"), do: :release_runtime_resources
+
+  defp string_to_existing_cleanup_atom("release_runtime_resources"),
+    do: :release_runtime_resources
+
   defp string_to_existing_cleanup_atom("session"), do: :session
   defp string_to_existing_cleanup_atom("transport"), do: :transport
   defp string_to_existing_cleanup_atom(_value), do: nil

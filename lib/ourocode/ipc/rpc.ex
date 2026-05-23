@@ -260,8 +260,10 @@ defmodule Ourocode.IPC.RPC do
   end
 
   defp normalize_helper_config(config, helper) when is_map(config) do
-    command = Map.get(config, :command) || Map.get(config, "command") || Map.get(config, :path) ||
-      Map.get(config, "path")
+    command =
+      Map.get(config, :command) || Map.get(config, "command") || Map.get(config, :path) ||
+        Map.get(config, "path")
+
     args = Map.get(config, :args) || Map.get(config, "args") || []
     version = Map.get(config, :version) || Map.get(config, "version")
 

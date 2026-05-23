@@ -209,7 +209,10 @@ defmodule Ourocode.Terminal.PluginStatusArea do
 
   defp transition_only_status_entries(plugins_by_id, transitions, configured_plugins) do
     configured_ids =
-      MapSet.new(configured_plugins, &(text_value(&1, :id) || text_value(&1, :plugin_id) || "plugin"))
+      MapSet.new(
+        configured_plugins,
+        &(text_value(&1, :id) || text_value(&1, :plugin_id) || "plugin")
+      )
 
     transitions
     |> Enum.reject(fn transition ->

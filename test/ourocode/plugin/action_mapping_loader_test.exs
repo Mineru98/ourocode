@@ -14,7 +14,8 @@ defmodule Ourocode.Plugin.ActionMappingLoaderTest do
        %{
          focused?: true,
          child_id: action_payload.child_id,
-         pane_state: Map.put(action_payload.pane_state, :focused_child_id, action_payload.child_id)
+         pane_state:
+           Map.put(action_payload.pane_state, :focused_child_id, action_payload.child_id)
        }}
     end
   end
@@ -71,6 +72,7 @@ defmodule Ourocode.Plugin.ActionMappingLoaderTest do
              )
 
     assert module_name == inspect(OfficialSessionFocusAction)
+
     assert %{
              "algorithm" => "hmac-sha256",
              "key_id" => ^key_id,

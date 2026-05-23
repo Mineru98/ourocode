@@ -124,7 +124,8 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
     )
   end
 
-  @spec complete_operation(map(), term()) :: {:ok, map()} | {{:error, :operation_not_active}, map()}
+  @spec complete_operation(map(), term()) ::
+          {:ok, map()} | {{:error, :operation_not_active}, map()}
   def complete_operation(%{stream_active_operation_id: operation_id} = state, operation_id) do
     state =
       state

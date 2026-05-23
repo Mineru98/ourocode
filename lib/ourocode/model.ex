@@ -22,7 +22,8 @@ defmodule Ourocode.Model do
   defstruct [:id, :label, :kind, :status, :run]
 
   @type status :: :ready | {:needs_auth, String.t()} | :unavailable
-  @type runner :: (String.t(), keyword(), (String.t() -> any()) -> {:ok, String.t()} | {:error, term()})
+  @type runner :: (String.t(), keyword(), (String.t() -> any()) ->
+                     {:ok, String.t()} | {:error, term()})
 
   @type t :: %__MODULE__{
           id: atom(),

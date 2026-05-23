@@ -85,7 +85,9 @@ defmodule Ourocode.Json do
     parse_number(binary)
   end
 
-  defp parse_string("\"" <> rest, acc), do: {:ok, acc |> Enum.reverse() |> IO.iodata_to_binary(), rest}
+  defp parse_string("\"" <> rest, acc),
+    do: {:ok, acc |> Enum.reverse() |> IO.iodata_to_binary(), rest}
+
   defp parse_string("\\\"" <> rest, acc), do: parse_string(rest, [?\" | acc])
   defp parse_string("\\\\" <> rest, acc), do: parse_string(rest, [?\\ | acc])
   defp parse_string("\\/" <> rest, acc), do: parse_string(rest, [?/ | acc])

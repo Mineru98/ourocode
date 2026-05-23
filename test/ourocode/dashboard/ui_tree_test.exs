@@ -464,23 +464,27 @@ defmodule Ourocode.Dashboard.UITreeTest do
       |> ParentMcpPane.apply_event(parent_started(:sse, "parent-registered-siblings-1", 1))
 
     child_state =
-      Enum.reduce(["one", "two", "three"], %{working: [], completed: [], focused: nil, open: []}, fn
-        suffix, state ->
-          assert {:ok, state} =
-                   ChildSessionPanes.register_child_pane(state, %{
-                     child_id: "child-registered-#{suffix}",
-                     parent_call_id: "parent-registered-siblings-1",
-                     runtime_source: "opencode",
-                     transport: :sse,
-                     external_ids: %{"thread_id" => "thread-registered-#{suffix}"},
-                     stream_cursor: %{event_seq: String.length(suffix)},
-                     pane_state: %{title: "Registered #{suffix}"},
-                     created_at_ms: String.length(suffix) * 100,
-                     updated_at_ms: String.length(suffix) * 100
-                   })
+      Enum.reduce(
+        ["one", "two", "three"],
+        %{working: [], completed: [], focused: nil, open: []},
+        fn
+          suffix, state ->
+            assert {:ok, state} =
+                     ChildSessionPanes.register_child_pane(state, %{
+                       child_id: "child-registered-#{suffix}",
+                       parent_call_id: "parent-registered-siblings-1",
+                       runtime_source: "opencode",
+                       transport: :sse,
+                       external_ids: %{"thread_id" => "thread-registered-#{suffix}"},
+                       stream_cursor: %{event_seq: String.length(suffix)},
+                       pane_state: %{title: "Registered #{suffix}"},
+                       created_at_ms: String.length(suffix) * 100,
+                       updated_at_ms: String.length(suffix) * 100
+                     })
 
-          state
-      end)
+            state
+        end
+      )
 
     tree = UITree.from_panes(parent_state, child_state)
 

@@ -70,6 +70,7 @@ defmodule Ourocode.Plugin.RendererMappingLoaderTest do
              )
 
     assert module_name == inspect(OfficialChildRenderer)
+
     assert %{
              "algorithm" => "hmac-sha256",
              "key_id" => ^key_id,

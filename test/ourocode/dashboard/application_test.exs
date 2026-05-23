@@ -14,6 +14,7 @@ defmodule Ourocode.Dashboard.ApplicationTest do
     assert result.runtime_source == "ourocode"
     assert result.context.project_dir == Path.expand(project_dir)
     assert result.context.cwd == project_dir
+
     assert result.context.config == %{
              parallel_child_count: 3,
              repeat_count: 1,
@@ -55,7 +56,9 @@ defmodule Ourocode.Dashboard.ApplicationTest do
                pane_state_retention_ms: 300_000
              }
            }
+
     assert result.prompt_placeholder == "Describe a task for a new session"
+
     assert result.panes.task_prompt == %{
              id: :task_prompt,
              kind: :natural_language_task_input,

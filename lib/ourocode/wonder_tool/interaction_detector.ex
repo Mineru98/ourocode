@@ -107,14 +107,20 @@ defmodule Ourocode.WonderTool.InteractionDetector do
       first_map_field(payload, ["arguments", :arguments]),
       first_map_field(payload, ["params", :params]),
       first_map_field(payload, ["input", :input]),
-      payload |> first_map_field(["params", :params]) |> first_map_field(["arguments", :arguments]),
+      payload
+      |> first_map_field(["params", :params])
+      |> first_map_field(["arguments", :arguments]),
       payload |> first_map_field(["input", :input]) |> first_map_field(["arguments", :arguments])
     ]
     |> Enum.filter(&is_map/1)
   end
 
-  defp accepted_tool_name?(name) when is_atom(name), do: name |> Atom.to_string() |> accepted_tool_name?()
-  defp accepted_tool_name?(name) when is_binary(name), do: MapSet.member?(@accepted_tool_names, name)
+  defp accepted_tool_name?(name) when is_atom(name),
+    do: name |> Atom.to_string() |> accepted_tool_name?()
+
+  defp accepted_tool_name?(name) when is_binary(name),
+    do: MapSet.member?(@accepted_tool_names, name)
+
   defp accepted_tool_name?(_name), do: false
 
   defp first_map_field(nil, _keys), do: nil

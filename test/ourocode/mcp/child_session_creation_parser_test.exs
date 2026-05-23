@@ -17,8 +17,8 @@ defmodule Ourocode.MCP.ChildSessionCreationParserTest do
           "jsonrpc" => "2.0",
           "method" => "notifications/progress",
           "params" => %{"childID" => "child-1", "seq" => 1}
-               }
-             })
+        }
+      })
 
     assert {:ok,
             %{

@@ -155,6 +155,7 @@ defmodule Ourocode.MCP.RuntimeEventParserTest do
     assert RuntimeEventParser.extract_external_ids(%{
              "metadata" => %{"session_id" => "hidden"}
            }) == %{}
+
     assert RuntimeEventParser.extract_external_ids(nil) == %{}
   end
 end

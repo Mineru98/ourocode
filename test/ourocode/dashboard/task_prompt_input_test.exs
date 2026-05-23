@@ -31,7 +31,9 @@ defmodule Ourocode.Dashboard.TaskPromptInputTest do
     assert TaskPromptInput.render_line(TaskPromptInput.render()) ==
              "> Describe a task for a new session"
 
-    assert TaskPromptInput.render_line(TaskPromptInput.render(value: "Investigate MCP stream loss")) ==
+    assert TaskPromptInput.render_line(
+             TaskPromptInput.render(value: "Investigate MCP stream loss")
+           ) ==
              "> Investigate MCP stream loss"
   end
 

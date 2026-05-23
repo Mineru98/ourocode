@@ -237,8 +237,11 @@ defmodule Ourocode.Plugin.HotReloadBoundary do
     |> Map.put(:plugins_by_id, plugins_by_id)
   end
 
-  defp maybe_append_plugin_status(configured_plugins, _target_status, true), do: configured_plugins
-  defp maybe_append_plugin_status(configured_plugins, target_status, false), do: configured_plugins ++ [target_status]
+  defp maybe_append_plugin_status(configured_plugins, _target_status, true),
+    do: configured_plugins
+
+  defp maybe_append_plugin_status(configured_plugins, target_status, false),
+    do: configured_plugins ++ [target_status]
 
   defp enabled_plugin_ids(plugin_states) do
     plugin_states |> Enum.filter(& &1.enabled?) |> Enum.map(& &1.id)

@@ -19,10 +19,10 @@ defmodule Ourocode.Journal.RelationshipEventDecoder do
                         ])
 
   @runtime_relationship_types MapSet.new([
-                                  :parent_call_started,
-                                  :parent_call_event,
-                                  :parent_call_result
-                                ])
+                                :parent_call_started,
+                                :parent_call_event,
+                                :parent_call_result
+                              ])
 
   @typedoc "Decode result for a single journal entry."
   @type decode_result :: {:ok, RelationshipRecoveryRecord.t()} | :ignore | {:error, term()}
@@ -175,7 +175,8 @@ defmodule Ourocode.Journal.RelationshipEventDecoder do
   end
 
   defp known_type(type) do
-    (@pane_lifecycle_types |> MapSet.union(@runtime_relationship_types))
+    @pane_lifecycle_types
+    |> MapSet.union(@runtime_relationship_types)
     |> Enum.find_value(:error, fn known ->
       if Atom.to_string(known) == type, do: {:ok, known}
     end)

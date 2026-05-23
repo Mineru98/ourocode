@@ -300,7 +300,8 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.LifecycleNormalizer do
     end
   end
 
-  defp lifecycle_error_response_event(decoded, context), do: lifecycle_record_event(decoded, context)
+  defp lifecycle_error_response_event(decoded, context),
+    do: lifecycle_record_event(decoded, context)
 
   defp lifecycle_error_candidates(error) do
     data = Map.get(error, "data")

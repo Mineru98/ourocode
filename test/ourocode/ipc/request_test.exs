@@ -141,7 +141,10 @@ defmodule Ourocode.IPC.RequestTest do
              Request.from_payload(%{"method" => "helper.scan", "action" => 123}, "req-3")
 
     assert {:error, {:invalid_field, "params", []}} =
-             Request.from_payload(%{"method" => "helper.scan", "action" => "run", "params" => []}, "req-3")
+             Request.from_payload(
+               %{"method" => "helper.scan", "action" => "run", "params" => []},
+               "req-3"
+             )
   end
 
   test "rejects wrong envelope message type before dispatch" do

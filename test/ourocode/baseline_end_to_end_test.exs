@@ -32,7 +32,10 @@ defmodule Ourocode.BaselineEndToEndTest do
     parent = self()
 
     journal_path =
-      Path.join(System.tmp_dir!(), "ourocode-baseline-e2e-#{System.unique_integer([:positive])}.jsonl")
+      Path.join(
+        System.tmp_dir!(),
+        "ourocode-baseline-e2e-#{System.unique_integer([:positive])}.jsonl"
+      )
 
     File.rm(journal_path)
     on_exit(fn -> File.rm(journal_path) end)

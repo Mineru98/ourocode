@@ -56,11 +56,14 @@ defmodule Ourocode.Plugin.MappingSignatureVerifier do
   def verify(mapping_type, plugin, mapping, opts \\ [])
       when mapping_type in [:adapter, :renderer, :action] and is_map(plugin) and is_map(mapping) do
     case Map.get(mapping, "signature") do
-      nil -> {:error, :missing_mapping_signature}
+      nil ->
+        {:error, :missing_mapping_signature}
+
       signature when is_map(signature) ->
         verify_signature(mapping_type, plugin, mapping, signature, opts)
 
-      _other -> {:error, :invalid_mapping_signature}
+      _other ->
+        {:error, :invalid_mapping_signature}
     end
   end
 

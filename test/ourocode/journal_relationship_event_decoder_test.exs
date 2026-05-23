@@ -63,7 +63,10 @@ defmodule Ourocode.JournalRelationshipEventDecoderTest do
                pane_id: "child-session:child-recovery-1",
                runtime_source: "opencode",
                transport: :sse,
-               external_ids: %{"session_id" => "session-recovery-1", "childID" => "child-recovery-1"},
+               external_ids: %{
+                 "session_id" => "session-recovery-1",
+                 "childID" => "child-recovery-1"
+               },
                stream_cursor: %{
                  "event_id" => "evt-2",
                  transport: :sse,
@@ -82,7 +85,10 @@ defmodule Ourocode.JournalRelationshipEventDecoderTest do
                pane_id: "child-pane:recovery-1",
                runtime_source: "opencode",
                transport: :sse,
-               external_ids: %{"session_id" => "session-recovery-1", "childID" => "child-recovery-1"},
+               external_ids: %{
+                 "session_id" => "session-recovery-1",
+                 "childID" => "child-recovery-1"
+               },
                stream_cursor: %{
                  "event_id" => "evt-3",
                  transport: :sse,
@@ -177,7 +183,9 @@ defmodule Ourocode.JournalRelationshipEventDecoderTest do
   end
 
   defp journal_path(name) do
-    path = Path.join(System.tmp_dir!(), "ourocode-#{name}-#{System.unique_integer([:positive])}.jsonl")
+    path =
+      Path.join(System.tmp_dir!(), "ourocode-#{name}-#{System.unique_integer([:positive])}.jsonl")
+
     File.rm(path)
     path
   end

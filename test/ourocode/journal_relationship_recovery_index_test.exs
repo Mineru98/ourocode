@@ -204,7 +204,11 @@ defmodule Ourocode.JournalRelationshipRecoveryIndexTest do
               transport: :sse,
               child_id: "child-ack-a",
               event_seq: 3
-            }} = RelationshipRecoveryIndex.acknowledged_stream_cursor_for_pane(index, "child-pane:ack-a")
+            }} =
+             RelationshipRecoveryIndex.acknowledged_stream_cursor_for_pane(
+               index,
+               "child-pane:ack-a"
+             )
 
     assert {:ok,
             %{
@@ -213,14 +217,16 @@ defmodule Ourocode.JournalRelationshipRecoveryIndexTest do
               transport: :sse,
               child_id: "child-ack-b",
               event_seq: 2
-            }} = RelationshipRecoveryIndex.acknowledged_stream_cursor_for_pane(index, "child-pane:ack-b")
+            }} =
+             RelationshipRecoveryIndex.acknowledged_stream_cursor_for_pane(
+               index,
+               "child-pane:ack-b"
+             )
 
-    assert {:ok,
-            %{"event_id" => "evt-a-ack-later", "offset" => 30}} =
+    assert {:ok, %{"event_id" => "evt-a-ack-later", "offset" => 30}} =
              RelationshipRecoveryIndex.acknowledged_stream_cursor_for_child(index, "child-ack-a")
 
-    assert {:ok,
-            %{"event_id" => "evt-b-ack", "offset" => 20}} =
+    assert {:ok, %{"event_id" => "evt-b-ack", "offset" => 20}} =
              RelationshipRecoveryIndex.acknowledged_stream_cursor_for_child(index, "child-ack-b")
   end
 
@@ -248,7 +254,9 @@ defmodule Ourocode.JournalRelationshipRecoveryIndexTest do
   end
 
   defp journal_path(name) do
-    path = Path.join(System.tmp_dir!(), "ourocode-#{name}-#{System.unique_integer([:positive])}.jsonl")
+    path =
+      Path.join(System.tmp_dir!(), "ourocode-#{name}-#{System.unique_integer([:positive])}.jsonl")
+
     File.rm(path)
     path
   end

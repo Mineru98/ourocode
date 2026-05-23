@@ -82,7 +82,9 @@ defmodule Ourocode.IPC.ResponseTest do
     encoded = Envelope.encode!(envelope) |> IO.iodata_to_binary()
 
     assert {:ok, ^envelope} = Envelope.decode(encoded)
-    assert {:ok, %Response{request_id: "req-4", result: %{"pid" => 42}}} = Response.from_envelope(envelope)
+
+    assert {:ok, %Response{request_id: "req-4", result: %{"pid" => 42}}} =
+             Response.from_envelope(envelope)
   end
 
   test "deserializes successful Rust helper IPC response JSON messages" do
@@ -148,7 +150,9 @@ defmodule Ourocode.IPC.ResponseTest do
   test "deserialization rejects malformed JSON and invalid Rust helper response envelopes" do
     assert {:error, {:invalid_value, "not-json"}} = Response.deserialize("not-json")
     assert {:error, {:invalid_field, "message", :not_binary}} = Response.deserialize(:not_binary)
-    assert {:error, {:invalid_field, "line", :not_binary}} = Response.deserialize_line(:not_binary)
+
+    assert {:error, {:invalid_field, "line", :not_binary}} =
+             Response.deserialize_line(:not_binary)
 
     {:ok, request_envelope} = Request.envelope("req-deser-3", "helper.scan", "run")
     encoded_request = Envelope.encode!(request_envelope) |> IO.iodata_to_binary()
@@ -230,13 +234,22 @@ defmodule Ourocode.IPC.ResponseTest do
              Response.from_payload(%{"request_id" => "req-6", "status" => "ok"}, "res-6")
 
     assert {:error, {:invalid_field, "request_id", " "}} =
-             Response.from_payload(%{"request_id" => " ", "status" => "ok", "result" => %{}}, "res-6")
+             Response.from_payload(
+               %{"request_id" => " ", "status" => "ok", "result" => %{}},
+               "res-6"
+             )
 
     assert {:error, {:invalid_field, "result", []}} =
-             Response.from_payload(%{"request_id" => "req-6", "status" => "ok", "result" => []}, "res-6")
+             Response.from_payload(
+               %{"request_id" => "req-6", "status" => "ok", "result" => []},
+               "res-6"
+             )
 
     assert {:error, {:invalid_field, "status", "pending"}} =
-             Response.from_payload(%{"request_id" => "req-6", "status" => "pending", "result" => %{}}, "res-6")
+             Response.from_payload(
+               %{"request_id" => "req-6", "status" => "pending", "result" => %{}},
+               "res-6"
+             )
   end
 
   test "rejects invalid status-specific payload combinations" do

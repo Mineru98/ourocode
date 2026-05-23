@@ -265,7 +265,8 @@ defmodule Ourocode.Plugin.MappingSignatureVerifierTest do
        %{"key" => "pane.open", "module" => inspect(SignedAction)}}
     ]
 
-    for {mapping_type, loader, manifest_key, capability, signed_payload, tampered_mapping} <- cases do
+    for {mapping_type, loader, manifest_key, capability, signed_payload, tampered_mapping} <-
+          cases do
       plugin_path = tmp_plugin_dir!("payload-mismatch-#{manifest_key}")
 
       signature =

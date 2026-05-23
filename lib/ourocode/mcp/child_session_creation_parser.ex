@@ -226,7 +226,8 @@ defmodule Ourocode.MCP.ChildSessionCreationParser do
            checked_sources: fallback_runtime_id_sources()
          }}
 
-      _ -> :ignore
+      _ ->
+        :ignore
     end
   end
 
@@ -403,7 +404,9 @@ defmodule Ourocode.MCP.ChildSessionCreationParser do
   defp get_nested(map, keys) do
     Enum.reduce_while(keys, map, fn key, acc ->
       cond do
-        is_map(acc) and Map.has_key?(acc, key) -> {:cont, Map.get(acc, key)}
+        is_map(acc) and Map.has_key?(acc, key) ->
+          {:cont, Map.get(acc, key)}
+
         is_map(acc) and is_atom(key) and Map.has_key?(acc, Atom.to_string(key)) ->
           {:cont, Map.get(acc, Atom.to_string(key))}
 
