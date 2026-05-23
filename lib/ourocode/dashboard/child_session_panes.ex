@@ -7,10 +7,11 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   without owning the MCP lifecycle.
   """
 
+  alias Ourocode.Dashboard.ChildSessionStream
+  alias Ourocode.Dashboard.ChildSessionMetadata
   alias Ourocode.MCP.ChildSessionCreationParser
   alias Ourocode.MCP.RuntimeEventParser
   alias Ourocode.MCP.Transport.StdoutJsonlParser
-  alias Ourocode.Journal
   alias Ourocode.Journal.RelationshipRecoveryIndex
 
   @type pane_state :: %{
@@ -108,14 +109,6 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
           optional(:pane_state) => map(),
           optional(:updated_at_ms) => integer()
         }
-
-  @pane_lifecycle_types MapSet.new([
-                          :child_pane_registered,
-                          :child_pane_opened,
-                          :child_pane_focused,
-                          :child_pane_updated,
-                          :child_pane_completed
-                        ])
 
   @doc """
   Returns an empty child pane projection state.
@@ -263,16 +256,18 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
         metadata
       )
       when is_list(working) and is_list(completed) and is_list(open) and is_map(metadata) do
-    with {:ok, child_id} <- metadata_string(metadata, :child_id),
-         {:ok, parent_call_id} <- metadata_string(metadata, :parent_call_id),
-         {:ok, runtime_source} <- metadata_string(metadata, :runtime_source),
-         {:ok, transport} <- metadata_transport(metadata) do
-      now = metadata_integer(metadata, :updated_at_ms) || System.system_time(:millisecond)
-      created_at_ms = metadata_integer(metadata, :created_at_ms) || now
+    with {:ok, child_id} <- ChildSessionMetadata.string(metadata, :child_id),
+         {:ok, parent_call_id} <- ChildSessionMetadata.string(metadata, :parent_call_id),
+         {:ok, runtime_source} <- ChildSessionMetadata.string(metadata, :runtime_source),
+         {:ok, transport} <- ChildSessionMetadata.transport(metadata) do
+      now =
+        ChildSessionMetadata.integer(metadata, :updated_at_ms) || System.system_time(:millisecond)
+
+      created_at_ms = ChildSessionMetadata.integer(metadata, :created_at_ms) || now
 
       external_ids =
         metadata
-        |> metadata_map(:external_ids, %{})
+        |> ChildSessionMetadata.map_value(:external_ids, %{})
         |> Map.put_new("childID", child_id)
 
       existing_panes = working ++ completed
@@ -297,12 +292,12 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
         external_ids: external_ids,
         stream_cursor:
           metadata
-          |> metadata_map(:stream_cursor, %{})
+          |> ChildSessionMetadata.map_value(:stream_cursor, %{})
           |> Map.merge(%{
             transport: transport,
             child_id: registry_child_id(child_id)
           }),
-        pane_state: metadata_pane_state(metadata, existing_pane),
+        pane_state: ChildSessionMetadata.pane_state(metadata, existing_pane),
         created_at_ms: created_at_ms,
         updated_at_ms: now
       }
@@ -498,7 +493,7 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
 
     with {:ok, state} <-
            register_child_pane(state, create_open_request_metadata(request, should_focus?)) do
-      pane_id = metadata_value(request, :pane_id)
+      pane_id = ChildSessionMetadata.value(request, :pane_id)
 
       if should_focus? and is_binary(pane_id) do
         focus_session(state, pane_id)
@@ -652,13 +647,14 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
          runtime_source: runtime_source,
          transport: transport,
          external_ids: external_ids(event, child_id, child_id_source),
-         stream_cursor: stream_cursor(event, transport, event_seq, child_id),
+         stream_cursor: ChildSessionStream.stream_cursor(event, transport, event_seq, child_id),
          pane_state: %{
            open?: true,
            focused?: false,
            renderer: :default_child_session,
            last_event_seq: event_seq,
-           stream_entries: stream_entries_for_event(event, event_seq, occurred_at_ms)
+           stream_entries:
+             ChildSessionStream.stream_entries_for_event(event, event_seq, occurred_at_ms)
          },
          created_at_ms: occurred_at_ms,
          updated_at_ms: occurred_at_ms
@@ -675,29 +671,29 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   """
   @spec from_pane_lifecycle_event(map()) :: {:ok, child_pane(), atom()} | :ignore
   def from_pane_lifecycle_event(event) when is_map(event) do
-    with {:ok, lifecycle_type} <- pane_lifecycle_type(event),
-         {:ok, child_id} <- metadata_string(event, :child_id),
-         {:ok, pane_id} <- metadata_string_any(event, [:pane_id, :id]),
-         {:ok, parent_call_id} <- metadata_string(event, :parent_call_id),
-         {:ok, runtime_source} <- metadata_string(event, :runtime_source),
-         {:ok, transport} <- metadata_transport(event) do
+    with {:ok, lifecycle_type} <- ChildSessionMetadata.lifecycle_type(event),
+         {:ok, child_id} <- ChildSessionMetadata.string(event, :child_id),
+         {:ok, pane_id} <- ChildSessionMetadata.string_any(event, [:pane_id, :id]),
+         {:ok, parent_call_id} <- ChildSessionMetadata.string(event, :parent_call_id),
+         {:ok, runtime_source} <- ChildSessionMetadata.string(event, :runtime_source),
+         {:ok, transport} <- ChildSessionMetadata.transport(event) do
       now =
-        metadata_integer(event, :updated_at_ms) ||
-          metadata_integer(event, :occurred_at_ms) ||
+        ChildSessionMetadata.integer(event, :updated_at_ms) ||
+          ChildSessionMetadata.integer(event, :occurred_at_ms) ||
           System.system_time(:millisecond)
 
-      created_at_ms = metadata_integer(event, :created_at_ms) || now
+      created_at_ms = ChildSessionMetadata.integer(event, :created_at_ms) || now
 
       external_ids =
         event
-        |> metadata_map(:external_ids, %{})
+        |> ChildSessionMetadata.map_value(:external_ids, %{})
         |> Map.put_new("childID", child_id)
 
       {:ok,
        %{
          id: pane_id,
          kind: :child_session,
-         status: metadata_status(event, lifecycle_type),
+         status: ChildSessionMetadata.status(event, lifecycle_type),
          child_id: child_id,
          parent_call_id: parent_call_id,
          runtime_source: runtime_source,
@@ -705,7 +701,7 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
          external_ids: external_ids,
          stream_cursor:
            event
-           |> metadata_map(:stream_cursor, %{})
+           |> ChildSessionMetadata.map_value(:stream_cursor, %{})
            |> Map.merge(%{
              transport: transport,
              child_id: child_id
@@ -715,9 +711,10 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
              open?: true,
              focused?: false,
              renderer: :default_child_session,
-             last_acknowledged_stream_cursor: metadata_acknowledged_stream_cursor(event)
+             last_acknowledged_stream_cursor:
+               ChildSessionMetadata.acknowledged_stream_cursor(event)
            }
-           |> Map.merge(metadata_pane_projection_state(event)),
+           |> Map.merge(ChildSessionMetadata.pane_projection_state(event)),
          created_at_ms: created_at_ms,
          updated_at_ms: now
        }, lifecycle_type}
@@ -970,12 +967,12 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   end
 
   defp pane_session_id(%{external_ids: external_ids}) when is_map(external_ids) do
-    present_runtime_id(external_ids, :session_id) ||
-      present_runtime_id(external_ids, "session_id") ||
-      present_runtime_id(external_ids, :sessionID) ||
-      present_runtime_id(external_ids, "sessionID") ||
-      present_runtime_id(external_ids, :sessionId) ||
-      present_runtime_id(external_ids, "sessionId")
+    ChildSessionMetadata.present_runtime_id(external_ids, :session_id) ||
+      ChildSessionMetadata.present_runtime_id(external_ids, "session_id") ||
+      ChildSessionMetadata.present_runtime_id(external_ids, :sessionID) ||
+      ChildSessionMetadata.present_runtime_id(external_ids, "sessionID") ||
+      ChildSessionMetadata.present_runtime_id(external_ids, :sessionId) ||
+      ChildSessionMetadata.present_runtime_id(external_ids, "sessionId")
   end
 
   defp pane_session_id(_pane), do: nil
@@ -1016,7 +1013,9 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
 
   defp cleanup_identifier(event, keys) when is_map(event) do
     keys
-    |> Enum.find_value(fn key -> normalize_runtime_id(Map.get(event, key)) end)
+    |> Enum.find_value(fn key ->
+      ChildSessionMetadata.normalize_runtime_id(Map.get(event, key))
+    end)
   end
 
   defp cleanup_identifier(_event, _keys), do: nil
@@ -1044,7 +1043,7 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
     external_ids =
       options
       |> Map.new()
-      |> metadata_map(:external_ids, %{})
+      |> ChildSessionMetadata.map_value(:external_ids, %{})
 
     reusable_session_pane(working ++ completed, external_ids)
   end
@@ -1071,7 +1070,8 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   defp external_id_matches?(external_ids, selected_id) when is_map(external_ids) do
     Enum.any?(external_ids, fn {key, value} ->
       cond do
-        runtime_id_key?(key) and normalize_runtime_id(value) == selected_id ->
+        ChildSessionMetadata.runtime_id_key?(key) and
+            ChildSessionMetadata.normalize_runtime_id(value) == selected_id ->
           true
 
         is_map(value) ->
@@ -1110,10 +1110,10 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
 
   defp explicit_child_runtime_id?(%{child_id: child_id, external_ids: external_ids})
        when is_binary(child_id) and is_map(external_ids) do
-    present_runtime_id(external_ids, "childID") == child_id or
-      present_runtime_id(external_ids, :childID) == child_id or
-      present_runtime_id(external_ids, "child_id") == child_id or
-      present_runtime_id(external_ids, :child_id) == child_id
+    ChildSessionMetadata.present_runtime_id(external_ids, "childID") == child_id or
+      ChildSessionMetadata.present_runtime_id(external_ids, :childID) == child_id or
+      ChildSessionMetadata.present_runtime_id(external_ids, "child_id") == child_id or
+      ChildSessionMetadata.present_runtime_id(external_ids, :child_id) == child_id
   end
 
   defp explicit_child_runtime_id?(_pane), do: false
@@ -1165,7 +1165,7 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
     direct_values =
       keys
       |> Enum.map(&Map.get(external_ids, &1))
-      |> Enum.map(&normalize_runtime_id/1)
+      |> Enum.map(&ChildSessionMetadata.normalize_runtime_id/1)
       |> Enum.reject(&is_nil/1)
 
     nested_values =
@@ -1200,14 +1200,14 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   defp focused_pane_map(_pane, _pane_id), do: %{focused?: true}
 
   defp normalize_selected_identifier(identifier) do
-    case normalize_runtime_id(identifier) do
+    case ChildSessionMetadata.normalize_runtime_id(identifier) do
       nil -> {:error, :invalid_child_session_identifier}
       identifier -> {:ok, identifier}
     end
   end
 
   defp create_request_child_id("child-session:" <> child_id) do
-    case normalize_runtime_id(child_id) do
+    case ChildSessionMetadata.normalize_runtime_id(child_id) do
       nil -> {:error, :invalid_child_session_identifier}
       child_id -> {:ok, child_id}
     end
@@ -1223,7 +1223,7 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
 
   defp create_open_request(child_id, identifier, pane_id, options) do
     options = Map.new(options)
-    external_ids = metadata_map(options, :external_ids, %{})
+    external_ids = ChildSessionMetadata.map_value(options, :external_ids, %{})
 
     %{
       action: :create_open,
@@ -1231,32 +1231,32 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
       child_id: child_id,
       pane_id: pane_id,
       selected_identifier: identifier,
-      parent_call_id: metadata_value(options, :parent_call_id),
-      runtime_source: metadata_value(options, :runtime_source),
-      transport: metadata_value(options, :transport),
+      parent_call_id: ChildSessionMetadata.value(options, :parent_call_id),
+      runtime_source: ChildSessionMetadata.value(options, :runtime_source),
+      transport: ChildSessionMetadata.value(options, :transport),
       external_ids: Map.put_new(external_ids, "childID", child_id),
-      stream_cursor: metadata_map(options, :stream_cursor, %{}),
+      stream_cursor: ChildSessionMetadata.map_value(options, :stream_cursor, %{}),
       pane_state:
         %{
           open?: true,
           focused?: true,
           renderer: :default_child_session
         }
-        |> Map.merge(metadata_map(options, :pane_state, %{}))
+        |> Map.merge(ChildSessionMetadata.map_value(options, :pane_state, %{}))
     }
   end
 
   defp create_open_request_metadata(request, focused?) do
     %{
-      child_id: metadata_value(request, :child_id),
-      parent_call_id: metadata_value(request, :parent_call_id),
-      runtime_source: metadata_value(request, :runtime_source),
-      transport: metadata_value(request, :transport),
-      external_ids: metadata_map(request, :external_ids, %{}),
-      stream_cursor: metadata_map(request, :stream_cursor, %{}),
+      child_id: ChildSessionMetadata.value(request, :child_id),
+      parent_call_id: ChildSessionMetadata.value(request, :parent_call_id),
+      runtime_source: ChildSessionMetadata.value(request, :runtime_source),
+      transport: ChildSessionMetadata.value(request, :transport),
+      external_ids: ChildSessionMetadata.map_value(request, :external_ids, %{}),
+      stream_cursor: ChildSessionMetadata.map_value(request, :stream_cursor, %{}),
       pane_state:
         request
-        |> metadata_map(:pane_state, %{})
+        |> ChildSessionMetadata.map_value(:pane_state, %{})
         |> Map.put(:focused?, focused?)
     }
   end
@@ -1403,8 +1403,11 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
 
     incoming_entries =
       case get_in(event, [:pane_state, :stream_entries]) do
-        entries when is_list(entries) -> Enum.map(entries, &normalize_stream_entry/1)
-        _entries -> []
+        entries when is_list(entries) ->
+          Enum.map(entries, &ChildSessionMetadata.normalize_stream_entry/1)
+
+        _entries ->
+          []
       end
 
     if incoming_entries != [] and all_stream_entries_replayed?(incoming_entries, existing_entries) do
@@ -1471,11 +1474,7 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   end
 
   defp cursor_event_seq(cursor) when is_map(cursor) do
-    case Map.get(cursor, :event_seq) || Map.get(cursor, "event_seq") do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value)
-      _value -> nil
-    end
+    ChildSessionMetadata.integer(cursor, :event_seq)
   end
 
   defp cursor_event_seq(_cursor), do: nil
@@ -1530,161 +1529,6 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   end
 
   defp stream_entry_replay_key(entry), do: entry
-
-  defp metadata_string(metadata, key) do
-    value =
-      metadata
-      |> metadata_value(key)
-      |> normalize_runtime_id()
-
-    case value do
-      nil -> :error
-      value -> {:ok, value}
-    end
-  end
-
-  defp metadata_string_any(metadata, keys) when is_list(keys) do
-    Enum.find_value(keys, :error, fn key ->
-      case metadata_string(metadata, key) do
-        {:ok, value} -> {:ok, value}
-        :error -> nil
-      end
-    end)
-  end
-
-  defp metadata_transport(metadata) do
-    case metadata_value(metadata, :transport) do
-      transport when transport in [:stdio, :streamable_http, :sse] -> {:ok, transport}
-      "stdio" -> {:ok, :stdio}
-      "streamable_http" -> {:ok, :streamable_http}
-      "sse" -> {:ok, :sse}
-      _transport -> :error
-    end
-  end
-
-  defp metadata_integer(metadata, key) do
-    case metadata_value(metadata, key) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value)
-      _value -> nil
-    end
-  end
-
-  defp parse_integer(value) do
-    case Integer.parse(String.trim(value)) do
-      {integer, ""} -> integer
-      _parse_error -> nil
-    end
-  end
-
-  defp metadata_map(metadata, key, default) do
-    case metadata_value(metadata, key) do
-      value when is_map(value) -> value
-      _value -> default
-    end
-  end
-
-  defp metadata_acknowledged_stream_cursor(metadata) do
-    case metadata_value(metadata, :last_acknowledged_stream_cursor) ||
-           metadata_value(metadata, :acknowledged_stream_cursor) do
-      cursor when is_map(cursor) -> cursor
-      _cursor -> nil
-    end
-  end
-
-  defp metadata_pane_projection_state(metadata) do
-    metadata
-    |> metadata_map(:pane_state, %{})
-    |> Enum.reduce(%{}, fn {key, value}, acc ->
-      Map.put(acc, pane_state_key(key), pane_state_value(key, value))
-    end)
-  end
-
-  defp pane_state_key("open?"), do: :open?
-  defp pane_state_key("focused?"), do: :focused?
-  defp pane_state_key("renderer"), do: :renderer
-  defp pane_state_key("last_event_seq"), do: :last_event_seq
-  defp pane_state_key("last_acknowledged_stream_cursor"), do: :last_acknowledged_stream_cursor
-  defp pane_state_key("acknowledged_stream_cursor"), do: :acknowledged_stream_cursor
-  defp pane_state_key("stream_entries"), do: :stream_entries
-  defp pane_state_key("title"), do: :title
-  defp pane_state_key(key), do: key
-
-  defp pane_state_value("stream_entries", entries) when is_list(entries) do
-    Enum.map(entries, &normalize_stream_entry/1)
-  end
-
-  defp pane_state_value(:stream_entries, entries) when is_list(entries) do
-    Enum.map(entries, &normalize_stream_entry/1)
-  end
-
-  defp pane_state_value("renderer", renderer), do: renderer_value(renderer)
-  defp pane_state_value(:renderer, renderer), do: renderer_value(renderer)
-  defp pane_state_value(_key, value), do: value
-
-  defp renderer_value("default_child_session"), do: :default_child_session
-  defp renderer_value("trusted_plugin_renderer"), do: :trusted_plugin_renderer
-  defp renderer_value(renderer), do: renderer
-
-  defp normalize_stream_entry(entry) when is_map(entry) do
-    Enum.reduce(entry, %{}, fn {key, value}, acc ->
-      Map.put(acc, stream_entry_key(key), value)
-    end)
-  end
-
-  defp normalize_stream_entry(entry), do: entry
-
-  defp stream_entry_key("event_seq"), do: :event_seq
-  defp stream_entry_key("runtime_seq"), do: :runtime_seq
-  defp stream_entry_key("occurred_at_ms"), do: :occurred_at_ms
-  defp stream_entry_key("token"), do: :token
-  defp stream_entry_key("payload"), do: :payload
-  defp stream_entry_key("child_event_id"), do: :child_event_id
-  defp stream_entry_key(key), do: key
-
-  defp metadata_value(metadata, key) do
-    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
-  end
-
-  defp pane_lifecycle_type(event) do
-    case metadata_value(event, :type) || metadata_value(event, :event_type) do
-      type when is_atom(type) ->
-        if MapSet.member?(@pane_lifecycle_types, type), do: {:ok, type}, else: :error
-
-      type when is_binary(type) ->
-        normalized = String.trim(type)
-
-        Enum.find_value(@pane_lifecycle_types, :error, fn lifecycle_type ->
-          if Atom.to_string(lifecycle_type) == normalized, do: {:ok, lifecycle_type}
-        end)
-
-      _type ->
-        :error
-    end
-  end
-
-  defp metadata_status(event, lifecycle_type) do
-    case metadata_value(event, :status) do
-      status when status in [:working, :completed] -> status
-      "working" -> :working
-      "completed" -> :completed
-      _status when lifecycle_type == :child_pane_completed -> :completed
-      _status -> :working
-    end
-  end
-
-  defp metadata_pane_state(metadata, nil) do
-    %{
-      open?: true,
-      focused?: false,
-      renderer: :default_child_session
-    }
-    |> Map.merge(metadata_map(metadata, :pane_state, %{}))
-  end
-
-  defp metadata_pane_state(metadata, _existing_pane) do
-    metadata_map(metadata, :pane_state, %{})
-  end
 
   defp registry_child_id(child_id) do
     case String.trim(child_id) do
@@ -1773,10 +1617,10 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   defp same_fallback_runtime?(existing, pane) do
     fallback_pane?(existing) and
       not conflicting_same_source_fallback?(existing, pane) and
-      Enum.any?(runtime_identity_keys(), fn key ->
-        present_runtime_id(existing.external_ids, key) != nil and
-          present_runtime_id(existing.external_ids, key) ==
-            present_runtime_id(pane.external_ids, key)
+      Enum.any?(ChildSessionMetadata.runtime_identity_keys(), fn key ->
+        ChildSessionMetadata.present_runtime_id(existing.external_ids, key) != nil and
+          ChildSessionMetadata.present_runtime_id(existing.external_ids, key) ==
+            ChildSessionMetadata.present_runtime_id(pane.external_ids, key)
       end)
   end
 
@@ -1897,8 +1741,8 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
 
   defp valid_runtime_external_ids(external_ids) when is_map(external_ids) do
     Enum.reduce(external_ids, %{}, fn {key, value}, acc ->
-      if runtime_id_key?(key) do
-        case normalize_runtime_id(value) do
+      if ChildSessionMetadata.runtime_id_key?(key) do
+        case ChildSessionMetadata.normalize_runtime_id(value) do
           nil -> acc
           normalized -> Map.put(acc, key, normalized)
         end
@@ -1909,86 +1753,6 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   end
 
   defp valid_runtime_external_ids(_external_ids), do: %{}
-
-  defp runtime_id_key?(key) do
-    key in runtime_identity_keys()
-  end
-
-  defp runtime_identity_keys do
-    [
-      :native_session_id,
-      :nativeSessionID,
-      :nativeSessionId,
-      "native_session_id",
-      "nativeSessionID",
-      "nativeSessionId",
-      :execution_id,
-      :executionID,
-      :executionId,
-      "execution_id",
-      "executionID",
-      "executionId",
-      :lineage_id,
-      :lineageID,
-      :lineageId,
-      "lineage_id",
-      "lineageID",
-      "lineageId",
-      :job_id,
-      :jobID,
-      :jobId,
-      "job_id",
-      "jobID",
-      "jobId",
-      :call_id,
-      :callID,
-      :callId,
-      :input_call_id,
-      :inputCallID,
-      :inputCallId,
-      "call_id",
-      "callID",
-      "callId",
-      "input_call_id",
-      "inputCallID",
-      "inputCallId",
-      :childID,
-      :childId,
-      :child_id,
-      "childID",
-      "childId",
-      "child_id",
-      :session_id,
-      :sessionID,
-      :sessionId,
-      :_sessionId,
-      "session_id",
-      "sessionID",
-      "sessionId",
-      "_sessionId",
-      :thread_id,
-      :threadID,
-      :threadId,
-      "thread_id",
-      "threadID",
-      "threadId"
-    ]
-  end
-
-  defp present_runtime_id(external_ids, key) do
-    external_ids
-    |> Map.get(key)
-    |> normalize_runtime_id()
-  end
-
-  defp normalize_runtime_id(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp normalize_runtime_id(_value), do: nil
 
   defp merge_existing(panes, pane) do
     case Enum.find(panes, &(&1.id == pane.id)) do
@@ -2028,14 +1792,16 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
       status: metadata_update_status(updates, pane.status),
       runtime_source: metadata_update_string(updates, :runtime_source, pane.runtime_source),
       transport: transport,
-      external_ids: Map.merge(pane.external_ids, metadata_map(updates, :external_ids, %{})),
+      external_ids:
+        Map.merge(pane.external_ids, ChildSessionMetadata.map_value(updates, :external_ids, %{})),
       stream_cursor:
         pane.stream_cursor
-        |> Map.merge(metadata_map(updates, :stream_cursor, %{}))
+        |> Map.merge(ChildSessionMetadata.map_value(updates, :stream_cursor, %{}))
         |> Map.put(:transport, transport)
         |> Map.put(:child_id, pane.child_id),
-      pane_state: Map.merge(pane.pane_state, metadata_map(updates, :pane_state, %{})),
-      updated_at_ms: metadata_integer(updates, :updated_at_ms) || pane.updated_at_ms
+      pane_state:
+        Map.merge(pane.pane_state, ChildSessionMetadata.map_value(updates, :pane_state, %{})),
+      updated_at_ms: ChildSessionMetadata.integer(updates, :updated_at_ms) || pane.updated_at_ms
     })
     |> Map.put(:id, pane.id)
     |> Map.put(:kind, :child_session)
@@ -2045,7 +1811,7 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   end
 
   defp metadata_update_string(updates, key, default) do
-    case metadata_value(updates, key) do
+    case ChildSessionMetadata.value(updates, key) do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> default
@@ -2058,14 +1824,14 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
   end
 
   defp metadata_update_transport(updates, default) do
-    case metadata_transport(updates) do
+    case ChildSessionMetadata.transport(updates) do
       {:ok, transport} -> transport
       :error -> default
     end
   end
 
   defp metadata_update_status(updates, default) do
-    case metadata_value(updates, :status) do
+    case ChildSessionMetadata.value(updates, :status) do
       status when status in [:working, :completed] -> status
       "working" -> :working
       "completed" -> :completed
@@ -2153,299 +1919,4 @@ defmodule Ourocode.Dashboard.ChildSessionPanes do
       values ++ [value]
     end
   end
-
-  defp stream_cursor(event, transport, event_seq, child_id) do
-    event
-    |> upstream_stream_cursor()
-    |> Map.merge(%{
-      transport: transport,
-      event_seq: event_seq,
-      child_id: child_id
-    })
-  end
-
-  defp upstream_stream_cursor(event) do
-    event
-    |> stream_cursor_candidates()
-    |> Enum.find_value(%{}, &cursor_from_payload/1)
-  end
-
-  defp stream_cursor_candidates(event) do
-    [
-      event,
-      Map.get(event, :params),
-      Map.get(event, "params"),
-      Map.get(event, :notification),
-      Map.get(event, "notification"),
-      get_path(event, [:notification, "params"]),
-      get_path(event, [:notification, :params]),
-      get_path(event, ["notification", "params"]),
-      get_path(event, ["notification", :params]),
-      Map.get(event, :result),
-      Map.get(event, "result"),
-      get_path(event, [:result, "params"]),
-      get_path(event, [:result, :params]),
-      get_path(event, ["result", "params"]),
-      get_path(event, ["result", :params]),
-      Map.get(event, :raw_event),
-      Map.get(event, "raw_event"),
-      get_path(event, [:raw_event, "data"]),
-      get_path(event, [:raw_event, :data]),
-      get_path(event, ["raw_event", "data"]),
-      get_path(event, ["raw_event", :data]),
-      get_path(event, [:raw_event, "data", "params"]),
-      get_path(event, [:raw_event, :data, :params]),
-      get_path(event, ["raw_event", "data", "params"]),
-      get_path(event, ["raw_event", :data, :params]),
-      get_path(event, [:raw_event, "data", "result"]),
-      get_path(event, [:raw_event, :data, :result]),
-      get_path(event, ["raw_event", "data", "result"]),
-      get_path(event, ["raw_event", :data, :result])
-    ]
-    |> Enum.filter(&is_map/1)
-  end
-
-  defp cursor_from_payload(payload) when is_map(payload) do
-    payload
-    |> get_in_any([
-      "stream_cursor",
-      :stream_cursor,
-      "streamCursor",
-      :streamCursor,
-      "cursor",
-      :cursor
-    ])
-    |> normalize_stream_cursor()
-  end
-
-  defp cursor_from_payload(_payload), do: nil
-
-  defp normalize_stream_cursor(cursor) when is_map(cursor), do: cursor
-  defp normalize_stream_cursor(cursor) when is_binary(cursor), do: %{cursor: cursor}
-  defp normalize_stream_cursor(cursor) when is_integer(cursor), do: %{cursor: cursor}
-  defp normalize_stream_cursor(_cursor), do: nil
-
-  defp stream_entries_for_event(event, event_seq, occurred_at_ms) do
-    payload = stream_payload(event)
-
-    if payload == %{} do
-      []
-    else
-      [stream_entry(event, event_seq, occurred_at_ms, payload)]
-    end
-  end
-
-  defp stream_entry(event, event_seq, occurred_at_ms, payload) do
-    stream_entry = %{
-      event_seq: event_seq,
-      runtime_seq: runtime_seq(payload),
-      type: Map.get(event, :type),
-      token: string_payload_value(payload, "token"),
-      delta: string_payload_value(payload, "delta"),
-      content: string_payload_value(payload, "content"),
-      media_placeholders: media_placeholders(payload),
-      payload: payload,
-      occurred_at_ms: occurred_at_ms
-    }
-
-    Map.put(stream_entry, :child_event_id, child_event_id(event, stream_entry))
-  end
-
-  defp child_event_id(event, stream_entry) do
-    case Map.get(event, :child_event_id) || Map.get(event, "child_event_id") do
-      child_event_id when is_binary(child_event_id) and child_event_id != "" ->
-        child_event_id
-
-      _child_event_id ->
-        event
-        |> Map.put_new(:runtime_seq, Map.get(stream_entry, :runtime_seq))
-        |> Map.put_new(:payload, Map.get(stream_entry, :payload))
-        |> Journal.child_event_identity()
-        |> case do
-          {:ok, child_event_id} -> child_event_id
-          {:error, _reason} -> nil
-        end
-    end
-  end
-
-  defp stream_payload(event) do
-    candidates = stream_payload_candidates(event)
-
-    Enum.find(candidates, &stream_payload?/1) ||
-      cursorless_opencode_stream_payload(event, candidates) ||
-      %{}
-  end
-
-  defp cursorless_opencode_stream_payload(event, candidates) do
-    if cursorless_opencode_stream_event?(event) do
-      Enum.find(candidates, &direct_child_stream_payload?/1) ||
-        Enum.find(candidates, &child_stream_payload?/1)
-    end
-  end
-
-  defp cursorless_opencode_stream_event?(event) do
-    Map.get(event, :type) == :parent_call_event and
-      Map.get(event, :runtime_source) == "opencode"
-  end
-
-  defp child_stream_payload?(payload) when is_map(payload) do
-    ChildSessionCreationParser.extract_child_id(payload) != :ignore
-  end
-
-  defp child_stream_payload?(_payload), do: false
-
-  defp direct_child_stream_payload?(payload) when is_map(payload) do
-    present?(Map.get(payload, "childID")) or
-      present?(Map.get(payload, :childID)) or
-      present?(Map.get(payload, "child_id")) or
-      present?(Map.get(payload, :child_id))
-  end
-
-  defp direct_child_stream_payload?(_payload), do: false
-
-  defp stream_payload_candidates(event) do
-    [
-      Map.get(event, :params),
-      Map.get(event, "params"),
-      Map.get(event, :notification),
-      Map.get(event, "notification"),
-      get_path(event, [:notification, "params"]),
-      get_path(event, [:notification, :params]),
-      get_path(event, ["notification", "params"]),
-      get_path(event, ["notification", :params]),
-      Map.get(event, :result),
-      Map.get(event, "result"),
-      get_path(event, [:result, "params"]),
-      get_path(event, [:result, :params]),
-      get_path(event, ["result", "params"]),
-      get_path(event, ["result", :params]),
-      Map.get(event, :raw_event),
-      Map.get(event, "raw_event"),
-      get_path(event, [:raw_event, "data"]),
-      get_path(event, [:raw_event, :data]),
-      get_path(event, ["raw_event", "data"]),
-      get_path(event, ["raw_event", :data]),
-      get_path(event, [:raw_event, "data", "params"]),
-      get_path(event, [:raw_event, :data, :params]),
-      get_path(event, ["raw_event", "data", "params"]),
-      get_path(event, ["raw_event", :data, :params]),
-      get_path(event, [:raw_event, "data", "result"]),
-      get_path(event, [:raw_event, :data, :result]),
-      get_path(event, ["raw_event", "data", "result"]),
-      get_path(event, ["raw_event", :data, :result])
-    ]
-    |> Enum.filter(&is_map/1)
-  end
-
-  defp stream_payload?(payload) when is_map(payload) do
-    [
-      "seq",
-      :seq,
-      "event_seq",
-      :event_seq,
-      "token",
-      :token,
-      "delta",
-      :delta,
-      "content",
-      :content
-    ]
-    |> Enum.any?(fn key -> present?(Map.get(payload, key)) end)
-  end
-
-  defp stream_payload?(_payload), do: false
-
-  defp runtime_seq(payload) do
-    payload
-    |> get_in_any(["seq", :seq, "event_seq", :event_seq])
-    |> integer_or_nil()
-  end
-
-  defp string_payload_value(payload, key) do
-    payload
-    |> get_in_any([key, String.to_atom(key)])
-    |> string_or_nil()
-  end
-
-  defp media_placeholders(payload) when is_map(payload) do
-    payload
-    |> media_items()
-    |> Enum.with_index(1)
-    |> Enum.map(fn {_item, index} -> "[Image ##{index}]" end)
-  end
-
-  defp media_placeholders(_payload), do: []
-
-  defp media_items(payload) when is_map(payload) do
-    [
-      get_in_any(payload, ["images", :images]),
-      get_in_any(payload, ["image", :image]),
-      get_in_any(payload, ["attachments", :attachments]),
-      get_in_any(payload, ["media", :media])
-    ]
-    |> List.flatten()
-    |> Enum.filter(&image_like?/1)
-  end
-
-  defp image_like?(%{} = item) do
-    type = get_in_any(item, ["type", :type, "mime_type", :mime_type, "mimeType", :mimeType])
-
-    src =
-      get_in_any(item, [
-        "url",
-        :url,
-        "data",
-        :data,
-        "source",
-        :source,
-        "path",
-        :path,
-        "base64",
-        :base64
-      ])
-
-    image_type?(type) or present?(src)
-  end
-
-  defp image_like?(value) when is_binary(value), do: present?(value)
-  defp image_like?(_value), do: false
-
-  defp image_type?(type) when is_binary(type), do: String.starts_with?(type, "image")
-  defp image_type?(_type), do: false
-
-  defp get_in_any(payload, keys) when is_map(payload) do
-    Enum.find_value(keys, fn key -> Map.get(payload, key) end)
-  end
-
-  defp get_in_any(_payload, _keys), do: nil
-
-  defp get_path(payload, path) when is_map(payload) and is_list(path) do
-    Enum.reduce_while(path, payload, fn key, acc ->
-      case acc do
-        map when is_map(map) -> {:cont, Map.get(map, key)}
-        _other -> {:halt, nil}
-      end
-    end)
-  end
-
-  defp get_path(_payload, _path), do: nil
-
-  defp integer_or_nil(value) when is_integer(value), do: value
-
-  defp integer_or_nil(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {integer, ""} -> integer
-      _ -> nil
-    end
-  end
-
-  defp integer_or_nil(_value), do: nil
-
-  defp string_or_nil(value) when is_binary(value), do: value
-  defp string_or_nil(value) when is_number(value) or is_boolean(value), do: to_string(value)
-  defp string_or_nil(_value), do: nil
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(nil), do: false
-  defp present?(_value), do: true
 end
