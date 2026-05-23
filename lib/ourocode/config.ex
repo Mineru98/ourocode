@@ -64,6 +64,7 @@ defmodule Ourocode.Config do
     cleanup_policy_stream_subscription_cleanup_timeout_ms: :integer,
     cleanup_policy_pane_state_retention_ms: :integer
   ]
+  @override_switch_names MapSet.new(Keyword.keys(@override_switches), &Atom.to_string/1)
 
   @override_aliases %{
     cleanup_allowed_memory_growth_mb: :allowed_memory_growth_mb,
@@ -1006,11 +1007,8 @@ defmodule Ourocode.Config do
       name
       |> String.trim_leading("-")
       |> String.replace("-", "_")
-      |> String.to_atom()
 
-    known_override_name?(normalized)
-  rescue
-    ArgumentError -> false
+    MapSet.member?(@override_switch_names, normalized)
   end
 
   defp known_override_name?(_name), do: false

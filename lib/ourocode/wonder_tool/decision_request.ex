@@ -39,7 +39,12 @@ defmodule Ourocode.WonderTool.DecisionRequest do
           optional(:raw_request) => map()
         }
 
-  @known_kinds MapSet.new(["socratic", "permission", "clarification", "decision"])
+  @known_kinds %{
+    "socratic" => :socratic,
+    "permission" => :permission,
+    "clarification" => :clarification,
+    "decision" => :decision
+  }
   @accepted_tool_names MapSet.new([
                          "wonderTool",
                          "wonder_tool",
@@ -370,7 +375,7 @@ defmodule Ourocode.WonderTool.DecisionRequest do
   defp normalize_kind(kind) when is_binary(kind) do
     normalized = kind |> String.trim() |> String.downcase()
 
-    if MapSet.member?(@known_kinds, normalized), do: String.to_atom(normalized)
+    Map.get(@known_kinds, normalized)
   end
 
   defp normalize_kind(_kind), do: nil

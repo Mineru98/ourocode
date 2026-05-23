@@ -1403,7 +1403,7 @@ defmodule Ourocode.Journal do
          "value" => value
        })
        when is_binary(value) do
-    String.to_atom(value)
+    restore_existing_atom(value)
   end
 
   defp restore_raw_event(%{
@@ -1426,7 +1426,7 @@ defmodule Ourocode.Journal do
     do: value
 
   defp restore_raw_event_key(%{"type" => "atom", "value" => value}) when is_binary(value),
-    do: String.to_atom(value)
+    do: restore_existing_atom(value)
 
   defp restore_raw_event_key(%{"type" => "tuple", "value" => value}) when is_list(value),
     do: value |> Enum.map(&restore_raw_event/1) |> List.to_tuple()
@@ -1436,4 +1436,10 @@ defmodule Ourocode.Journal do
 
   defp restore_known_atom(value) when is_binary(value), do: Map.get(@known_atoms, value, value)
   defp restore_known_atom(value), do: value
+
+  defp restore_existing_atom(value) when is_binary(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError -> value
+  end
 end
