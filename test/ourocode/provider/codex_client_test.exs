@@ -51,7 +51,9 @@ defmodule Ourocode.Provider.Codex.ClientTest do
   end
 
   test "stream returns not_signed_in without credentials" do
-    tmp_home = Path.join(System.tmp_dir!(), "ourocode-no-auth-#{System.unique_integer([:positive])}")
+    tmp_home =
+      Path.join(System.tmp_dir!(), "ourocode-no-auth-#{System.unique_integer([:positive])}")
+
     File.mkdir_p!(tmp_home)
     original = System.get_env("HOME")
     System.put_env("HOME", tmp_home)

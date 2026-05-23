@@ -5,7 +5,10 @@ defmodule Ourocode.Provider.CodexTest do
 
   defp jwt(payload) do
     header = Base.url_encode64(~s({"alg":"none"}), padding: false)
-    body = Base.url_encode64(Ourocode.Json.encode!(payload) |> IO.iodata_to_binary(), padding: false)
+
+    body =
+      Base.url_encode64(Ourocode.Json.encode!(payload) |> IO.iodata_to_binary(), padding: false)
+
     "#{header}.#{body}.sig"
   end
 
@@ -86,10 +89,13 @@ defmodule Ourocode.Provider.CodexTest do
 
   describe "credential store" do
     test "save/load round-trips and clear removes it" do
-      tmp_home = Path.join(System.tmp_dir!(), "ourocode-home-#{System.unique_integer([:positive])}")
+      tmp_home =
+        Path.join(System.tmp_dir!(), "ourocode-home-#{System.unique_integer([:positive])}")
+
       File.mkdir_p!(tmp_home)
       original = System.get_env("HOME")
       System.put_env("HOME", tmp_home)
+
       on_exit(fn ->
         if original, do: System.put_env("HOME", original)
         File.rm_rf(tmp_home)
@@ -106,6 +112,28 @@ defmodule Ourocode.Provider.CodexTest do
       assert :ok = Codex.clear()
       assert Codex.load() == :error
       assert Codex.signed_in?() == false
+    end
+
+    test "authorization fails instead of returning expired access token when refresh cannot run" do
+      tmp_home =
+        Path.join(
+          System.tmp_dir!(),
+          "ourocode-expired-home-#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp_home)
+      original = System.get_env("HOME")
+      System.put_env("HOME", tmp_home)
+
+      on_exit(fn ->
+        if original, do: System.put_env("HOME", original)
+        File.rm_rf(tmp_home)
+      end)
+
+      tokens = %{access: "expired", refresh: "", expires: 0, account_id: "acc", email: "e@x.y"}
+
+      assert :ok = Codex.save(tokens)
+      assert Codex.authorization() == :error
     end
   end
 

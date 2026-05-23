@@ -3,14 +3,14 @@ defmodule Ourocode.Provider.Codex do
   ChatGPT (Codex) OAuth + token store for the main-session LLM.
 
   ourocode itself hosts no model. This connects the main session to the user's
-  ChatGPT Plus/Pro plan through the same Codex OAuth client OpenAI Codex CLI and
-  opencode use. Only the headless device-authorization grant is implemented so
+  ChatGPT Plus/Pro plan through the shared Codex OAuth client used by compatible
+  CLI implementations. Only the headless device-authorization grant is implemented so
   the terminal baseline never needs a local web server / redirect listener,
   staying inside the seed's "must not require a local web server" boundary.
 
   The pure pieces (JWT claim parsing, account-id extraction, request building,
   token-store (de)serialization, expiry) are isolated and unit-tested; the
-  network steps follow opencode's `plugin/codex.ts` protocol exactly.
+  network steps follow the Codex device-authorization protocol.
   """
 
   alias Ourocode.Json
@@ -280,23 +280,35 @@ defmodule Ourocode.Provider.Codex do
   @spec authorization() :: {:ok, %{access: String.t(), account_id: String.t() | nil}} | :error
   def authorization do
     with {:ok, tokens} <- load() do
-      tokens =
-        if expired?(tokens, now_ms()) do
-          case refresh(tokens) do
-            {:ok, refreshed} -> refreshed
-            {:error, _} -> tokens
-          end
-        else
-          tokens
-        end
+      case valid_authorization_tokens(tokens) do
+        {:ok, tokens} ->
+          {:ok, %{access: tokens.access, account_id: Map.get(tokens, :account_id)}}
 
-      if is_binary(tokens.access) and tokens.access != "" do
-        {:ok, %{access: tokens.access, account_id: Map.get(tokens, :account_id)}}
-      else
-        :error
+        :error ->
+          :error
       end
     else
       _ -> :error
+    end
+  end
+
+  defp valid_authorization_tokens(tokens) do
+    tokens =
+      if expired?(tokens, now_ms()) do
+        case refresh(tokens) do
+          {:ok, refreshed} -> refreshed
+          {:error, _reason} -> nil
+        end
+      else
+        tokens
+      end
+
+    case tokens do
+      %{access: access} = tokens when is_binary(access) and access != "" ->
+        {:ok, tokens}
+
+      _ ->
+        :error
     end
   end
 
@@ -386,9 +398,9 @@ defmodule Ourocode.Provider.Codex do
     http_request =
       {String.to_charlist(url), headers, content_type, body}
 
-    case :httpc.request(method, http_request, [timeout: 30_000, connect_timeout: 15_000], [
+    case :httpc.request(method, http_request, [timeout: 30_000, connect_timeout: 15_000],
            body_format: :binary
-         ]) do
+         ) do
       {:ok, {{_http, status, _reason}, _resp_headers, resp_body}} ->
         {:ok, status, decode_body(resp_body)}
 
