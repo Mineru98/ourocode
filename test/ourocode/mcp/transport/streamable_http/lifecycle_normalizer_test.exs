@@ -4,6 +4,120 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP.LifecycleNormalizerTest do
   alias Ourocode.MCP.LifecycleEvent
   alias Ourocode.MCP.Transport.StreamableHTTP.LifecycleNormalizer
 
+  test "normalizes SSE notification and response body frames with sequential event ids" do
+    headers = [{"content-type", "text/event-stream"}]
+
+    body = """
+    event: message
+    data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"childID":"child-1","seq":1}}
+
+    event: message
+    data: {"jsonrpc":"2.0","id":"call-1","result":{"childID":"child-1","seq":2,"ok":true}}
+
+    """
+
+    assert {:ok,
+            [
+              %LifecycleEvent{
+                type: :parent_call_event,
+                transport: :streamable_http,
+                event_seq: 10,
+                parent_call_id: "parent-call-1",
+                runtime_source: "synthetic",
+                external_ids: %{session_id: "session-1"},
+                status: 200,
+                headers: ^headers,
+                notification: %{
+                  "jsonrpc" => "2.0",
+                  "method" => "notifications/progress",
+                  "params" => %{"childID" => "child-1", "seq" => 1}
+                }
+              },
+              %LifecycleEvent{
+                type: :parent_call_result,
+                transport: :streamable_http,
+                event_seq: 11,
+                request_id: "call-1",
+                result: %{"childID" => "child-1", "seq" => 2, "ok" => true}
+              }
+            ]} =
+             LifecycleNormalizer.normalize_body(200, headers, body, %{
+               event_seq: 10,
+               parent_call_id: "parent-call-1",
+               runtime_source: "synthetic",
+               external_ids: %{session_id: "session-1"},
+               request_id: "call-1",
+               method: "tools/call",
+               params: %{name: "ooo.run"},
+               occurred_at_ms: 123
+             })
+  end
+
+  test "normalizes lifecycle response chunks into shared event schema" do
+    headers = [{"content-type", "text/event-stream"}]
+
+    body = """
+    event: message
+    data: {"type":"parent_call_event","payload":{"childID":"child-lifecycle-http-1","seq":7,"token":"from-lifecycle"},"notification":{"method":"notifications/progress"},"request_id":"server-lifecycle-http-1","method":"notifications/progress","params":{"childID":"child-lifecycle-http-1","seq":7}}
+
+    event: message
+    data: {"event_type":"parent_call_result","request_id":"client-lifecycle-http-1","external_ids":{"thread_id":"thread-lifecycle-http-1"},"result":{"ok":true,"childID":"child-lifecycle-http-1","seq":8},"payload":{"ok":true,"childID":"child-lifecycle-http-1","seq":8}}
+
+    """
+
+    assert {:ok,
+            [
+              %LifecycleEvent{
+                type: :parent_call_event,
+                transport: :streamable_http,
+                event_seq: 20,
+                parent_call_id: "parent-lifecycle-http-1",
+                runtime_source: "synthetic",
+                external_ids: %{
+                  "session_id" => "session-lifecycle-http-1",
+                  childID: "child-lifecycle-http-1"
+                },
+                request_id: "server-lifecycle-http-1",
+                method: "notifications/progress",
+                params: %{"childID" => "child-lifecycle-http-1", "seq" => 7},
+                payload: %{
+                  "childID" => "child-lifecycle-http-1",
+                  "seq" => 7,
+                  "token" => "from-lifecycle"
+                },
+                notification: %{"method" => "notifications/progress"},
+                raw_event: %{"type" => "parent_call_event"},
+                occurred_at_ms: 456,
+                status: 200,
+                headers: ^headers
+              },
+              %LifecycleEvent{
+                type: :parent_call_result,
+                transport: :streamable_http,
+                event_seq: 21,
+                parent_call_id: "parent-lifecycle-http-1",
+                external_ids: %{
+                  "session_id" => "session-lifecycle-http-1",
+                  "thread_id" => "thread-lifecycle-http-1",
+                  childID: "child-lifecycle-http-1"
+                },
+                request_id: "client-lifecycle-http-1",
+                payload: %{"ok" => true, "childID" => "child-lifecycle-http-1", "seq" => 8},
+                result: %{"ok" => true, "childID" => "child-lifecycle-http-1", "seq" => 8},
+                raw_event: %{"event_type" => "parent_call_result"},
+                status: 200,
+                headers: ^headers
+              }
+            ]} =
+             LifecycleNormalizer.normalize_body(200, headers, body, %{
+               event_seq: 20,
+               parent_call_id: "parent-lifecycle-http-1",
+               runtime_source: "synthetic",
+               external_ids: %{"session_id" => "session-lifecycle-http-1"},
+               occurred_at_ms: 456
+             })
+  end
+
   test "converts JSON-RPC response lifecycle completion payloads into normalized events" do
     body =
       %{
