@@ -7,6 +7,8 @@ defmodule Ourocode.Runtime.Router do
   before execution starts.
   """
 
+  alias Ourocode.Runtime.RouteClassifier
+
   defstruct [
     :task_input,
     :execution_route,
@@ -72,9 +74,8 @@ defmodule Ourocode.Runtime.Router do
   @spec routing_decision(String.t()) :: routing_decision()
   def routing_decision(task_input) when is_binary(task_input) do
     task_input
-    |> normalize_task_input()
-    |> classify_route()
-    |> to_routing_decision()
+    |> RouteClassifier.normalize_task_input()
+    |> RouteClassifier.routing_decision()
   end
 
   defp user_visible_result(task_input, decision) do
@@ -94,209 +95,8 @@ defmodule Ourocode.Runtime.Router do
     }
   end
 
-  defp to_routing_decision(route) do
-    %{
-      kind: route.kind,
-      execution_route: route.kind,
-      runtime_source: route.runtime_source,
-      transport: route.transport,
-      requires_command_syntax?: false,
-      advanced_shortcut?: route.advanced_shortcut?,
-      reason: route.reason,
-      adapter_route: route.adapter_route
-    }
-    |> drop_nil_values()
-  end
-
-  defp classify_route(task_input) do
-    tokens = route_tokens(task_input)
-    first = List.first(tokens)
-    ouroboros_adapter_route = ouroboros_adapter_route(tokens)
-
-    cond do
-      first in ["ooo", "ouroboros"] ->
-        route(
-          :ouroboros_workflow,
-          :ouroboros,
-          transport_from_tokens(tokens),
-          true,
-          :explicit_ouroboros_shortcut,
-          ouroboros_adapter_route
-        )
-
-      explicit_diagnostics_shortcut?(tokens) ->
-        route(
-          :runtime,
-          :auto,
-          transport_from_tokens(tokens),
-          true,
-          :explicit_diagnostics_shortcut
-        )
-
-      explicit_test_shortcut?(tokens) ->
-        route(
-          :runtime,
-          :auto,
-          transport_from_tokens(tokens),
-          true,
-          :explicit_test_shortcut
-        )
-
-      first == "codex" ->
-        route(:runtime, :codex, transport_from_tokens(tokens), true, :explicit_codex_shortcut)
-
-      first == "opencode" ->
-        route(
-          :runtime,
-          :opencode,
-          transport_from_tokens(tokens),
-          true,
-          :explicit_opencode_shortcut
-        )
-
-      first in ["claude-code", "claude"] ->
-        route(
-          :runtime,
-          :claude_code,
-          transport_from_tokens(tokens),
-          true,
-          :explicit_claude_code_shortcut
-        )
-
-      mcp_flow?(tokens) ->
-        route(
-          :mcp_flow,
-          :mcp,
-          transport_from_tokens(tokens),
-          explicit_mcp_shortcut?(tokens),
-          :mcp_flow_terms
-        )
-
-      ouroboros_workflow?(tokens) ->
-        route(
-          :ouroboros_workflow,
-          :ouroboros,
-          transport_from_tokens(tokens),
-          false,
-          :ouroboros_workflow_terms,
-          ouroboros_adapter_route
-        )
-
-      true ->
-        route(
-          :runtime,
-          :auto,
-          transport_from_tokens(tokens),
-          false,
-          :default_natural_language_runtime
-        )
-    end
-  end
-
-  defp route(kind, runtime_source, transport, advanced_shortcut?, reason, adapter_route \\ nil) do
-    %{
-      kind: kind,
-      runtime_source: runtime_source,
-      transport: transport,
-      advanced_shortcut?: advanced_shortcut?,
-      reason: reason,
-      adapter_route: adapter_route
-    }
-  end
-
   defp normalize_task_input(input) do
-    input
-    |> String.trim()
-    |> String.replace(~r/\s+/u, " ")
-  end
-
-  defp drop_nil_values(map) do
-    Map.reject(map, fn {_key, value} -> is_nil(value) end)
-  end
-
-  defp route_tokens(task_input) do
-    task_input
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_.:\-\/]+/u, " ")
-    |> String.split(" ", trim: true)
-  end
-
-  defp mcp_flow?(tokens) do
-    Enum.any?(tokens, &(&1 in ["mcp", "tools/call", "tools.call", "json-rpc", "jsonrpc"])) or
-      Enum.any?(tokens, &String.starts_with?(&1, "mcp:"))
-  end
-
-  defp explicit_mcp_shortcut?([first | _tokens]) do
-    first in ["mcp", "tools/call", "tools.call"]
-  end
-
-  defp explicit_mcp_shortcut?(_tokens), do: false
-
-  defp explicit_diagnostics_shortcut?([first | _tokens]) do
-    first in ["diag", "diagnostics", "diagnostics:runtime", "diagnostics:streams"]
-  end
-
-  defp explicit_diagnostics_shortcut?(_tokens), do: false
-
-  defp explicit_test_shortcut?([first | _tokens]) do
-    first in ["test:transport", "test:transports", "tests:transport", "tests:transports"]
-  end
-
-  defp explicit_test_shortcut?(_tokens), do: false
-
-  defp ouroboros_workflow?(tokens) do
-    Enum.any?(tokens, &(&1 in ["interview", "seed", "evolve", "ralph", "workflow"])) or
-      Enum.any?(tokens, &String.starts_with?(&1, "ouroboros:"))
-  end
-
-  defp ouroboros_adapter_route(tokens) do
-    cond do
-      Enum.any?(tokens, &(&1 in ["interview", "ouroboros:interview"])) ->
-        :interview
-
-      Enum.any?(tokens, &(&1 in ["seed", "ouroboros:seed"])) ->
-        :seed
-
-      Enum.any?(tokens, &(&1 in ["evolve", "ouroboros:evolve"])) ->
-        :evolve
-
-      Enum.any?(tokens, &(&1 in ["ralph", "ouroboros:ralph"])) ->
-        :ralph
-
-      explicit_ouroboros_run?(tokens) ->
-        :run
-
-      Enum.any?(tokens, &(&1 in ["workflow", "ouroboros:workflow"])) ->
-        :workflow
-
-      true ->
-        :workflow
-    end
-  end
-
-  defp explicit_ouroboros_run?(["ooo", action | _tokens]) when action in ["run", "execute"],
-    do: true
-
-  defp explicit_ouroboros_run?(["ouroboros", action | _tokens]) when action in ["run", "execute"],
-    do: true
-
-  defp explicit_ouroboros_run?(tokens),
-    do: Enum.any?(tokens, &(&1 in ["ouroboros:run", "ouroboros:execute"]))
-
-  defp transport_from_tokens(tokens) do
-    cond do
-      Enum.any?(tokens, &(&1 in ["stdio", "mcp:stdio"])) ->
-        :stdio
-
-      Enum.any?(tokens, &(&1 in ["sse", "mcp:sse"])) ->
-        :sse
-
-      Enum.any?(tokens, &(&1 in ["streamable-http", "streamable_http", "http", "mcp:http"])) ->
-        :streamable_http
-
-      true ->
-        :auto
-    end
+    RouteClassifier.normalize_task_input(input)
   end
 
   defp route_label(:runtime, _adapter_route), do: "Runtime session"
