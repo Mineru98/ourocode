@@ -7,6 +7,8 @@ defmodule Ourocode.Command.CapabilityPreflight do
   executing, trusting, installing, or mutating plugin state.
   """
 
+  alias Ourocode.Command.CapabilityPreflight.Projection
+  alias Ourocode.Command.CapabilityPreflight.Trust
   alias Ourocode.Command.Registry
 
   @type status :: :ready | :blocked | :missing
@@ -56,7 +58,7 @@ defmodule Ourocode.Command.CapabilityPreflight do
   end
 
   defp preflight(input, %{entry: entry, token: token, canonical: canonical, match: match}) do
-    trust = trust_boundary(entry)
+    trust = Trust.boundary(entry)
     runnable? = Map.get(entry, :runnable?, false)
     availability = Map.get(entry, :availability, :stub)
 
@@ -72,106 +74,12 @@ defmodule Ourocode.Command.CapabilityPreflight do
       status: status,
       input: input,
       reason: blocked_reason(status, availability, runnable?, trust),
-      capability: capability(entry),
+      capability: Projection.capability(entry),
       match: %{token: token, canonical: canonical, type: match},
       trust: trust,
-      side_effects: side_effects(entry)
+      side_effects: Projection.side_effects(entry)
     }
     |> drop_nil_reason()
-  end
-
-  defp capability(entry) do
-    %{
-      id: entry.id,
-      name: entry.name,
-      slash: entry.slash,
-      aliases: entry.aliases,
-      source: entry.source,
-      source_id: entry.source_id,
-      category: entry.category,
-      summary: entry.summary,
-      args: entry.args,
-      run_spec: entry.run_spec,
-      metadata: %{
-        plugin_id: get_in(entry, [:metadata, :plugin_id]),
-        plugin_source: get_in(entry, [:metadata, :plugin_source]),
-        namespace_owner: get_in(entry, [:metadata, :namespace_owner]),
-        command_namespace: get_in(entry, [:metadata, :command_namespace])
-      }
-    }
-  end
-
-  defp trust_boundary(%{source: :plugin, metadata: metadata}) do
-    trust_policy = Map.get(metadata, :trust_policy, %{}) || %{}
-    trust_evaluation = Map.get(metadata, :trust_evaluation, %{}) || %{}
-
-    status =
-      cond do
-        trusted_evaluation?(trust_evaluation) -> :trusted
-        official_without_explicit_approval?(trust_policy) -> :trusted
-        explicit_approval_required?(trust_policy) -> :requires_approval
-        true -> :unknown
-      end
-
-    %{
-      source: :plugin,
-      status: status,
-      plugin_id: Map.get(metadata, :plugin_id),
-      policy_state: Map.get(metadata, :trust_policy_state),
-      policy: trust_policy,
-      evaluation: trust_evaluation
-    }
-  end
-
-  defp trust_boundary(_entry) do
-    %{source: :registry, status: :not_applicable}
-  end
-
-  defp trusted_evaluation?(%{"trusted" => true}), do: true
-  defp trusted_evaluation?(%{trusted: true}), do: true
-  defp trusted_evaluation?(_evaluation), do: false
-
-  defp official_without_explicit_approval?(policy) do
-    policy_value(policy, "tier") == "official" and not explicit_approval_required?(policy)
-  end
-
-  defp explicit_approval_required?(policy) do
-    policy_value(policy, "requires_explicit_approval") == true
-  end
-
-  defp policy_value(policy, key) do
-    Map.get(policy, key, Map.get(policy, String.to_atom(key)))
-  end
-
-  defp side_effects(entry) do
-    %{
-      execution: :none,
-      discovery: :read_only,
-      expected_outputs: expected_outputs(entry),
-      risk_class: risk_class(entry)
-    }
-  end
-
-  defp expected_outputs(entry) do
-    entry
-    |> get_in([:metadata, :expected_outputs])
-    |> List.wrap()
-  end
-
-  defp risk_class(%{source: :plugin, metadata: metadata}) do
-    metadata
-    |> Map.get(:trust_evaluation, %{})
-    |> evaluation_value("trust_classification")
-    |> case do
-      nil -> :unknown
-      value -> value
-    end
-  end
-
-  defp risk_class(_entry), do: :not_applicable
-
-  defp evaluation_value(evaluation, key) when is_map(evaluation) do
-    Map.get(evaluation, key, Map.get(evaluation, String.to_atom(key)))
   end
 
   defp blocked_reason(:ready, _availability, _runnable?, _trust), do: nil
