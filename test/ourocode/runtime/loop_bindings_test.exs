@@ -820,7 +820,7 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     # is pinned and a waiter is registered.
     wait_for(fn ->
       iv = LoopBindings.pane_snapshot(agent).interview
-      iv && iv.question =~ "payment provider"
+      (iv && iv.question =~ "payment provider") and iv.status == "waiting for your answer"
     end)
 
     iv = LoopBindings.pane_snapshot(agent).interview
