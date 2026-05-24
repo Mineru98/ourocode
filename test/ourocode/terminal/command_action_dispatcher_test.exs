@@ -24,6 +24,25 @@ defmodule Ourocode.Terminal.CommandActionDispatcherTest do
     assert text =~ "commands:"
   end
 
+  test "dispatches command preflight action" do
+    {:ok, registry} = Registry.load_builtin()
+    {:ok, output} = StringIO.open("")
+
+    assert {:ok, %{preflight: %{status: :ready}}} =
+             CommandActionDispatcher.dispatch(
+               :show_preflight,
+               %{args: ["/help"]},
+               %{slash: "/preflight"},
+               %{output: output},
+               registry
+             )
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "preflight: ready"
+    assert text =~ "command: /help"
+    assert text =~ "execution: none"
+  end
+
   test "dispatches status actions" do
     {:ok, output} = StringIO.open("")
 

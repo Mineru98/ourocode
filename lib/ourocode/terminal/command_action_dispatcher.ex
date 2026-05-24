@@ -5,6 +5,7 @@ defmodule Ourocode.Terminal.CommandActionDispatcher do
 
   alias Ourocode.Terminal.CommandChildControlCommands
   alias Ourocode.Terminal.CommandDiscoveryCommands
+  alias Ourocode.Terminal.CommandPreflightCommands
   alias Ourocode.Terminal.CommandStatusCommands
   alias Ourocode.Terminal.ResumeSessions
 
@@ -19,6 +20,9 @@ defmodule Ourocode.Terminal.CommandActionDispatcher do
 
       CommandDiscoveryCommands.handles?(action) ->
         CommandDiscoveryCommands.render(action, state, registry)
+
+      CommandPreflightCommands.handles?(action) ->
+        CommandPreflightCommands.render(action, command_event, state, registry)
 
       CommandStatusCommands.handles?(action) ->
         CommandStatusCommands.render(action, state)

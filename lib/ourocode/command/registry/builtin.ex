@@ -39,6 +39,21 @@ defmodule Ourocode.Command.Registry.Builtin do
       run_spec: %{kind: :builtin_action, action: :show_capabilities}
     },
     %{
+      name: "preflight",
+      slash: "/preflight",
+      aliases: [],
+      category: :discovery,
+      summary: "Resolve a command capability without executing it.",
+      args: [
+        %{
+          name: "command",
+          required?: true,
+          description: "Command-shaped input to resolve, such as /plugins"
+        }
+      ],
+      run_spec: %{kind: :builtin_action, action: :show_preflight}
+    },
+    %{
       name: "clear",
       slash: "/clear",
       aliases: [],
