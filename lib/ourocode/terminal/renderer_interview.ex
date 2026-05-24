@@ -98,6 +98,14 @@ defmodule Ourocode.Terminal.RendererInterview do
     {screen, 1 + length(rows) + 1}
   end
 
+  defp wrap_focus_line({text, style}, inner) when is_binary(text) do
+    wrap_styled(text, focus_style(style), inner)
+  end
+
+  defp wrap_focus_line(:rule, inner) do
+    [{String.duplicate("-", inner), :p_muted}]
+  end
+
   defp wrap_focus_line(line, inner) when is_binary(line) do
     style =
       cond do
@@ -108,6 +116,13 @@ defmodule Ourocode.Terminal.RendererInterview do
 
     wrap_styled(line, style, inner)
   end
+
+  defp focus_style(:warn), do: :p_accent
+  defp focus_style(:err), do: :p_err
+  defp focus_style(:dim), do: :p_dim
+  defp focus_style(:muted), do: :p_muted
+  defp focus_style(:accent), do: :p_accent
+  defp focus_style(_style), do: :p_title
 
   # A logical line keeps one style for all of its wrapped segments;
   # continuation segments are indented two columns so a wrapped item still

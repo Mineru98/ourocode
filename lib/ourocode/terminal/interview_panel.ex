@@ -56,21 +56,10 @@ defmodule Ourocode.Terminal.InterviewPanel do
   def interview_block_lines(result, nav, tick) do
     cond do
       detection = wonder_detection(result) ->
-        detection
-        |> wonder_picker_lines(nav)
-        |> case do
-          [] ->
-            nil
-
-          picker ->
-            paused? = paused?(result)
-
-            {Hints.marker(paused?), picker,
-             Hints.wonder_pick_hint(paused?, question_count(detection))}
-        end
+        wonder_picker_block(result, detection, nav, tick)
 
       interview_state(result) ->
-        lines = dialogue_rows(result, false) ++ interview_status_rows(result, tick)
+        lines = interview_state_rows(result, tick)
         paused? = paused?(result)
 
         {Hints.marker(paused?), lines,
@@ -88,6 +77,62 @@ defmodule Ourocode.Terminal.InterviewPanel do
   rescue
     _exception -> nil
   end
+
+  defp wonder_picker_block(result, detection, nav, tick) do
+    case wonder_picker_lines(detection, nav) do
+      [] ->
+        fallback_interview_block(result, tick)
+
+      picker ->
+        paused? = paused?(result)
+
+        {Hints.marker(paused?), picker,
+         Hints.wonder_pick_hint(paused?, question_count(detection))}
+    end
+  end
+
+  defp fallback_interview_block(result, tick) do
+    case interview_state(result) do
+      nil ->
+        nil
+
+      _interview ->
+        paused? = paused?(result)
+
+        {Hints.marker(paused?), interview_state_rows(result, tick),
+         Hints.wonder_hint(paused?, false)}
+    end
+  end
+
+  defp interview_state_rows(result, tick) do
+    result
+    |> dialogue_rows(false)
+    |> prepend_current_question(result)
+    |> Kernel.++(interview_status_rows(result, tick))
+  end
+
+  defp prepend_current_question(rows, result) do
+    question =
+      result
+      |> interview_state()
+      |> case do
+        %{} = iv -> Map.get(iv, :question) || Map.get(iv, "question")
+        _none -> nil
+      end
+      |> plain_line()
+
+    if question == "" or Enum.any?(rows, &line_contains?(&1, question)) do
+      rows
+    else
+      [{question, :warn} | rows]
+    end
+  end
+
+  defp line_contains?({text, _style}, needle) when is_binary(text),
+    do: String.contains?(text, needle)
+
+  defp line_contains?(text, needle) when is_binary(text), do: String.contains?(text, needle)
+  defp line_contains?(_line, _needle), do: false
 
   @spec default_nav(map(), map() | nil) :: map()
   def default_nav(detection, current_nav), do: WonderPicker.default_nav(detection, current_nav)
