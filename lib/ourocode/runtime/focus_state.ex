@@ -7,6 +7,8 @@ defmodule Ourocode.Runtime.FocusState do
   current pane model before producing an updated state.
   """
 
+  alias Ourocode.Runtime.FocusPaneModel
+
   @type pane_id :: atom() | String.t()
 
   @type t :: %{
@@ -54,7 +56,7 @@ defmodule Ourocode.Runtime.FocusState do
 
   def focus_pane(focus_state, target_pane_id, pane_model, options)
       when is_map(focus_state) and is_map(pane_model) do
-    with {:ok, pane_id} <- resolve_pane_id(target_pane_id, pane_model) do
+    with {:ok, pane_id} <- FocusPaneModel.resolve_pane_id(target_pane_id, pane_model) do
       options = Map.new(options)
       previous = Map.get(focus_state, :focused_pane)
 
@@ -62,8 +64,10 @@ defmodule Ourocode.Runtime.FocusState do
         {:ok, focus_state, nil}
       else
         occurred_at_ms = Map.get(options, :occurred_at_ms, System.system_time(:millisecond))
-        steering_target = steering_target(pane_id)
-        target_metadata = steering_target_metadata(pane_id, pane_model, steering_target)
+        steering_target = FocusPaneModel.steering_target(pane_id)
+
+        target_metadata =
+          FocusPaneModel.steering_target_metadata(pane_id, pane_model, steering_target)
 
         event = %{
           type: :focus_state_updated,
@@ -107,7 +111,7 @@ defmodule Ourocode.Runtime.FocusState do
   """
   @spec valid_pane?(pane_id(), map()) :: boolean()
   def valid_pane?(target_pane_id, pane_model) when is_map(pane_model) do
-    match?({:ok, _pane_id}, resolve_pane_id(target_pane_id, pane_model))
+    FocusPaneModel.valid_pane?(target_pane_id, pane_model)
   end
 
   def valid_pane?(_target_pane_id, _pane_model), do: false
@@ -126,17 +130,17 @@ defmodule Ourocode.Runtime.FocusState do
       when is_map(focus_state) and is_map(pane_model) do
     focused_pane = Map.get(focus_state, :focused_pane)
 
-    with {:ok, pane_id} <- resolve_pane_id(focused_pane, pane_model),
-         :child <- steering_target(pane_id),
-         pane <- pane_entry(pane_id, pane_model) || %{},
+    with {:ok, pane_id} <- FocusPaneModel.resolve_pane_id(focused_pane, pane_model),
+         :child <- FocusPaneModel.steering_target(pane_id),
+         pane <- FocusPaneModel.pane_entry(pane_id, pane_model) || %{},
          session_id when is_binary(session_id) and session_id != "" <-
-           child_session_id(pane, pane_id, :child) do
+           FocusPaneModel.child_session_id(pane, pane_id, :child) do
       {:ok,
        %{
          pane_id: pane_id,
          session_id: session_id,
          child_id: session_id,
-         kind: map_value(pane, :kind) || :child_session,
+         kind: Map.get(pane, :kind) || Map.get(pane, "kind") || :child_session,
          pane: pane
        }}
     else
@@ -148,165 +152,6 @@ defmodule Ourocode.Runtime.FocusState do
   def focused_child_session(_focus_state, _pane_model) do
     {:error, :focused_child_session_pane_not_found}
   end
-
-  defp resolve_pane_id(target_pane_id, pane_model) do
-    pane_ids = pane_ids(pane_model)
-
-    cond do
-      MapSet.member?(pane_ids, target_pane_id) ->
-        {:ok, target_pane_id}
-
-      is_binary(target_pane_id) ->
-        target_atom = safe_existing_atom(target_pane_id)
-
-        if not is_nil(target_atom) and MapSet.member?(pane_ids, target_atom) do
-          {:ok, target_atom}
-        else
-          :error
-        end
-
-      is_atom(target_pane_id) ->
-        target_string = Atom.to_string(target_pane_id)
-
-        if MapSet.member?(pane_ids, target_string) do
-          {:ok, target_string}
-        else
-          :error
-        end
-
-      true ->
-        :error
-    end
-  end
-
-  defp pane_ids(pane_model) do
-    open_pane_ids =
-      pane_model
-      |> Map.get(:open, [])
-      |> List.wrap()
-      |> Enum.flat_map(&resolve_open_pane_id(&1, pane_model))
-
-    MapSet.new([:task_prompt | open_pane_ids])
-  end
-
-  defp resolve_open_pane_id(open_pane_id, pane_model) do
-    case map_value(pane_model, :panes) || %{} do
-      %{^open_pane_id => %{id: pane_id}} -> [pane_id]
-      %{^open_pane_id => %{"id" => pane_id}} -> [pane_id]
-      _panes -> [open_pane_id]
-    end
-  end
-
-  defp steering_target_metadata(pane_id, pane_model, steering_target) do
-    pane = pane_entry(pane_id, pane_model) || %{}
-
-    %{
-      pane_id: pane_id,
-      session_id: child_session_id(pane, pane_id, steering_target),
-      kind: map_value(pane, :kind) || steering_target
-    }
-  end
-
-  defp pane_entry(pane_id, pane_model) do
-    panes = map_value(pane_model, :panes) || %{}
-
-    Enum.find_value(panes, fn
-      {^pane_id, pane} when is_map(pane) ->
-        pane
-
-      {_key, %{id: ^pane_id} = pane} ->
-        pane
-
-      {_key, %{"id" => ^pane_id} = pane} ->
-        pane
-
-      {_key, _pane} ->
-        nil
-    end)
-  end
-
-  defp child_session_id(pane, pane_id, :child) when is_map(pane) do
-    map_value(pane, :child_id) ||
-      map_value(pane, :session_id) ||
-      pane
-      |> map_value(:external_ids)
-      |> first_child_external_id() ||
-      child_session_id(nil, pane_id, :child)
-  end
-
-  defp child_session_id(_pane, pane_id, :child) when is_binary(pane_id) do
-    cond do
-      String.starts_with?(pane_id, "child-session:") ->
-        String.replace_prefix(pane_id, "child-session:", "")
-
-      String.starts_with?(pane_id, "child-pane:") ->
-        String.replace_prefix(pane_id, "child-pane:", "")
-
-      true ->
-        nil
-    end
-  end
-
-  defp child_session_id(_pane, _pane_id, _steering_target), do: nil
-
-  defp first_child_external_id(external_ids) when is_map(external_ids) do
-    Enum.find_value(
-      [
-        {"childID", :childID},
-        {"child_id", :child_id},
-        {"session_id", :session_id},
-        {"thread_id", :thread_id},
-        {"native_session_id", :native_session_id}
-      ],
-      fn {string_key, atom_key} ->
-        case Map.get(external_ids, string_key) || Map.get(external_ids, atom_key) do
-          value when is_binary(value) and value != "" -> value
-          _value -> nil
-        end
-      end
-    )
-  end
-
-  defp first_child_external_id(_external_ids), do: nil
-
-  defp map_value(map, key) when is_map(map) and is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
-
-  defp map_value(_map, _key), do: nil
-
-  defp safe_existing_atom(value) do
-    String.to_existing_atom(value)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp steering_target(:task_prompt), do: :parent
-  defp steering_target(:parent), do: :parent
-  defp steering_target("parent"), do: :parent
-  defp steering_target(:children), do: :child
-  defp steering_target("children"), do: :child
-  defp steering_target(:queue), do: :queue
-  defp steering_target("queue"), do: :queue
-  defp steering_target(:status), do: :status
-  defp steering_target("status"), do: :status
-  defp steering_target(:wonder_tool), do: :wonder_tool
-  defp steering_target("wonder_tool"), do: :wonder_tool
-
-  defp steering_target(pane_id) when is_binary(pane_id) do
-    cond do
-      String.starts_with?(pane_id, "child-") -> :child
-      String.starts_with?(pane_id, "child:") -> :child
-      String.starts_with?(pane_id, "child-session:") -> :child
-      String.starts_with?(pane_id, "child-pane:") -> :child
-      String.starts_with?(pane_id, "parent-") -> :parent
-      String.starts_with?(pane_id, "parent:") -> :parent
-      String.starts_with?(pane_id, "parent-mcp:") -> :parent
-      true -> :pane
-    end
-  end
-
-  defp steering_target(_pane_id), do: :pane
 
   defp append_history(state, event) do
     history =
