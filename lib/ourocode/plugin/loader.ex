@@ -9,6 +9,8 @@ defmodule Ourocode.Plugin.Loader do
   """
 
   alias Ourocode.Json
+  alias Ourocode.Plugin.Checksum
+  alias Ourocode.Plugin.ConfigStatus
   alias Ourocode.Plugin.ConfigSchema
   alias Ourocode.Plugin.LoadError
   alias Ourocode.Plugin.PathPolicy
@@ -54,43 +56,19 @@ defmodule Ourocode.Plugin.Loader do
   """
   @spec load_config_file(Path.t()) ::
           {:ok, config_load_report()} | {:error, ConfigSchema.parse_error()}
-  def load_config_file(path) when is_binary(path) do
-    with {:ok, config} <- ConfigSchema.parse_file(path) do
-      {:ok, config_status_report(config)}
-    end
-  end
+  defdelegate load_config_file(path), to: ConfigStatus, as: :load_file
 
   @doc """
   Returns normalized plugin status records for a parsed plugin configuration.
   """
   @spec config_status_report(ConfigSchema.t()) :: config_load_report()
-  def config_status_report(%ConfigSchema{plugins: plugins}) do
-    records = Enum.map(plugins, &config_status_record/1)
-
-    %{
-      status: :ready,
-      plugins: records,
-      enabled_official_plugins:
-        Enum.filter(records, &(&1.enabled? and &1.source_type == "official")),
-      enabled_third_party_plugins:
-        Enum.filter(records, &(&1.enabled? and &1.source_type == "third_party"))
-    }
-  end
+  defdelegate config_status_report(config), to: ConfigStatus, as: :report
 
   @doc """
   Normalizes a parsed plugin entry into the status shape used by UI/runtime panes.
   """
   @spec config_status_record(ConfigSchema.PluginEntry.t()) :: config_status_record()
-  def config_status_record(%ConfigSchema.PluginEntry{} = plugin) do
-    %{
-      plugin_id: plugin.id,
-      source_type: plugin.source,
-      version: plugin.package_identity.version,
-      enabled?: plugin.enabled,
-      load_state: if(plugin.enabled, do: :load_requested, else: :disabled),
-      path: plugin.path
-    }
-  end
+  defdelegate config_status_record(plugin), to: ConfigStatus, as: :record
 
   @doc """
   Loads a plugin only after validating that its path is allowed, its capability
@@ -197,35 +175,7 @@ defmodule Ourocode.Plugin.Loader do
   """
   @spec checksum(Path.t()) :: {:ok, String.t()} | {:error, :plugin_checksum_unavailable}
   def checksum(plugin_path) when is_binary(plugin_path) do
-    with {:ok, files} <- regular_plugin_files(plugin_path) do
-      result =
-        files
-        |> Enum.sort_by(& &1.relative_path)
-        |> Enum.reduce_while({:ok, :crypto.hash_init(:sha256)}, fn file, {:ok, context} ->
-          case File.read(file.absolute_path) do
-            {:ok, contents} ->
-              next_context =
-                context
-                |> :crypto.hash_update(file.relative_path)
-                |> :crypto.hash_update(<<0>>)
-                |> :crypto.hash_update(contents)
-                |> :crypto.hash_update(<<0>>)
-
-              {:cont, {:ok, next_context}}
-
-            {:error, _reason} ->
-              {:halt, {:error, :plugin_checksum_unavailable}}
-          end
-        end)
-
-      case result do
-        {:ok, context} ->
-          {:ok, context |> :crypto.hash_final() |> Base.encode16(case: :lower)}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
+    Checksum.compute(plugin_path)
   end
 
   defp verify_checksum(plugin_path, opts) do
@@ -234,7 +184,7 @@ defmodule Ourocode.Plugin.Loader do
     if is_nil(expected_checksum) do
       {:error, :missing_plugin_checksum}
     else
-      with {:ok, computed_checksum} <- checksum(plugin_path) do
+      with {:ok, computed_checksum} <- Checksum.compute(plugin_path) do
         if computed_checksum == expected_checksum do
           {:ok, computed_checksum}
         else
@@ -242,51 +192,5 @@ defmodule Ourocode.Plugin.Loader do
         end
       end
     end
-  end
-
-  defp regular_plugin_files(plugin_path) do
-    case File.ls(plugin_path) do
-      {:ok, entries} ->
-        with {:ok, absolute_paths} <- collect_regular_plugin_files(plugin_path, entries) do
-          files =
-            Enum.map(absolute_paths, fn absolute_path ->
-              %{
-                absolute_path: absolute_path,
-                relative_path: Path.relative_to(absolute_path, plugin_path)
-              }
-            end)
-
-          {:ok, files}
-        end
-
-      {:error, _reason} ->
-        {:error, :plugin_checksum_unavailable}
-    end
-  end
-
-  defp collect_regular_plugin_files(parent_path, entries) do
-    Enum.reduce_while(entries, {:ok, []}, fn entry, {:ok, files} ->
-      path = Path.join(parent_path, entry)
-
-      cond do
-        File.regular?(path) ->
-          {:cont, {:ok, [path | files]}}
-
-        File.dir?(path) ->
-          case File.ls(path) do
-            {:ok, child_entries} ->
-              case collect_regular_plugin_files(path, child_entries) do
-                {:ok, child_files} -> {:cont, {:ok, child_files ++ files}}
-                {:error, reason} -> {:halt, {:error, reason}}
-              end
-
-            {:error, _reason} ->
-              {:halt, {:error, :plugin_checksum_unavailable}}
-          end
-
-        true ->
-          {:cont, {:ok, files}}
-      end
-    end)
   end
 end
