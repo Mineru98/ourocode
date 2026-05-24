@@ -10,6 +10,7 @@ defmodule Ourocode.Provider.Codex.Client do
 
   alias Ourocode.Json
   alias Ourocode.Provider.Codex
+  alias Ourocode.Provider.Codex.Responses
 
   @endpoint "https://chatgpt.com/backend-api/codex/responses"
   @default_model "gpt-5.3-codex"
@@ -42,20 +43,7 @@ defmodule Ourocode.Provider.Codex.Client do
   Builds the OpenAI Responses API request body for a single user turn.
   """
   @spec request_body(String.t(), String.t(), String.t()) :: map()
-  def request_body(prompt, model, instructions) do
-    %{
-      "model" => model,
-      "instructions" => instructions,
-      "input" => [
-        %{
-          "role" => "user",
-          "content" => [%{"type" => "input_text", "text" => prompt}]
-        }
-      ],
-      "stream" => true,
-      "store" => false
-    }
-  end
+  defdelegate request_body(prompt, model, instructions), to: Responses
 
   @doc """
   Parses accumulated SSE bytes into `{events, rest}`.
@@ -64,58 +52,19 @@ defmodule Ourocode.Provider.Codex.Client do
   sentinel); `rest` is an unterminated trailing frame for the next chunk.
   """
   @spec parse_sse(binary()) :: {[map()], binary()}
-  def parse_sse(buffer) when is_binary(buffer) do
-    case String.split(buffer, ~r/\r?\n\r?\n/) do
-      [single] ->
-        {[], single}
-
-      parts ->
-        {complete, [rest]} = Enum.split(parts, -1)
-        {Enum.flat_map(complete, &decode_frame/1), rest}
-    end
-  end
+  defdelegate parse_sse(buffer), to: Responses
 
   @doc """
   Extracts the streamed text delta from a Responses API event, if any.
   """
   @spec text_delta(map()) :: String.t() | nil
-  def text_delta(%{"type" => "response.output_text.delta", "delta" => delta})
-      when is_binary(delta),
-      do: delta
-
-  def text_delta(_event), do: nil
+  defdelegate text_delta(event), to: Responses
 
   @doc "True for the terminal Responses stream events."
   @spec terminal?(map()) :: boolean()
-  def terminal?(%{"type" => type}),
-    do: type in ["response.completed", "response.incomplete", "response.failed"]
-
-  def terminal?(_event), do: false
+  defdelegate terminal?(event), to: Responses
 
   # --- internals -----------------------------------------------------------
-
-  defp decode_frame(frame) do
-    frame
-    |> String.split(~r/\r?\n/)
-    |> Enum.flat_map(fn line ->
-      case String.split(String.trim_leading(line), ":", parts: 2) do
-        ["data", value] ->
-          value = String.trim(value)
-
-          if value == "" or value == "[DONE]" do
-            []
-          else
-            case Json.decode(value) do
-              {:ok, %{} = m} -> [m]
-              _ -> []
-            end
-          end
-
-        _ ->
-          []
-      end
-    end)
-  end
 
   defp do_stream(headers, body_map, on_chunk) do
     _ = Application.ensure_all_started(:ssl)
@@ -147,7 +96,7 @@ defmodule Ourocode.Provider.Codex.Client do
         receive_stream(request_id, buffer, acc, on_chunk)
 
       {:http, {^request_id, :stream, chunk}} ->
-        {events, rest} = parse_sse(buffer <> chunk)
+        {events, rest} = Responses.parse_sse(buffer <> chunk)
         acc = Enum.reduce(events, acc, &handle_event(&1, &2, on_chunk))
         receive_stream(request_id, rest, acc, on_chunk)
 
@@ -168,11 +117,11 @@ defmodule Ourocode.Provider.Codex.Client do
 
   defp handle_event(event, acc, on_chunk) do
     cond do
-      delta = text_delta(event) ->
+      delta = Responses.text_delta(event) ->
         on_chunk.(delta)
         [delta | acc]
 
-      terminal?(event) ->
+      Responses.terminal?(event) ->
         acc
 
       true ->

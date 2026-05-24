@@ -1,5 +1,5 @@
 defmodule Ourocode.Provider.CodexTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ourocode.Provider.Codex
 
