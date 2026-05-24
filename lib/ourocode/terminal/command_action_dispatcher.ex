@@ -1,0 +1,30 @@
+defmodule Ourocode.Terminal.CommandActionDispatcher do
+  @moduledoc """
+  Routes builtin command actions to their terminal command family modules.
+  """
+
+  alias Ourocode.Terminal.CommandChildControlCommands
+  alias Ourocode.Terminal.CommandDiscoveryCommands
+  alias Ourocode.Terminal.CommandStatusCommands
+  alias Ourocode.Terminal.ResumeSessions
+
+  @spec dispatch(term(), map(), map(), map(), map()) :: {:ok, term()} | {:error, term()}
+  def dispatch(action, command_event, entry, state, registry) do
+    cond do
+      CommandChildControlCommands.handles?(action) ->
+        CommandChildControlCommands.dispatch(action, command_event, state)
+
+      ResumeSessions.handles?(action) ->
+        ResumeSessions.dispatch(action, command_event, state)
+
+      CommandDiscoveryCommands.handles?(action) ->
+        CommandDiscoveryCommands.render(action, state, registry)
+
+      CommandStatusCommands.handles?(action) ->
+        CommandStatusCommands.render(action, state)
+
+      true ->
+        {:ok, %{command_entry: entry}}
+    end
+  end
+end
