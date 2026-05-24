@@ -55,6 +55,33 @@ defmodule Ourocode.Dashboard.LayoutTest do
     refute Layout.overlaps?(panes.completed.layout.rect, panes.task_prompt.layout.rect)
   end
 
+  test "detects overlap across rectangle lists and builds bounding rectangles" do
+    rects = [
+      %{x: 0, y: 0, width: 10, height: 4},
+      %{x: 12, y: 2, width: 6, height: 3},
+      %{x: 4, y: 6, width: 8, height: 2}
+    ]
+
+    assert Layout.any_overlaps?(rects) == false
+    assert Layout.bounding_rect(rects) == %{x: 0, y: 0, width: 18, height: 8}
+
+    assert Layout.any_overlaps?([
+             %{x: 0, y: 0, width: 10, height: 4},
+             %{x: 9, y: 3, width: 4, height: 4}
+           ])
+  end
+
+  test "validates positive rectangles and container containment" do
+    container = %{x: 0, y: 0, width: 80, height: 21}
+
+    assert Layout.positive_rect?(container)
+    assert Layout.contains_rect?(container, %{x: 0, y: 9, width: 80, height: 12})
+
+    refute Layout.positive_rect?(%{x: 0, y: 0, width: 0, height: 1})
+    refute Layout.contains_rect?(container, %{x: 0, y: 10, width: 80, height: 12})
+    refute Layout.contains_rect?(container, %{x: -1, y: 0, width: 10, height: 1})
+  end
+
   test "journal recovery reconstructs compact UI layout metadata after restart" do
     journal_path =
       Path.join(System.tmp_dir!(), "ourocode-layout-recovery-#{System.unique_integer()}.jsonl")
