@@ -10,6 +10,8 @@ defmodule Ourocode.WonderTool.SelectionHandler do
   """
 
   alias Ourocode.WonderTool.DecisionRequest
+  alias Ourocode.WonderTool.OptionSelection
+  alias Ourocode.WonderTool.SelectionPayload
 
   @type selection_payload :: map() | list() | integer() | String.t()
 
@@ -52,8 +54,8 @@ defmodule Ourocode.WonderTool.SelectionHandler do
   def capture(request, selection_payload, options) when is_map(request) do
     with {:ok, normalized_request} <- normalize_request(request),
          {:ok, question} <- resolve_question(normalized_request, selection_payload, options),
-         {:ok, selections} <- normalize_selections(question, selection_payload),
-         {:ok, selected} <- resolve_options(question, selections) do
+         {:ok, selections} <- OptionSelection.normalize(question, selection_payload),
+         {:ok, selected} <- OptionSelection.resolve(question, selections) do
       [{selected_index, selected_option} | _rest] = selected
 
       decision =
@@ -73,7 +75,7 @@ defmodule Ourocode.WonderTool.SelectionHandler do
         |> maybe_put_multi_select(question, selected)
         |> maybe_put(:selected_preview_placeholders, selected_preview_placeholders(selected))
         |> maybe_put(:free_text, free_text_from_payload(question, selected, selection_payload))
-        |> maybe_put(:annotation, annotation_from_payload(selection_payload))
+        |> maybe_put(:annotation, SelectionPayload.annotation(selection_payload))
         |> maybe_put(:request_id, Map.get(normalized_request, :request_id))
         |> maybe_put(:child_id, Map.get(normalized_request, :child_id))
         |> maybe_put(:parent_call_id, Map.get(normalized_request, :parent_call_id))
@@ -97,7 +99,7 @@ defmodule Ourocode.WonderTool.SelectionHandler do
   defp resolve_question(%{questions: questions}, selection_payload, options)
        when is_list(questions) do
     question_id =
-      question_id_from_payload(selection_payload) ||
+      SelectionPayload.question_id(selection_payload) ||
         Map.new(options) |> Map.get(:question_id)
 
     cond do
@@ -114,227 +116,13 @@ defmodule Ourocode.WonderTool.SelectionHandler do
 
   defp resolve_question(_request, _selection_payload, _options), do: {:error, :questions_required}
 
-  defp normalize_selections(question, selection_payload) do
-    selections =
-      case extract_selections(selection_payload) do
-        [] -> other_selection_from_payload(question, selection_payload)
-        values -> values
-      end
-
-    cond do
-      selections == [] ->
-        {:error, :selection_required}
-
-      multi_select?(question) ->
-        {:ok, selections}
-
-      match?([_one], selections) ->
-        {:ok, selections}
-
-      true ->
-        {:error, {:exactly_one_selection_required, length(selections)}}
-    end
-  end
-
-  defp extract_selections(selection_payload) when is_map(selection_payload) do
-    cond do
-      present?(selection_payload, [
-        "selected_option",
-        "selectedOption",
-        :selected_option,
-        :selectedOption
-      ]) ->
-        selection_payload
-        |> first_present_field([
-          "selected_option",
-          "selectedOption",
-          :selected_option,
-          :selectedOption
-        ])
-        |> elem(1)
-        |> List.wrap()
-        |> reject_blank_selections()
-
-      present?(
-        selection_payload,
-        [
-          "selected_options",
-          "selectedOptions",
-          "selections",
-          :selected_options,
-          :selectedOptions,
-          :selections
-        ]
-      ) ->
-        selection_payload
-        |> first_present_field([
-          "selected_options",
-          "selectedOptions",
-          "selections",
-          :selected_options,
-          :selectedOptions,
-          :selections
-        ])
-        |> elem(1)
-        |> list_selection_values()
-        |> reject_blank_selections()
-
-      true ->
-        []
-    end
-  end
-
-  defp extract_selections(selection_payload) when is_list(selection_payload) do
-    reject_blank_selections(selection_payload)
-  end
-
-  defp extract_selections(selection_payload) do
-    selection_payload
-    |> List.wrap()
-    |> reject_blank_selections()
-  end
-
-  defp other_selection_from_payload(question, selection_payload) do
-    with text when is_binary(text) <- free_text_value(selection_payload),
-         true <- String.trim(text) != "",
-         %{label: label} <- other_option(question) do
-      [label]
-    else
-      _other -> []
-    end
-  end
-
-  defp list_selection_values(values) when is_list(values), do: values
-  defp list_selection_values(nil), do: []
-  defp list_selection_values(value), do: [value]
-
-  defp reject_blank_selections(selections) do
-    Enum.reject(selections, fn
-      nil -> true
-      value when is_binary(value) -> String.trim(value) == ""
-      _value -> false
-    end)
-  end
-
-  defp resolve_options(%{options: options}, selections) when is_list(options) do
-    selections
-    |> Enum.reduce_while({:ok, []}, fn selection, {:ok, acc} ->
-      case resolve_option(options, selection) do
-        {:ok, index, option} -> {:cont, {:ok, [{index, option} | acc]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, selected} ->
-        selected =
-          selected
-          |> Enum.reverse()
-          |> Enum.uniq_by(fn {index, _option} -> index end)
-
-        if selected == [], do: {:error, :selection_required}, else: {:ok, selected}
-
-      error ->
-        error
-    end
-  end
-
-  defp resolve_options(_question, _selections), do: {:error, :options_required}
-
-  defp resolve_option(options, selection) do
-    options
-    |> Enum.with_index(1)
-    |> Enum.find(&option_matches_selection?(&1, selection))
-    |> case do
-      {option, index} -> {:ok, index, option}
-      nil -> resolve_other_option(options, selection)
-    end
-  end
-
-  defp resolve_other_option(options, selection) when is_binary(selection) do
-    case Enum.find(Enum.with_index(options, 1), fn {option, _index} -> other_option?(option) end) do
-      {option, index} -> {:ok, index, option}
-      nil -> {:error, {:unknown_selected_option, selection}}
-    end
-  end
-
-  defp resolve_other_option(_options, selection),
-    do: {:error, {:unknown_selected_option, selection}}
-
-  defp option_matches_selection?({_option, index}, selection) when is_integer(selection),
-    do: index == selection
-
-  defp option_matches_selection?({option, index}, selection) when is_binary(selection) do
-    case Integer.parse(String.trim(selection)) do
-      {parsed_index, ""} -> index == parsed_index
-      _other -> normalize_label(Map.get(option, :label)) == normalize_label(selection)
-    end
-  end
-
-  defp option_matches_selection?(_indexed_option, _selection), do: false
-
-  defp question_id_from_payload(selection_payload) when is_map(selection_payload) do
-    selection_payload
-    |> string_field(["question_id", "questionId", :question_id, :questionId])
-  end
-
-  defp question_id_from_payload(_selection_payload), do: nil
-
-  defp present?(map, keys), do: not is_nil(first_present_field(map, keys))
-
-  defp first_present_field(map, keys) do
-    Enum.find_value(keys, fn key ->
-      case Map.fetch(map, key) do
-        {:ok, value} -> {key, value}
-        :error -> nil
-      end
-    end)
-  end
-
-  defp string_field(map, keys) do
-    case first_present_field(map, keys) do
-      {_key, value} when is_binary(value) ->
-        value
-        |> String.trim()
-        |> case do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      _other ->
-        nil
-    end
-  end
-
-  defp normalize_label(label) when is_binary(label) do
-    label
-    |> String.trim()
-    |> String.downcase()
-  end
-
-  defp normalize_label(_label), do: nil
-
-  defp multi_select?(question), do: Map.get(question, :multi_select?, false) == true
-
-  defp other_option(%{options: options}) when is_list(options) do
-    Enum.find(options, &other_option?/1)
-  end
-
-  defp other_option(_question), do: nil
-
-  defp other_option?(option) when is_map(option) do
-    Map.get(option, :other?, false) == true or
-      normalize_label(Map.get(option, :label)) in ["other", "기타"]
-  end
-
-  defp other_option?(_option), do: false
-
   defp selected_label(selected), do: selected |> Enum.map(&elem(&1, 1).label) |> Enum.join(", ")
 
   defp selected_description(selected),
     do: selected |> Enum.map(&elem(&1, 1).description) |> Enum.join("; ")
 
   defp maybe_put_multi_select(decision, question, selected) do
-    if multi_select?(question) do
+    if OptionSelection.multi_select?(question) do
       decision
       |> Map.put(:multi_select?, true)
       |> Map.put(:selected_indices, Enum.map(selected, &elem(&1, 0)))
@@ -363,13 +151,13 @@ defmodule Ourocode.WonderTool.SelectionHandler do
   end
 
   defp free_text_from_payload(question, selected, selection_payload) do
-    text = free_text_value(selection_payload)
+    text = SelectionPayload.free_text(selection_payload)
 
     cond do
       is_binary(text) and String.trim(text) != "" ->
         String.trim(text)
 
-      Enum.any?(selected, fn {_index, option} -> other_option?(option) end) ->
+      Enum.any?(selected, fn {_index, option} -> OptionSelection.other_option?(option) end) ->
         selection_payload
         |> case do
           value when is_binary(value) -> value
@@ -377,8 +165,9 @@ defmodule Ourocode.WonderTool.SelectionHandler do
         end
         |> case do
           value when is_binary(value) ->
-            if other_option(question) != nil and normalize_label(value) not in ["other", "기타"],
-              do: String.trim(value)
+            if OptionSelection.other_option(question) != nil and
+                 OptionSelection.normalize_label(value) not in ["other", "기타"],
+               do: String.trim(value)
 
           _other ->
             nil
@@ -388,44 +177,6 @@ defmodule Ourocode.WonderTool.SelectionHandler do
         nil
     end
   end
-
-  defp annotation_from_payload(selection_payload) when is_map(selection_payload) do
-    selection_payload
-    |> string_field([
-      "annotation",
-      "annotations",
-      "note",
-      "notes",
-      "free_text_note",
-      "freeTextNote",
-      :annotation,
-      :annotations,
-      :note,
-      :notes,
-      :free_text_note,
-      :freeTextNote
-    ])
-  end
-
-  defp annotation_from_payload(_selection_payload), do: nil
-
-  defp free_text_value(selection_payload) when is_map(selection_payload) do
-    selection_payload
-    |> string_field([
-      "other_text",
-      "otherText",
-      "free_text",
-      "freeText",
-      "text",
-      :other_text,
-      :otherText,
-      :free_text,
-      :freeText,
-      :text
-    ])
-  end
-
-  defp free_text_value(_selection_payload), do: nil
 
   defp maybe_cons(list, value) when is_binary(value), do: [value | list]
   defp maybe_cons(list, _value), do: list
