@@ -887,11 +887,11 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert Enum.any?(snap.interview.router, &String.contains?(&1, "router timeout"))
 
     assert {:ok, decision} = LoopBindings.answer_wonder(agent, 1)
-    assert decision.selected_label == "Answer in my own words"
+    assert decision.selected_label == "Narrow the scope"
 
     assert_receive {:followup, followup}, 1_000
     assert followup["params"]["arguments"]["session_id"] == "iv-timeout-1"
-    assert followup["params"]["arguments"]["answer"] =~ "[from-user] Answer in my own words"
+    assert followup["params"]["arguments"]["answer"] =~ "[from-user] Narrow the scope"
 
     refute_receive :loop_done, 50
     assert Process.alive?(loop)

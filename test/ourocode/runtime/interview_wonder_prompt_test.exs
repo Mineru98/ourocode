@@ -36,20 +36,17 @@ defmodule Ourocode.Runtime.InterviewWonderPromptTest do
              InterviewWonderPrompt.options([%{label: :A, description: :alpha}], "ignored")
   end
 
-  test "options derive candidate hints from English and Korean prompts when model is silent" do
+  test "options derive candidate hints from prompts when model is silent" do
     english = InterviewWonderPrompt.options([], "Which target: docs, tests, or runtime?")
 
-    assert Enum.map(english, & &1["label"]) == ["docs", "tests", "runtime?"]
-
-    korean = InterviewWonderPrompt.options([], "어느 쪽을 먼저 볼까요? 라우팅 아니면 렌더링")
-
-    assert Enum.map(korean, & &1["label"]) == ["라우팅", "렌더링"]
+    assert Enum.map(english, & &1["label"]) == ["docs", "tests", "runtime"]
   end
 
-  test "options fall back to generic affordances when no candidates exist" do
+  test "options fall back to decision affordances when no candidates exist" do
     assert [
-             %{"label" => "Answer in my own words"},
-             %{"label" => "Not sure — skip for now"}
+             %{"label" => "Narrow the scope"},
+             %{"label" => "Broaden the scope"},
+             %{"label" => "Prioritize release readiness"}
            ] = InterviewWonderPrompt.options([], "What should we do next?")
   end
 end

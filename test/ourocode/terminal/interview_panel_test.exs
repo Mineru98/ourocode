@@ -44,13 +44,16 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
   test "interview block falls back to the active question when wonder request is incomplete" do
     result = %{
       wonder_tool: %{request_id: "bad-wt", request: %{"questions" => []}},
-      interview: %{question: "지금 어느 범위를 먼저 볼까요?", status: "waiting for your answer"}
+      interview: %{
+        question: "Which scope should we inspect first?",
+        status: "waiting for your answer"
+      }
     }
 
     assert {"INTERVIEW", lines, "type your answer + Enter   Esc pause"} =
              InterviewPanel.interview_block_lines(result, nil, 0)
 
-    assert {"지금 어느 범위를 먼저 볼까요?", :warn} in lines
+    assert {"Which scope should we inspect first?", :warn} in lines
   end
 
   test "interview block renders dialogue and dim working status for plain interview state" do
