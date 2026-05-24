@@ -40,12 +40,14 @@ defmodule Ourocode.Runtime.McpDaemon do
           required(:url) => String.t()
         }
 
-  @default_url "http://127.0.0.1:4000/mcp"
   # ~12s ceiling: a warm `uvx`/installed server binds in 2-3s; the first
   # uvx run may resolve deps. Non-fatal on timeout — the relay surfaces a
   # visible failure and the user can retry once the server is warm.
   @ready_attempts 60
   @ready_interval_ms 200
+
+  alias Ourocode.Runtime.McpDaemon.Process, as: DaemonProcess
+  alias Ourocode.Runtime.McpDaemon.Target
 
   @doc """
   Starts (or adopts) a local MCP server for the configured URL.
@@ -55,12 +57,12 @@ defmodule Ourocode.Runtime.McpDaemon do
   """
   @spec maybe_start(keyword()) :: {:ok, handle()}
   def maybe_start(opts \\ []) do
-    spawn_fun = Keyword.get(opts, :spawn_fun, &spawn_server/3)
+    spawn_fun = Keyword.get(opts, :spawn_fun, &DaemonProcess.spawn_server/3)
     llm_backend = Keyword.get(opts, :llm_backend)
 
     case resolve_target() do
       :disabled ->
-        {:ok, %{mode: :disabled, url: mcp_url() || @default_url}}
+        {:ok, %{mode: :disabled, url: mcp_url() || Target.default_url()}}
 
       {:external, url} ->
         {:ok, %{mode: :external, url: url}}
@@ -84,7 +86,7 @@ defmodule Ourocode.Runtime.McpDaemon do
         end
     end
   rescue
-    _exception -> {:ok, %{mode: :unavailable, url: mcp_url() || @default_url}}
+    _exception -> {:ok, %{mode: :unavailable, url: mcp_url() || Target.default_url()}}
   end
 
   defp finish_spawn(explicit?, url, erl_port, os_pid, llm_backend, log_path, opts) do
@@ -116,24 +118,7 @@ defmodule Ourocode.Runtime.McpDaemon do
           | {:external, String.t()}
           | {:spawn, String.t(), :inet.port_number(), String.t(), boolean()}
   def resolve_target do
-    explicit = mcp_url()
-
-    cond do
-      disabled?() ->
-        :disabled
-
-      is_binary(explicit) ->
-        {host, port} = host_port(explicit)
-
-        if port_open?(host, port),
-          do: {:external, explicit},
-          else: {:spawn, host, port, explicit, true}
-
-      true ->
-        host = "127.0.0.1"
-        port = free_port()
-        {:spawn, host, port, "http://#{host}:#{port}/mcp", false}
-    end
+    Target.decide(disabled?(), mcp_url(), &port_open?/2, &free_port/0)
   end
 
   # A free ephemeral port: bind 0, read the assigned port, release it. The
@@ -150,27 +135,7 @@ defmodule Ourocode.Runtime.McpDaemon do
   Stops a spawned server. No-op for adopted/disabled/unavailable handles.
   """
   @spec stop(handle() | nil) :: :ok
-  def stop(%{mode: :spawned} = handle) do
-    # Closing the Erlang port does NOT reliably reap the OS process (the
-    # server is `exec`-ed under `sh` and never reads stdin). For the
-    # per-instance model that would orphan a server on every tab close, so
-    # signal the OS pid directly, then close the port.
-    case Map.get(handle, :os_pid) do
-      pid when is_integer(pid) and pid > 0 ->
-        System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)
-
-      _none ->
-        :ok
-    end
-
-    erl_port = Map.get(handle, :port)
-    if is_port(erl_port) and Port.info(erl_port) != nil, do: Port.close(erl_port)
-    :ok
-  rescue
-    _exception -> :ok
-  end
-
-  def stop(_handle), do: :ok
+  def stop(handle), do: DaemonProcess.stop(handle)
 
   @doc "Human-readable one-liner for status output."
   @spec describe(handle()) :: String.t()
@@ -188,12 +153,6 @@ defmodule Ourocode.Runtime.McpDaemon do
   # explicit operator target from the auto per-instance path.
   defp mcp_url, do: System.get_env("OUROCODE_MCP_URL")
 
-  # Extracts host/port from http://host:port/path (defaults 127.0.0.1:4000).
-  defp host_port(url) do
-    uri = URI.parse(url)
-    {uri.host || "127.0.0.1", uri.port || 4000}
-  end
-
   defp port_open?(host, port) do
     case :gen_tcp.connect(String.to_charlist(host), port, [:binary, active: false], 300) do
       {:ok, socket} ->
@@ -204,89 +163,6 @@ defmodule Ourocode.Runtime.McpDaemon do
         false
     end
   end
-
-  # Prefer a direct `ouroboros` binary; fall back to `uvx` (zero-install run)
-  # exactly as the Claude plugin launches it.
-  defp spawn_server(host, port, llm_backend) do
-    case server_command(host, port, llm_backend) do
-      {exe, args} ->
-        sh = System.find_executable("sh") || "/bin/sh"
-        log = Path.join(System.tmp_dir!(), "ourocode-mcp-#{port}.log")
-
-        # Run the server with stdout+stderr redirected to a log file. Without
-        # this the server's structured logs (stderr) inherit the BEAM's tty
-        # and bleed onto the ourocode alt-screen, corrupting the TUI. The
-        # `"$0" "$@"` form avoids any shell-quoting of exe/args.
-        sh_args = ["-c", "exec \"$0\" \"$@\" >\"#{log}\" 2>&1", exe] ++ args
-
-        erl_port =
-          Port.open({:spawn_executable, sh}, [
-            :binary,
-            :exit_status,
-            :hide,
-            args: sh_args
-          ])
-
-        os_pid =
-          case Port.info(erl_port, :os_pid) do
-            {:os_pid, pid} -> pid
-            _none -> nil
-          end
-
-        {:ok, erl_port, os_pid, log}
-
-      :none ->
-        :unavailable
-    end
-  end
-
-  defp server_command(host, port, llm_backend) do
-    serve_args =
-      [
-        "mcp",
-        "serve",
-        "--transport",
-        "streamable-http",
-        "--host",
-        host,
-        "--port",
-        Integer.to_string(port)
-      ]
-      |> backend_args(llm_backend)
-
-    # Prefer `uvx` — it pins the exact `[mcp,claude]` extras on every run, so
-    # the server can't boot-then-die with "mcp package not installed" the way
-    # a globally-installed `ouroboros` binary does when its env lacks the mcp
-    # extra. uvx caches the resolved env, so only the first run is slow. Bare
-    # `ouroboros` is the fallback when uvx is unavailable.
-    cond do
-      exe = System.find_executable("uvx") ->
-        {exe, ["--from", "ouroboros-ai[mcp,claude]", "ouroboros"] ++ serve_args}
-
-      exe = System.find_executable("ouroboros") ->
-        {exe, serve_args}
-
-      true ->
-        :none
-    end
-  end
-
-  defp backend_args(args, nil), do: args
-  defp backend_args(args, ""), do: args
-
-  defp backend_args(args, "codex") do
-    args ++ ["--runtime", "codex", "--llm-backend", "codex"]
-  end
-
-  defp backend_args(args, "opencode") do
-    args ++ ["--runtime", "opencode", "--llm-backend", "opencode"]
-  end
-
-  defp backend_args(args, "claude_code") do
-    args ++ ["--llm-backend", "claude_code"]
-  end
-
-  defp backend_args(args, backend), do: args ++ ["--llm-backend", to_string(backend)]
 
   defp await_ready(_host, _port, false), do: :ok
 
