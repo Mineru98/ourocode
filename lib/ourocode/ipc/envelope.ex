@@ -6,6 +6,8 @@ defmodule Ourocode.IPC.Envelope do
   helpers can exchange messages without sharing implementation details.
   """
 
+  alias Ourocode.IPC.EnvelopeFields
+
   @current_version 1
 
   @enforce_keys [:version, :message_id, :message_type]
@@ -55,12 +57,12 @@ defmodule Ourocode.IPC.Envelope do
   """
   @spec from_map(map()) :: {:ok, t()} | {:error, validation_error()}
   def from_map(envelope) when is_map(envelope) do
-    with {:ok, version} <- required(envelope, "version"),
+    with {:ok, version} <- EnvelopeFields.required(envelope, "version"),
          :ok <- validate_version(version),
-         {:ok, message_id} <- required_non_blank_string(envelope, "message_id"),
-         {:ok, message_type} <- required_non_blank_string(envelope, "message_type"),
-         {:ok, payload} <- optional_map(envelope, "payload"),
-         {:ok, metadata} <- optional_map(envelope, "metadata") do
+         {:ok, message_id} <- EnvelopeFields.required_non_blank_string(envelope, "message_id"),
+         {:ok, message_type} <- EnvelopeFields.required_non_blank_string(envelope, "message_type"),
+         {:ok, payload} <- EnvelopeFields.optional_map(envelope, "payload"),
+         {:ok, metadata} <- EnvelopeFields.optional_map(envelope, "metadata") do
       {:ok,
        %__MODULE__{
          version: version,
@@ -108,38 +110,6 @@ defmodule Ourocode.IPC.Envelope do
     end
   end
 
-  defp required(envelope, field) do
-    case Map.fetch(envelope, field) do
-      {:ok, value} -> {:ok, value}
-      :error -> {:error, {:missing_required_field, field}}
-    end
-  end
-
-  defp required_non_blank_string(envelope, field) do
-    with {:ok, value} <- required(envelope, field) do
-      case value do
-        value when is_binary(value) ->
-          trimmed = String.trim(value)
-
-          if trimmed == "" do
-            {:error, {:invalid_field, field, value}}
-          else
-            {:ok, trimmed}
-          end
-
-        other ->
-          {:error, {:invalid_field, field, other}}
-      end
-    end
-  end
-
   defp validate_version(@current_version), do: :ok
   defp validate_version(_other), do: {:error, :unsupported_version}
-
-  defp optional_map(envelope, field) do
-    case Map.get(envelope, field, %{}) do
-      value when is_map(value) -> {:ok, value}
-      other -> {:error, {:invalid_field, field, other}}
-    end
-  end
 end

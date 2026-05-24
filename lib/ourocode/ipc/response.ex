@@ -12,6 +12,7 @@ defmodule Ourocode.IPC.Response do
   alias Ourocode.IPC.Envelope
   alias Ourocode.IPC.Error
   alias Ourocode.IPC.Request
+  alias Ourocode.IPC.ResponseFields
 
   @message_type "ipc.rpc.response"
   @ok_status "ok"
@@ -83,12 +84,12 @@ defmodule Ourocode.IPC.Response do
   @spec new(String.t(), String.t(), status(), map(), map() | Error.t() | nil, map()) ::
           {:ok, t()} | {:error, validation_error()}
   def new(message_id, request_id, status, result \\ %{}, error \\ nil, metadata \\ %{}) do
-    with {:ok, message_id} <- non_blank_string(message_id, "message_id"),
-         {:ok, request_id} <- non_blank_string(request_id, "request_id"),
-         {:ok, status} <- normalize_status(status),
-         {:ok, result} <- map_field(result, "result"),
-         {:ok, metadata} <- map_field(metadata, "metadata"),
-         {:ok, error} <- error_for_status(status, error) do
+    with {:ok, message_id} <- ResponseFields.non_blank_string(message_id, "message_id"),
+         {:ok, request_id} <- ResponseFields.non_blank_string(request_id, "request_id"),
+         {:ok, status} <- ResponseFields.normalize_status(status),
+         {:ok, result} <- ResponseFields.map_field(result, "result"),
+         {:ok, metadata} <- ResponseFields.map_field(metadata, "metadata"),
+         {:ok, error} <- ResponseFields.error_for_status(status, error) do
       {:ok,
        %__MODULE__{
          message_id: message_id,
@@ -119,9 +120,9 @@ defmodule Ourocode.IPC.Response do
   def from_payload(payload, message_id, metadata \\ %{})
 
   def from_payload(payload, message_id, metadata) when is_map(payload) do
-    with {:ok, request_id} <- required_non_blank_string(payload, "request_id"),
-         {:ok, status} <- required_status(payload),
-         {:ok, result} <- result_for_status(payload, status),
+    with {:ok, request_id} <- ResponseFields.required_non_blank_string(payload, "request_id"),
+         {:ok, status} <- ResponseFields.required_status(payload),
+         {:ok, result} <- ResponseFields.result_for_status(payload, status),
          {:ok, response} <-
            new(message_id, request_id, status, result, Map.get(payload, "error"), metadata) do
       {:ok, response}
@@ -203,70 +204,4 @@ defmodule Ourocode.IPC.Response do
       "error" => response.error
     }
   end
-
-  defp required_non_blank_string(map, field) do
-    case Map.fetch(map, field) do
-      {:ok, value} -> non_blank_string(value, field)
-      :error -> {:error, {:missing_required_field, field}}
-    end
-  end
-
-  defp non_blank_string(value, field) when is_binary(value) do
-    trimmed = String.trim(value)
-
-    if trimmed == "" do
-      {:error, {:invalid_field, field, value}}
-    else
-      {:ok, trimmed}
-    end
-  end
-
-  defp non_blank_string(value, field), do: {:error, {:invalid_field, field, value}}
-
-  defp required_status(map) do
-    case Map.fetch(map, "status") do
-      {:ok, value} -> normalize_status(value)
-      :error -> {:error, {:missing_required_field, "status"}}
-    end
-  end
-
-  defp normalize_status(:ok), do: {:ok, @ok_status}
-  defp normalize_status(:error), do: {:ok, @error_status}
-  defp normalize_status(@ok_status), do: {:ok, @ok_status}
-  defp normalize_status(@error_status), do: {:ok, @error_status}
-  defp normalize_status(other), do: {:error, {:invalid_field, "status", other}}
-
-  defp optional_map(map, field) do
-    case Map.get(map, field, %{}) do
-      value when is_map(value) -> {:ok, value}
-      other -> {:error, {:invalid_field, field, other}}
-    end
-  end
-
-  defp required_map(map, field) do
-    case Map.fetch(map, field) do
-      {:ok, value} when is_map(value) -> {:ok, value}
-      {:ok, other} -> {:error, {:invalid_field, field, other}}
-      :error -> {:error, {:missing_required_field, field}}
-    end
-  end
-
-  defp result_for_status(payload, @ok_status), do: required_map(payload, "result")
-  defp result_for_status(payload, @error_status), do: optional_map(payload, "result")
-
-  defp optional_error(nil), do: {:ok, nil}
-
-  defp optional_error(value) do
-    with {:ok, error} <- Error.from_map(value) do
-      {:ok, Error.to_map(error)}
-    end
-  end
-
-  defp map_field(value, _field) when is_map(value), do: {:ok, value}
-  defp map_field(value, field), do: {:error, {:invalid_field, field, value}}
-
-  defp error_for_status(@ok_status, nil), do: {:ok, nil}
-  defp error_for_status(@ok_status, error), do: {:error, {:invalid_field, "error", error}}
-  defp error_for_status(@error_status, nil), do: {:error, {:missing_required_field, "error"}}
-  defp error_for_status(@error_status, error), do: optional_error(error)
 end

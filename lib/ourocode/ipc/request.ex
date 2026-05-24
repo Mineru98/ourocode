@@ -9,6 +9,7 @@ defmodule Ourocode.IPC.Request do
   """
 
   alias Ourocode.IPC.Envelope
+  alias Ourocode.IPC.RequestFields
 
   @message_type "ipc.rpc.request"
 
@@ -47,11 +48,11 @@ defmodule Ourocode.IPC.Request do
   @spec new(String.t(), String.t(), String.t(), map(), map()) ::
           {:ok, t()} | {:error, validation_error()}
   def new(message_id, method, action, params \\ %{}, metadata \\ %{}) do
-    with {:ok, message_id} <- non_blank_string(message_id, "message_id"),
-         {:ok, method} <- non_blank_string(method, "method"),
-         {:ok, action} <- non_blank_string(action, "action"),
-         {:ok, params} <- map_field(params, "params"),
-         {:ok, metadata} <- map_field(metadata, "metadata") do
+    with {:ok, message_id} <- RequestFields.non_blank_string(message_id, "message_id"),
+         {:ok, method} <- RequestFields.non_blank_string(method, "method"),
+         {:ok, action} <- RequestFields.non_blank_string(action, "action"),
+         {:ok, params} <- RequestFields.map_field(params, "params"),
+         {:ok, metadata} <- RequestFields.map_field(metadata, "metadata") do
       {:ok,
        %__MODULE__{
          message_id: message_id,
@@ -156,9 +157,9 @@ defmodule Ourocode.IPC.Request do
   def from_payload(payload, message_id, metadata \\ %{})
 
   def from_payload(payload, message_id, metadata) when is_map(payload) do
-    with {:ok, method} <- required_non_blank_string(payload, "method"),
-         {:ok, action} <- required_non_blank_string(payload, "action"),
-         {:ok, params} <- optional_map(payload, "params"),
+    with {:ok, method} <- RequestFields.required_non_blank_string(payload, "method"),
+         {:ok, action} <- RequestFields.required_non_blank_string(payload, "action"),
+         {:ok, params} <- RequestFields.optional_map(payload, "params"),
          {:ok, request} <- new(message_id, method, action, params, metadata) do
       {:ok, request}
     end
@@ -196,33 +197,4 @@ defmodule Ourocode.IPC.Request do
       "params" => request.params
     }
   end
-
-  defp required_non_blank_string(map, field) do
-    case Map.fetch(map, field) do
-      {:ok, value} -> non_blank_string(value, field)
-      :error -> {:error, {:missing_required_field, field}}
-    end
-  end
-
-  defp non_blank_string(value, field) when is_binary(value) do
-    trimmed = String.trim(value)
-
-    if trimmed == "" do
-      {:error, {:invalid_field, field, value}}
-    else
-      {:ok, trimmed}
-    end
-  end
-
-  defp non_blank_string(value, field), do: {:error, {:invalid_field, field, value}}
-
-  defp optional_map(map, field) do
-    case Map.get(map, field, %{}) do
-      value when is_map(value) -> {:ok, value}
-      other -> {:error, {:invalid_field, field, other}}
-    end
-  end
-
-  defp map_field(value, _field) when is_map(value), do: {:ok, value}
-  defp map_field(value, field), do: {:error, {:invalid_field, field, value}}
 end
