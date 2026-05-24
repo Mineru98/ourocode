@@ -105,6 +105,28 @@ defmodule Ourocode.Terminal.EventLoopLineFlowTest do
                     %{task_input: "inspect the runtime"}, %{status: :healthy}}
   end
 
+  test "dispatch keeps bare ooo prefix on the workflow prompt path" do
+    parent = self()
+
+    {:ok, state} =
+      EventLoopLineFlow.dispatch(
+        "ooo build a seed",
+        state(
+          on_prompt_input: fn task_request, input_event, startup_result ->
+            send(parent, {:prompt, task_request, input_event, startup_result})
+            {:ok, task_request}
+          end
+        )
+      )
+
+    assert state.iterations == 1
+    assert state.command_events == []
+    assert [%{task_input: "ooo build a seed"}] = state.submitted_tasks
+
+    assert_receive {:prompt, %{routing_decision: %{execution_route: :ouroboros_workflow}},
+                    %{task_input: "ooo build a seed"}, %{status: :healthy}}
+  end
+
   test "dispatch opens palette from the merged command registry" do
     {:ok, registry} = Registry.load_builtin()
     skill = local_skill_entry()
