@@ -73,6 +73,21 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     assert {"| main session is checking project context", :dim} in lines
   end
 
+  test "interview block fails closed to the current question when dialogue is malformed" do
+    result = %{
+      interview: %{
+        dialogue: [:malformed_turn],
+        question: "Which first user outcome should this interview clarify?",
+        status: "waiting for your answer"
+      }
+    }
+
+    assert {"INTERVIEW", lines, "type your answer + Enter   Esc pause"} =
+             InterviewPanel.interview_block_lines(result, nil, 0)
+
+    assert {"Which first user outcome should this interview clarify?", :warn} in lines
+  end
+
   test "interview block renders sticky live session hints while no question is pending" do
     running = %{
       interview_session: %{label: "ooo interview plugin dispatch"},

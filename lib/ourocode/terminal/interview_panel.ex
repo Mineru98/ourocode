@@ -75,6 +75,28 @@ defmodule Ourocode.Terminal.InterviewPanel do
         nil
     end
   rescue
+    _exception -> emergency_interview_block(result, tick)
+  end
+
+  defp emergency_interview_block(result, tick) do
+    case interview_state(result) do
+      %{} = interview ->
+        paused? = paused?(result)
+        question = interview |> Map.get(:question) |> plain_line()
+
+        lines =
+          if question == "",
+            do: [{"Interview checkpoint is waiting for your answer", :warn}],
+            else: [{question, :warn}]
+
+        {Hints.marker(paused?),
+         lines ++ Enum.map(interview_working_lines(result, tick), &{&1, :dim}),
+         Hints.wonder_hint(paused?, false)}
+
+      _none ->
+        nil
+    end
+  rescue
     _exception -> nil
   end
 
