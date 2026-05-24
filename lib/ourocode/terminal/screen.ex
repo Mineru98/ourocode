@@ -9,63 +9,9 @@ defmodule Ourocode.Terminal.Screen do
   place instead of scrolling an append log. It owns no IO or process state.
   """
 
-  @reset "\e[0m"
+  alias Ourocode.Terminal.{ScreenStyles, ScreenText}
 
-  # 24-bit truecolor design system. The Rust tty helper writes frames verbatim
-  # to the host terminal (no SGR rewriting, no capability gating), so colour
-  # depth is the terminal's, not ours to fear. Identity is one warm gold accent
-  # used rarely (wordmark, caret, selection, live pulse, interview rail) over a
-  # cool neutral ramp; body text stays the terminal's own foreground so it
-  # adapts to the user's theme. Restraint, not saturation, carries the look.
-  # Every entry leads with `0;` so each styled run is fully self-contained:
-  # weight and colour reset before they are re-set, so a bold run never bleeds
-  # into the dim run beside it on the same row.
-  @styles %{
-    brand: "\e[0;1;38;2;227;179;65m",
-    accent: "\e[0;38;2;227;179;65m",
-    strong: "\e[0;1;38;2;245;245;247m",
-    label: "\e[0;1;38;2;142;142;150m",
-    dim: "\e[0;38;2;141;141;149m",
-    muted: "\e[0;38;2;101;101;110m",
-    border: "\e[0;38;2;58;58;64m",
-    title: "\e[0;1;38;2;227;179;65m",
-    ok: "\e[0;38;2;63;185;80m",
-    warn: "\e[0;38;2;210;153;34m",
-    err: "\e[0;38;2;248;81;73m",
-    placeholder: "\e[0;38;2;84;84;93m",
-    text: "\e[0m",
-    # Panel surface: a self-contained shaded sidebar that owns both its
-    # background and foreground so contrast is guaranteed regardless of the
-    # host terminal theme (the global palette stays adaptive). A subtle light
-    # fill separates the right pane without any rule or box character.
-    p_fill: "\e[0;48;2;233;233;236m",
-    p_title: "\e[0;1;48;2;233;233;236;38;2;31;31;36m",
-    p_accent: "\e[0;48;2;233;233;236;38;2;150;108;22m",
-    p_dim: "\e[0;48;2;233;233;236;38;2;77;77;85m",
-    p_muted: "\e[0;48;2;233;233;236;38;2;135;135;143m",
-    p_err: "\e[0;48;2;233;233;236;38;2;179;38;30m"
-  }
-
-  @type style ::
-          :brand
-          | :accent
-          | :strong
-          | :label
-          | :dim
-          | :muted
-          | :border
-          | :title
-          | :ok
-          | :warn
-          | :err
-          | :placeholder
-          | :text
-          | :p_fill
-          | :p_title
-          | :p_accent
-          | :p_dim
-          | :p_muted
-          | :p_err
+  @type style :: ScreenStyles.style()
   @type t :: %{
           required(:width) => pos_integer(),
           required(:height) => pos_integer(),
@@ -94,7 +40,7 @@ defmodule Ourocode.Terminal.Screen do
       text
       |> String.graphemes()
       |> Enum.reduce({screen, x}, fn grapheme, {acc, col} ->
-        w = char_width(grapheme)
+        w = ScreenText.char_width(grapheme)
 
         cond do
           col < 0 or col + w > width ->
@@ -138,44 +84,15 @@ defmodule Ourocode.Terminal.Screen do
 
   @doc "Display columns a grapheme occupies (CJK/fullwidth = 2, else 1)."
   @spec char_width(String.t()) :: 1 | 2
-  def char_width(grapheme) do
-    case grapheme do
-      <<cp::utf8, _::binary>> -> if wide?(cp), do: 2, else: 1
-      _ -> 1
-    end
-  end
+  defdelegate char_width(grapheme), to: ScreenText
 
   @doc "Total display width of a string."
   @spec text_width(String.t()) :: non_neg_integer()
-  def text_width(text) do
-    text |> String.graphemes() |> Enum.reduce(0, &(&2 + char_width(&1)))
-  end
+  defdelegate text_width(text), to: ScreenText
 
   @doc "Truncates `text` to at most `max` display columns."
   @spec truncate(String.t(), integer()) :: String.t()
-  def truncate(_text, max) when max <= 0, do: ""
-
-  def truncate(text, max) do
-    text
-    |> String.graphemes()
-    |> Enum.reduce_while({[], 0}, fn g, {acc, used} ->
-      w = char_width(g)
-      if used + w > max, do: {:halt, {acc, used}}, else: {:cont, {[g | acc], used + w}}
-    end)
-    |> elem(0)
-    |> Enum.reverse()
-    |> Enum.join()
-  end
-
-  defp wide?(cp) do
-    (cp >= 0x1100 and cp <= 0x115F) or (cp >= 0x2E80 and cp <= 0x303E) or
-      (cp >= 0x3041 and cp <= 0x33FF) or (cp >= 0x3400 and cp <= 0x4DBF) or
-      (cp >= 0x4E00 and cp <= 0x9FFF) or (cp >= 0xA000 and cp <= 0xA4CF) or
-      (cp >= 0xAC00 and cp <= 0xD7A3) or (cp >= 0xF900 and cp <= 0xFAFF) or
-      (cp >= 0xFE30 and cp <= 0xFE4F) or (cp >= 0xFF00 and cp <= 0xFF60) or
-      (cp >= 0xFFE0 and cp <= 0xFFE6) or (cp >= 0x1F300 and cp <= 0x1FAFF) or
-      (cp >= 0x20000 and cp <= 0x3FFFD)
-  end
+  defdelegate truncate(text, max), to: ScreenText
 
   @doc """
   Draws a clean rounded box with an optional inline title in the top border.
@@ -213,7 +130,7 @@ defmodule Ourocode.Terminal.Screen do
 
     # Clear the whole viewport first so a shrunk frame leaves no orphan rows
     # below it and a resized terminal cannot show stale columns.
-    ["\e[2J\e[H", body, @reset]
+    ["\e[2J\e[H", body, ScreenStyles.reset()]
   end
 
   @doc """
@@ -240,7 +157,7 @@ defmodule Ourocode.Terminal.Screen do
         end
       end)
 
-    {[Enum.reverse(changes), @reset], current}
+    {[Enum.reverse(changes), ScreenStyles.reset()], current}
   end
 
   @doc """
@@ -306,13 +223,13 @@ defmodule Ourocode.Terminal.Screen do
             if style == current_style do
               {[grapheme | segments], current_style}
             else
-              {[grapheme, Map.fetch!(@styles, style) | segments], style}
+              {[grapheme, ScreenStyles.sgr(style) | segments], style}
             end
         end
       end)
 
     text = segments |> Enum.reverse() |> IO.iodata_to_binary()
 
-    if last_style in [nil, :text], do: text, else: text <> @reset
+    if ScreenStyles.styled?(last_style), do: text <> ScreenStyles.reset(), else: text
   end
 end
