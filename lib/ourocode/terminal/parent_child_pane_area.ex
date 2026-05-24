@@ -9,6 +9,7 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
   """
 
   alias Ourocode.Dashboard.Layout
+  alias Ourocode.Terminal.LayoutSegment
 
   @terminal_width 80
   @terminal_height 21
@@ -69,18 +70,17 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
   def validate_bounds(parent_region, child_region)
       when is_map(parent_region) and is_map(child_region) do
     regions = [parent: parent_region, child: child_region]
+    terminal_rect = terminal_rect()
 
     %{
       terminal_width: @terminal_width,
       terminal_height: @terminal_height,
       gap: child_region.y - (parent_region.y + parent_region.height),
-      non_overlapping?: not Layout.overlaps?(parent_region, child_region),
-      within_terminal?: Enum.all?(regions, fn {_name, region} -> within_terminal?(region) end),
+      non_overlapping?: not Layout.any_overlaps?([parent_region, child_region]),
+      within_terminal?:
+        Enum.all?(regions, fn {_name, region} -> Layout.contains_rect?(terminal_rect, region) end),
       positive_dimensions?:
-        Enum.all?(regions, fn {_name, region} ->
-          is_integer(region.width) and region.width > 0 and
-            is_integer(region.height) and region.height > 0
-        end)
+        Enum.all?(regions, fn {_name, region} -> Layout.positive_rect?(region) end)
     }
   end
 
@@ -105,7 +105,7 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
   end
 
   defp render_parent_region(%{parent_region: region, roots: roots}) do
-    header = "| [parent-region] " <> region_segment(region)
+    header = "| [parent-region] " <> LayoutSegment.rect(region)
 
     lines =
       case roots do
@@ -133,7 +133,7 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
          roots: roots,
          orphan_children: orphan_children
        }) do
-    header = "| [child-region] " <> region_segment(region)
+    header = "| [child-region] " <> LayoutSegment.rect(region)
 
     children =
       roots
@@ -166,10 +166,6 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
 
   defp child_title_segment(_child), do: ""
 
-  defp region_segment(%{x: x, y: y, width: width, height: height}) do
-    "x=#{x} y=#{y} w=#{width} h=#{height}"
-  end
-
   defp parent_region do
     %{x: 0, y: 0, width: @terminal_width, height: @parent_height}
   end
@@ -178,9 +174,5 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
     %{x: 0, y: @parent_height + @split_gap, width: @terminal_width, height: @child_height}
   end
 
-  defp within_terminal?(%{x: x, y: y, width: width, height: height}) do
-    is_integer(x) and is_integer(y) and is_integer(width) and is_integer(height) and
-      x >= 0 and y >= 0 and width > 0 and height > 0 and
-      x + width <= @terminal_width and y + height <= @terminal_height
-  end
+  defp terminal_rect, do: %{x: 0, y: 0, width: @terminal_width, height: @terminal_height}
 end

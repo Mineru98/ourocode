@@ -12,7 +12,8 @@ defmodule Ourocode.Terminal.PromptFooterLayout do
   alias Ourocode.Terminal.{
     FooterStateArea,
     PromptInputArea,
-    QueuedNotificationArea
+    QueuedNotificationArea,
+    QueuedNotificationState
   }
 
   @type rendered_layout :: %{
@@ -31,7 +32,12 @@ defmodule Ourocode.Terminal.PromptFooterLayout do
   @spec render(map()) :: rendered_layout()
   def render(%{panes: panes} = startup_result) when is_map(panes) do
     prompt = PromptInputArea.render(Map.fetch!(panes, :task_prompt))
-    queue = startup_result |> queue_state() |> QueuedNotificationArea.render()
+
+    queue =
+      startup_result
+      |> QueuedNotificationState.from_startup_result()
+      |> QueuedNotificationArea.render()
+
     footer = FooterStateArea.render(startup_result)
 
     rects = [prompt.layout.rect, queue.layout.rect, footer.layout.rect]
@@ -42,7 +48,7 @@ defmodule Ourocode.Terminal.PromptFooterLayout do
         mode: :terminal_stack,
         region: :bottom_controls,
         order: 90,
-        rect: bounding_rect(rects),
+        rect: Layout.bounding_rect(rects),
         regions: %{
           task_prompt: prompt.layout.rect,
           queued_notifications: queue.layout.rect,
@@ -53,7 +59,7 @@ defmodule Ourocode.Terminal.PromptFooterLayout do
       queued_notifications: queue,
       footer: footer,
       stable_bottom_region?: stable_bottom_region?([prompt, queue, footer]),
-      overlaps?: overlaps?(rects)
+      overlaps?: Layout.any_overlaps?(rects)
     }
   end
 
@@ -78,25 +84,6 @@ defmodule Ourocode.Terminal.PromptFooterLayout do
     |> render_text()
   end
 
-  defp queue_state(%{runtime: %{queued_notifications: queue_state}}) when is_map(queue_state) do
-    queue_state
-  end
-
-  defp queue_state(%{context: %{runtime: %{queued_notifications: queue_state}}})
-       when is_map(queue_state) do
-    queue_state
-  end
-
-  defp queue_state(%{context: %{queued_notifications: queue_state}}) when is_map(queue_state) do
-    queue_state
-  end
-
-  defp queue_state(%{queued_notifications: queue_state}) when is_map(queue_state) do
-    queue_state
-  end
-
-  defp queue_state(_startup_result), do: %{}
-
   defp stable_bottom_region?(areas) do
     areas
     |> Enum.map(& &1.layout)
@@ -109,24 +96,5 @@ defmodule Ourocode.Terminal.PromptFooterLayout do
       _layout ->
         false
     end)
-  end
-
-  defp overlaps?(rects) do
-    rects
-    |> pairs()
-    |> Enum.any?(fn {left, right} -> Layout.overlaps?(left, right) end)
-  end
-
-  defp pairs([]), do: []
-  defp pairs([_rect]), do: []
-  defp pairs([rect | rest]), do: Enum.map(rest, &{rect, &1}) ++ pairs(rest)
-
-  defp bounding_rect(rects) do
-    min_x = rects |> Enum.map(& &1.x) |> Enum.min()
-    min_y = rects |> Enum.map(& &1.y) |> Enum.min()
-    max_x = rects |> Enum.map(&(&1.x + &1.width)) |> Enum.max()
-    max_y = rects |> Enum.map(&(&1.y + &1.height)) |> Enum.max()
-
-    %{x: min_x, y: min_y, width: max_x - min_x, height: max_y - min_y}
   end
 end

@@ -8,6 +8,7 @@ defmodule Ourocode.Terminal.PromptInputArea do
   """
 
   alias Ourocode.Dashboard.TaskPromptInput
+  alias Ourocode.Terminal.LayoutSegment
 
   @type rendered_area :: %{
           required(:kind) => :terminal_prompt_input_area,
@@ -43,7 +44,7 @@ defmodule Ourocode.Terminal.PromptInputArea do
   @spec render_text(rendered_area() | TaskPromptInput.t() | map()) :: String.t()
   def render_text(%{kind: :terminal_prompt_input_area} = area) do
     [
-      "+-- #{area.title} #{layout_segment(area)} mode=#{area.input_mode}",
+      "+-- #{area.title} #{LayoutSegment.format(area, "unknown")} mode=#{area.input_mode}",
       "| " <> area.line,
       "+--"
     ]
@@ -61,10 +62,4 @@ defmodule Ourocode.Terminal.PromptInputArea do
   end
 
   defp maybe_put_layout(area, _prompt), do: area
-
-  defp layout_segment(%{layout: %{rect: rect, region: region}}) do
-    "region=#{region} x=#{rect.x} y=#{rect.y} w=#{rect.width} h=#{rect.height}"
-  end
-
-  defp layout_segment(_area), do: "region=unknown"
 end

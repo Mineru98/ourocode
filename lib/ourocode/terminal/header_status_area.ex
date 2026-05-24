@@ -8,6 +8,7 @@ defmodule Ourocode.Terminal.HeaderStatusArea do
   """
 
   alias Ourocode.Dashboard.HeaderStatusArea, as: DashboardHeaderStatusArea
+  alias Ourocode.Terminal.LayoutSegment
 
   @width 88
   @height 5
@@ -54,7 +55,7 @@ defmodule Ourocode.Terminal.HeaderStatusArea do
   @spec render_text(rendered_area() | map()) :: String.t()
   def render_text(%{id: :header_status, layout: %{rect: rect}} = area) do
     [
-      "+-- #{area.title} #{layout_segment(area)}",
+      "+-- #{area.title} #{LayoutSegment.format(area, "unknown")}",
       "| app=#{area.app} status=#{area.status} runtime=#{area.runtime_status} session=#{area.session_id}",
       "| project=#{area.project_dir}",
       "| cwd=#{area.cwd}",
@@ -68,10 +69,6 @@ defmodule Ourocode.Terminal.HeaderStatusArea do
     startup_result
     |> render()
     |> render_text()
-  end
-
-  defp layout_segment(%{layout: %{rect: rect, region: region}}) do
-    "region=#{region} x=#{rect.x} y=#{rect.y} w=#{rect.width} h=#{rect.height}"
   end
 
   defp clip_line(line, width) when is_binary(line) and is_integer(width) do
