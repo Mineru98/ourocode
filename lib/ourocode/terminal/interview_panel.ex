@@ -22,7 +22,7 @@ defmodule Ourocode.Terminal.InterviewPanel do
     iv = interview_state(result)
     trace = if iv, do: List.first(Map.get(iv, :router, [])), else: nil
 
-    if paused?(result) or (iv && Map.get(iv, :complete) && is_nil(trace)) do
+    if paused?(result) or waiting_for_user?(iv) or (iv && Map.get(iv, :complete) && is_nil(trace)) do
       []
     else
       [working_line(tick, trace)]
@@ -127,10 +127,42 @@ defmodule Ourocode.Terminal.InterviewPanel do
   end
 
   defp interview_state_rows(result, tick) do
-    result
-    |> dialogue_rows(false)
-    |> prepend_current_question(result)
-    |> Kernel.++(interview_status_rows(result, tick))
+    case interview_option_rows(result) do
+      [] ->
+        result
+        |> dialogue_rows(false)
+        |> prepend_current_question(result)
+        |> Kernel.++(interview_status_rows(result, tick))
+
+      option_rows ->
+        result
+        |> dialogue_rows(true)
+        |> Kernel.++(option_rows)
+        |> Kernel.++(interview_status_rows(result, tick))
+    end
+  end
+
+  defp interview_option_rows(result) do
+    case interview_state(result) do
+      %{question: question, question_options: [_first | _rest] = options} ->
+        detection = %{
+          request: %{
+            questions: [
+              %{
+                id: "interview",
+                header: "Interview",
+                question: question,
+                options: options
+              }
+            ]
+          }
+        }
+
+        wonder_picker_lines(detection, nil)
+
+      _other ->
+        []
+    end
   end
 
   defp prepend_current_question(rows, result) do
@@ -155,6 +187,11 @@ defmodule Ourocode.Terminal.InterviewPanel do
 
   defp line_contains?(text, needle) when is_binary(text), do: String.contains?(text, needle)
   defp line_contains?(_line, _needle), do: false
+
+  defp waiting_for_user?(%{status: status}) when is_binary(status),
+    do: String.downcase(status) == "waiting for your answer"
+
+  defp waiting_for_user?(_interview), do: false
 
   @spec default_nav(map(), map() | nil) :: map()
   def default_nav(detection, current_nav), do: WonderPicker.default_nav(detection, current_nav)

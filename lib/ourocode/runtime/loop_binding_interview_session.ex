@@ -191,13 +191,11 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       "→ asking you: " <> InterviewResponse.clean_markdown(prompt)
     )
 
-    SessionIO.enqueue(
-      agent,
-      InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, options),
-      st.callbacks
-    )
+    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, options)
 
-    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt) do
+    SessionIO.enqueue(agent, event, st.callbacks)
+
+    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, event_options(event)) do
       {:done, text} ->
         SessionIO.push_dialogue(agent, :user, text)
         SessionIO.enqueue_complete(agent, st.parent_call_id, :user_done, st.callbacks)
@@ -206,6 +204,15 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       {:answer, user_text} ->
         SessionIO.push_dialogue(agent, :user, user_text)
         followup(agent, st, LoopBindingInterviewText.ensure_user_prefix(user_text), 0)
+    end
+  end
+
+  defp event_options(event) do
+    event
+    |> get_in([:payload, "questions"])
+    |> case do
+      [%{"options" => options} | _rest] when is_list(options) -> options
+      _other -> []
     end
   end
 

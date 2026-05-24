@@ -1053,6 +1053,7 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     snap = LoopBindings.pane_snapshot(agent)
     assert %{tool: :wonder_tool} = snap.wonder_tool
     assert snap.interview.question =~ "payment provider"
+    assert Enum.map(snap.interview.question_options, & &1["label"]) == ["Stripe", "Toss"]
 
     # Picking option 1 hands the chosen label back to the blocked relay.
     assert {:ok, decision} = LoopBindings.answer_wonder(agent, 1)

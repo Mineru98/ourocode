@@ -47,6 +47,7 @@ defmodule Ourocode.Terminal.InterviewLiveState do
       :milestone,
       :parent_call_id,
       :question,
+      :question_options,
       :reasoning,
       :router,
       :seed_ready,
@@ -55,6 +56,7 @@ defmodule Ourocode.Terminal.InterviewLiveState do
       :waiting
     ])
     |> normalize_dialogue()
+    |> normalize_question_options()
   end
 
   defp normalize_dialogue(%{dialogue: dialogue} = interview) when is_list(dialogue) do
@@ -62,6 +64,20 @@ defmodule Ourocode.Terminal.InterviewLiveState do
   end
 
   defp normalize_dialogue(interview), do: interview
+
+  defp normalize_question_options(%{question_options: options} = interview)
+       when is_list(options) do
+    Map.put(interview, :question_options, Enum.map(options, &normalize_option/1))
+  end
+
+  defp normalize_question_options(interview), do: interview
+
+  defp normalize_option(option) when is_map(option) do
+    option
+    |> normalize_known_map([:label, :description, :recommended?])
+  end
+
+  defp normalize_option(other), do: %{label: to_string(other), description: ""}
 
   defp normalize_dialogue_turn(turn) when is_map(turn) do
     %{

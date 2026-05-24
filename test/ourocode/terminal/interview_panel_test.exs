@@ -73,6 +73,33 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     assert {"| main session is checking project context", :dim} in lines
   end
 
+  test "interview block renders stored question options as a picker" do
+    result = %{
+      interview: %{
+        question: "Which first user outcome matters most?",
+        question_options: [
+          %{label: "Quality", description: "Raise reliability first"},
+          %{label: "Speed", description: "Optimize turnaround first"}
+        ],
+        status: "waiting for your answer"
+      }
+    }
+
+    assert {"INTERVIEW", lines, "type your answer + Enter   Esc pause"} =
+             InterviewPanel.interview_block_lines(result, nil, 0)
+
+    assert "Interview" in lines
+    assert "Which first user outcome matters most?" in lines
+    assert ">> [1] Quality - Raise reliability first" in lines
+    assert "   [2] Speed - Optimize turnaround first" in lines
+
+    refute Enum.any?(lines, fn
+             {line, _style} -> line =~ "question ready"
+             line when is_binary(line) -> line =~ "question ready"
+             :rule -> false
+           end)
+  end
+
   test "interview block fails closed to the current question when dialogue is malformed" do
     result = %{
       interview: %{

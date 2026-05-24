@@ -39,6 +39,9 @@ defmodule Ourocode.Terminal.InterviewLiveStateTest do
               %{"role" => "mcp", "text" => "Which phase is unclear?"}
             ],
             "question" => "Which phase is unclear?",
+            "question_options" => [
+              %{"label" => "Phase names", "description" => "Clarify current labels"}
+            ],
             "status" => "waiting for your answer",
             "mcp_reasoning" => ["phase: question"]
           },
@@ -58,6 +61,9 @@ defmodule Ourocode.Terminal.InterviewLiveStateTest do
                %{role: :mcp, text: "Which phase is unclear?"}
              ],
              question: "Which phase is unclear?",
+             question_options: [
+               %{label: "Phase names", description: "Clarify current labels"}
+             ],
              status: "waiting for your answer",
              mcp_reasoning: ["phase: question"]
            }

@@ -26,9 +26,31 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiterTest do
     assert updated.interview.parent_call_id == "old-parent"
     assert updated.interview.waiting == false
     assert updated.interview.status == "waiting for your answer"
+
+    assert Enum.map(updated.interview.question_options, & &1["label"]) == [
+             "Answer in my own words",
+             "Not sure — skip for now"
+           ]
+
     refute Map.has_key?(updated.interview, :answered)
     assert updated.interview_waiter == self()
     assert updated.paused == false
+  end
+
+  test "wait_state stores final picker options with the prompt" do
+    updated =
+      LoopBindingInterviewAwaiter.wait_state(
+        %{interview: %{}},
+        "parent-1",
+        "Which priority?",
+        self(),
+        [
+          %{"label" => "Quality", "description" => "Raise reliability first"},
+          %{"label" => "Speed", "description" => "Optimize turnaround first"}
+        ]
+      )
+
+    assert Enum.map(updated.interview.question_options, & &1["label"]) == ["Quality", "Speed"]
   end
 
   test "wait_state uses a new parent call id when provided" do

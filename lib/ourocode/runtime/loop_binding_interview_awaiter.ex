@@ -3,14 +3,14 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiter do
   State transforms for pausing an interview loop until a user answer arrives.
   """
 
-  alias Ourocode.Runtime.{InterviewResponse, LoopBindingInterviewText}
+  alias Ourocode.Runtime.{InterviewResponse, InterviewWonderPrompt, LoopBindingInterviewText}
 
-  @spec await(pid(), term(), term()) :: {:done, String.t()} | {:answer, String.t()}
-  def await(agent, parent_call_id, prompt) when is_pid(agent) do
+  @spec await(pid(), term(), term(), [map()]) :: {:done, String.t()} | {:answer, String.t()}
+  def await(agent, parent_call_id, prompt, options \\ []) when is_pid(agent) do
     waiter = self()
 
     Agent.update(agent, fn state ->
-      wait_state(state, parent_call_id, prompt, waiter)
+      wait_state(state, parent_call_id, prompt, waiter, options)
     end)
 
     receive do
@@ -19,14 +19,17 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiter do
     end
   end
 
-  @spec wait_state(map(), term(), term(), pid()) :: map()
-  def wait_state(state, parent_call_id, prompt, waiter) when is_map(state) and is_pid(waiter) do
+  @spec wait_state(map(), term(), term(), pid(), [map()]) :: map()
+  def wait_state(state, parent_call_id, prompt, waiter, options \\ [])
+      when is_map(state) and is_pid(waiter) do
     prev = Map.get(state, :interview) || %{}
+    prompt = InterviewResponse.clean_markdown(prompt)
 
     iv =
       prev
       |> Map.merge(%{
-        question: InterviewResponse.clean_markdown(prompt),
+        question: prompt,
+        question_options: InterviewWonderPrompt.options(options, prompt),
         parent_call_id: parent_call_id || prev[:parent_call_id],
         waiting: false,
         status: "waiting for your answer"
