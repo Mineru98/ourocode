@@ -8,7 +8,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
 
   use ExUnit.Case, async: true
 
-  alias Ourocode.Terminal.Tui
+  alias Ourocode.Terminal.{InterviewPanel, Tui}
 
   @idle_frame """
   +-- ourocode terminal region=header_status x=0 y=0 w=88 h=5
@@ -470,6 +470,54 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert [{mcp_line, :warn}, :rule, {main_line, :ok}] = rows
     assert mcp_line == "MCP   (ambiguity 0.42) which stack?"
     assert main_line == "MAIN  [from-code] Elixir escript"
+  end
+
+  test "restored string-keyed dialogue still owns the left interview column" do
+    result = %{
+      pane_snapshot: fn ->
+        %{
+          "interview" => %{
+            "dialogue" => [
+              %{"role" => "user", "text" => "seed/run/evaluate/evolve execution flow"},
+              %{"role" => "user", "text" => "progress visibility"}
+            ],
+            "question" =>
+              "For progress visibility, should the interview clarify current phase names, done criteria, or failure causes first?",
+            "status" => "waiting for your answer"
+          },
+          "paused" => false
+        }
+      end
+    }
+
+    block = InterviewPanel.interview_block_lines(result, nil, 0)
+
+    text =
+      Tui.frame_lines(
+        @live_frame,
+        [
+          "[workflow-starting] dispatching_input task=task_1",
+          "queued task task_1: ooo interview ourocode",
+          "you> seed/run/evaluate/evolve execution flow"
+        ],
+        "",
+        100,
+        24,
+        %{
+          interview_block: block,
+          interview_reasoning: Tui.interview_reasoning_lines(result),
+          interview_paused: false
+        }
+      )
+      |> Enum.join("\n")
+
+    assert text =~ "INTERVIEW"
+    assert text =~ "YOU seed/run/evaluate/evolve execution flow"
+    assert text =~ "YOU progress visibility"
+    assert text =~ "current phase names"
+    refute text =~ "workflow-starting"
+    refute text =~ "queued task"
+    refute text =~ "you> seed/run/evaluate"
   end
 
   test "internal router prompts are hidden from the dialogue transcript" do

@@ -28,6 +28,46 @@ defmodule Ourocode.Terminal.InterviewLiveStateTest do
     assert InterviewLiveState.paused?(result)
   end
 
+  test "normalizes JSON-shaped live interview state at the boundary" do
+    result = %{
+      interview: %{status: "stale"},
+      pane_snapshot: fn ->
+        %{
+          "interview" => %{
+            "dialogue" => [
+              %{"role" => "user", "text" => "progress visibility"},
+              %{"role" => "mcp", "text" => "Which phase is unclear?"}
+            ],
+            "question" => "Which phase is unclear?",
+            "status" => "waiting for your answer",
+            "mcp_reasoning" => ["phase: question"]
+          },
+          "wonder_tool" => %{
+            "request_id" => "wt-1",
+            "request" => %{"questions" => []}
+          },
+          "interview_session" => %{"label" => "ooo interview"},
+          "paused" => true
+        }
+      end
+    }
+
+    assert InterviewLiveState.interview(result) == %{
+             dialogue: [
+               %{role: :user, text: "progress visibility"},
+               %{role: :mcp, text: "Which phase is unclear?"}
+             ],
+             question: "Which phase is unclear?",
+             status: "waiting for your answer",
+             mcp_reasoning: ["phase: question"]
+           }
+
+    assert InterviewLiveState.wonder_tool(result).request_id == "wt-1"
+    assert InterviewLiveState.wonder_tool(result).request.questions == []
+    assert InterviewLiveState.interview_session(result).label == "ooo interview"
+    assert InterviewLiveState.paused?(result)
+  end
+
   test "ignores invalid or failing snapshots" do
     invalid = %{interview: %{status: "direct"}, pane_snapshot: fn -> :not_a_map end}
     failing = %{interview: %{status: "direct"}, pane_snapshot: fn -> raise "boom" end}

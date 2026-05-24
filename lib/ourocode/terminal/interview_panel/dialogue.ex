@@ -43,6 +43,7 @@ defmodule Ourocode.Terminal.InterviewPanel.Dialogue do
         :mcp -> {"MCP ", :warn}
         :main -> {"MAIN", :ok}
         :user -> {"YOU ", :strong}
+        _other -> {"TURN", :dim}
       end
 
     {label <> "  " <> Text.flatten_line(text), style}

@@ -116,7 +116,7 @@ defmodule Ourocode.Terminal.InterviewPanel do
       result
       |> interview_state()
       |> case do
-        %{} = iv -> Map.get(iv, :question) || Map.get(iv, "question")
+        %{} = iv -> Map.get(iv, :question)
         _none -> nil
       end
       |> plain_line()

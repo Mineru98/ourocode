@@ -79,4 +79,60 @@ defmodule Ourocode.Terminal.TuiFrameStateTest do
     assert text =~ question
     assert text =~ "Free answer for this interview checkpoint"
   end
+
+  test "redraw renders a session-state question even without dialogue history" do
+    state = TuiState.start_link()
+    {:ok, output} = StringIO.open("")
+
+    on_exit(fn ->
+      if Process.alive?(state), do: Agent.stop(state)
+    end)
+
+    question =
+      "When ourocode is widely used, which first user outcome should the interview clarify?"
+
+    result = %{
+      status: :healthy,
+      context: %{},
+      panes:
+        Layout.apply_compact_session_list_layout(%{
+          working: SessionListPane.render([]),
+          completed: SessionListPane.render_completed([]),
+          task_prompt: TaskPromptInput.render()
+        }),
+      pane_snapshot: fn ->
+        %{
+          "interview" => %{
+            "question" => question,
+            "status" => "waiting for your answer",
+            "mcp_reasoning" => ["phase: question", "source: session_state"]
+          },
+          "paused" => false
+        }
+      end
+    }
+
+    assert :ok =
+             TuiFrame.redraw(
+               result,
+               output,
+               state,
+               "",
+               100,
+               24,
+               auth_label: fn ^state -> {"", :dim} end,
+               test_run?: fn -> true end
+             )
+
+    text =
+      state
+      |> TuiState.prev_screen()
+      |> Screen.to_lines()
+      |> Enum.join("\n")
+
+    assert text =~ "INTERVIEW"
+    assert text =~ "When ourocode is widely used"
+    assert text =~ "should the interview clarify?"
+    refute text =~ "workflow-starting"
+  end
 end
