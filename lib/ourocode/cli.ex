@@ -8,6 +8,7 @@ defmodule Ourocode.CLI do
 
   alias Ourocode.CLI.StartupArgs
   alias Ourocode.CLI.SmokeTest
+  alias Ourocode.Plugin.ConfigSchema
   alias Ourocode.Terminal.EventLoop
   alias Ourocode.Terminal.ShellRenderer
 
@@ -60,11 +61,13 @@ defmodule Ourocode.CLI do
   def main(args, terminal_application) do
     with {:ok, startup_args} <- StartupArgs.parse(args),
          {:ok, project_dir} <- resolve_project_dir(startup_args.project_dir),
-         {:ok, config} <- Ourocode.Config.load(project_dir, startup_args.config_args) do
+         {:ok, config} <- Ourocode.Config.load(project_dir, startup_args.config_args),
+         {:ok, plugin_config} <- load_startup_plugin_config(project_dir) do
       context =
         project_dir
         |> project_context(config)
         |> Map.put(:initial_task_request, startup_args.task_request)
+        |> maybe_put_plugin_config(plugin_config)
 
       if smoke_test_requested?(startup_args) do
         SmokeTest.run(context, output: :silent)
@@ -220,6 +223,32 @@ defmodule Ourocode.CLI do
   end
 
   defp maybe_apply_initial_task(result), do: result
+
+  defp load_startup_plugin_config(project_dir) do
+    with {:ok, %{data: data}} <- Ourocode.Config.load_raw(project_dir),
+         {:ok, plugins} <- startup_plugins(data) do
+      parse_startup_plugins(plugins)
+    end
+  end
+
+  defp startup_plugins(%{"plugins" => plugins}) when is_list(plugins), do: {:ok, plugins}
+  defp startup_plugins(%{"plugins" => _plugins}), do: {:error, "plugins config must be a list"}
+  defp startup_plugins(_data), do: {:ok, nil}
+
+  defp parse_startup_plugins(nil), do: {:ok, nil}
+
+  defp parse_startup_plugins(plugins) do
+    plugins
+    |> then(&%{"plugins" => &1})
+    |> Ourocode.Json.encode!()
+    |> IO.iodata_to_binary()
+    |> ConfigSchema.parse()
+  end
+
+  defp maybe_put_plugin_config(context, nil), do: context
+
+  defp maybe_put_plugin_config(context, plugin_config),
+    do: Map.put(context, :plugin_config, plugin_config)
 
   defp stop_runtime(%{runtime: runtime}), do: Ourocode.Runtime.Application.stop(runtime)
   defp stop_runtime(_result), do: :ok

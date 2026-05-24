@@ -166,6 +166,30 @@ defmodule Ourocode.CLITest do
     Application.delete_env(:ourocode, :cli_test_pid)
   end
 
+  test "startup loads project plugin config into terminal context" do
+    Application.put_env(:ourocode, :cli_test_pid, self())
+    project_dir = tmp_project_dir!("cli-plugin-config")
+    File.mkdir_p!(Path.join(project_dir, ".ourocode"))
+
+    File.write!(
+      Path.join(project_dir, ".ourocode/config.json"),
+      plugin_config_json()
+    )
+
+    assert {:ok, %{context: context, terminal_bootstrap?: true}} =
+             Ourocode.CLI.main(
+               ["--project-dir", project_dir],
+               Ourocode.CLITest.TerminalBootstrapSpy
+             )
+
+    assert_receive {:terminal_bootstrap, ^context}
+    assert context.project_dir == project_dir
+    assert context.plugin_config.plugins |> Enum.map(& &1.id) == ["ouroboros-plugin"]
+  after
+    Application.delete_env(:ourocode, :cli_test_pid)
+    cleanup_tmp_project_dir()
+  end
+
   test "smoke test flag returns a non-interactive result without bootstrapping terminal UI" do
     Application.put_env(:ourocode, :cli_test_pid, self())
 
@@ -629,5 +653,52 @@ defmodule Ourocode.CLITest do
 
   defp unique_id do
     System.unique_integer([:positive, :monotonic])
+  end
+
+  defp tmp_project_dir!(name) do
+    dir = Path.join(System.tmp_dir!(), "#{name}-#{unique_id()}")
+    File.rm_rf!(dir)
+    File.mkdir_p!(dir)
+    Process.put({__MODULE__, :tmp_project_dir}, dir)
+    dir
+  end
+
+  defp cleanup_tmp_project_dir do
+    case Process.get({__MODULE__, :tmp_project_dir}) do
+      nil -> :ok
+      dir -> File.rm_rf!(dir)
+    end
+  end
+
+  defp plugin_config_json do
+    """
+    {
+      "plugins": [
+        {
+          "identity": {
+            "id": "ouroboros-plugin",
+            "version": "1.0.0"
+          },
+          "path": "plugins/ouroboros",
+          "entrypoint": {"type": "manifest", "path": "capabilities.json"},
+          "enabled": true,
+          "source": "official",
+          "permissions": {
+            "filesystem": [],
+            "network": [],
+            "process": []
+          },
+          "trust_policy": {
+            "tier": "official",
+            "requires_explicit_approval": false
+          },
+          "config": {
+            "commands": true,
+            "skills": true
+          }
+        }
+      ]
+    }
+    """
   end
 end
