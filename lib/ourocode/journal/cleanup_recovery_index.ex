@@ -9,6 +9,7 @@ defmodule Ourocode.Journal.CleanupRecoveryIndex do
   """
 
   alias Ourocode.Journal.CleanupRecoveryRecord
+  alias Ourocode.Journal.CleanupState
 
   @enforce_keys [
     :cleanup_states,
@@ -202,7 +203,7 @@ defmodule Ourocode.Journal.CleanupRecoveryIndex do
           key = cleanup.cleanup_key
           existing = Map.get(by_key, key)
           keys = if existing, do: keys, else: keys ++ [key]
-          cleanup = if existing, do: merge_cleanup(existing, cleanup), else: cleanup
+          cleanup = if existing, do: CleanupState.merge(existing, cleanup), else: cleanup
 
           {:cont,
            {:ok, Map.put(by_key, key, cleanup), keys,
@@ -246,56 +247,6 @@ defmodule Ourocode.Journal.CleanupRecoveryIndex do
 
   defp cleanup_from_record(_record), do: {:error, :invalid_cleanup_recovery_record}
 
-  defp merge_cleanup(existing, incoming) do
-    %{
-      existing
-      | cleanup_state: strongest_cleanup_state(existing.cleanup_state, incoming.cleanup_state),
-        cleanup_reason: incoming.cleanup_reason || existing.cleanup_reason,
-        stream_kind: incoming.stream_kind || existing.stream_kind,
-        parent_call_id: incoming.parent_call_id || existing.parent_call_id,
-        child_id: incoming.child_id || existing.child_id,
-        session_id: incoming.session_id || existing.session_id,
-        pane_id: incoming.pane_id || existing.pane_id,
-        runtime_source: incoming.runtime_source || existing.runtime_source,
-        transport: incoming.transport || existing.transport,
-        external_ids: Map.merge(existing.external_ids || %{}, incoming.external_ids || %{}),
-        stream_cursor: Map.merge(existing.stream_cursor || %{}, incoming.stream_cursor || %{}),
-        pane_state: Map.merge(existing.pane_state || %{}, incoming.pane_state || %{}),
-        released_resources:
-          merge_resource_counts(
-            existing.released_resources || %{},
-            incoming.released_resources || %{}
-          ),
-        stale_cleanup_timeout_ms:
-          incoming.stale_cleanup_timeout_ms || existing.stale_cleanup_timeout_ms,
-        stream_subscription_cleanup_timeout_ms:
-          incoming.stream_subscription_cleanup_timeout_ms ||
-            existing.stream_subscription_cleanup_timeout_ms,
-        cleanup_started_monotonic_ms:
-          latest(existing.cleanup_started_monotonic_ms, incoming.cleanup_started_monotonic_ms),
-        idempotency_key: incoming.idempotency_key || existing.idempotency_key,
-        replay_action: strongest_replay_action(existing.replay_action, incoming.replay_action),
-        latest_event_seq: max(existing.latest_event_seq, incoming.latest_event_seq),
-        event_seqs: existing.event_seqs ++ incoming.event_seqs,
-        source_event_types: existing.source_event_types ++ incoming.source_event_types,
-        occurred_at_ms: incoming.occurred_at_ms || existing.occurred_at_ms
-    }
-  end
-
-  defp strongest_cleanup_state(:completed, _incoming), do: :completed
-  defp strongest_cleanup_state(_existing, :completed), do: :completed
-  defp strongest_cleanup_state(existing, _incoming), do: existing
-
-  defp strongest_replay_action(:noop, _incoming), do: :noop
-  defp strongest_replay_action(_existing, :noop), do: :noop
-  defp strongest_replay_action(existing, _incoming), do: existing
-
-  defp merge_resource_counts(existing, incoming) do
-    Map.merge(existing, incoming, fn _key, left, right ->
-      if is_integer(left) and is_integer(right), do: max(left, right), else: right
-    end)
-  end
-
   defp build_single_index(cleanup_states, key) do
     cleanup_states
     |> Enum.reject(&(Map.get(&1, key) in [nil, ""]))
@@ -317,8 +268,4 @@ defmodule Ourocode.Journal.CleanupRecoveryIndex do
       :error -> :error
     end
   end
-
-  defp latest(nil, value), do: value
-  defp latest(value, nil), do: value
-  defp latest(left, right), do: max(left, right)
 end

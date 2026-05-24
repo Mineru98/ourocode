@@ -8,6 +8,7 @@ defmodule Ourocode.Journal.RelationshipRecoveryIndex do
   """
 
   alias Ourocode.Journal.RelationshipRecoveryRecord
+  alias Ourocode.Journal.RelationshipState
 
   @enforce_keys [
     :relationships,
@@ -165,14 +166,14 @@ defmodule Ourocode.Journal.RelationshipRecoveryIndex do
   defp reduce_records(records) do
     Enum.reduce_while(records, {:ok, %{}, [], 0}, fn record,
                                                      {:ok, by_key, keys, high_watermark} ->
-      case relationship_from_record(record) do
+      case RelationshipState.from_record(record) do
         {:ok, relationship} ->
           key = {relationship.parent_call_id, relationship.child_id}
           existing = Map.get(by_key, key)
           keys = if existing, do: keys, else: keys ++ [key]
 
           relationship =
-            if existing, do: merge_relationship(existing, relationship), else: relationship
+            if existing, do: RelationshipState.merge(existing, relationship), else: relationship
 
           {:cont,
            {:ok, Map.put(by_key, key, relationship), keys,
@@ -182,52 +183,6 @@ defmodule Ourocode.Journal.RelationshipRecoveryIndex do
           {:halt, {:error, reason}}
       end
     end)
-  end
-
-  defp relationship_from_record(%RelationshipRecoveryRecord{} = record) do
-    {:ok,
-     %{
-       parent_call_id: record.parent_call_id,
-       child_id: record.child_id,
-       pane_id: record.pane_id,
-       runtime_source: record.runtime_source,
-       transport: record.transport,
-       external_ids: record.external_ids,
-       stream_cursor: record.stream_cursor,
-       acknowledged_stream_cursor: record.acknowledged_stream_cursor,
-       pane_state: record.pane_state,
-       status: record.status,
-       first_event_seq: record.event_seq,
-       latest_event_seq: record.event_seq,
-       event_seqs: [record.event_seq],
-       source_event_types: [record.event_type],
-       occurred_at_ms: record.occurred_at_ms,
-       created_at_ms: record.created_at_ms,
-       updated_at_ms: record.updated_at_ms
-     }}
-  end
-
-  defp relationship_from_record(_record), do: {:error, :invalid_relationship_recovery_record}
-
-  defp merge_relationship(existing, incoming) do
-    %{
-      existing
-      | pane_id: incoming.pane_id || existing.pane_id,
-        runtime_source: incoming.runtime_source || existing.runtime_source,
-        transport: incoming.transport || existing.transport,
-        external_ids: Map.merge(existing.external_ids, incoming.external_ids),
-        stream_cursor: Map.merge(existing.stream_cursor, incoming.stream_cursor),
-        acknowledged_stream_cursor:
-          incoming.acknowledged_stream_cursor || existing.acknowledged_stream_cursor,
-        pane_state: merge_pane_state(existing.pane_state, incoming.pane_state),
-        status: incoming.status || existing.status,
-        latest_event_seq: max(existing.latest_event_seq, incoming.latest_event_seq),
-        event_seqs: existing.event_seqs ++ incoming.event_seqs,
-        source_event_types: existing.source_event_types ++ incoming.source_event_types,
-        occurred_at_ms: incoming.occurred_at_ms || existing.occurred_at_ms,
-        created_at_ms: earliest(existing.created_at_ms, incoming.created_at_ms),
-        updated_at_ms: latest(existing.updated_at_ms, incoming.updated_at_ms)
-    }
   end
 
   defp build_parent_index(relationships) do
@@ -284,74 +239,4 @@ defmodule Ourocode.Journal.RelationshipRecoveryIndex do
       :error -> :error
     end
   end
-
-  defp merge_pane_state(existing, incoming) when is_map(existing) and is_map(incoming) do
-    stream_entries =
-      existing
-      |> pane_stream_entries()
-      |> Kernel.++(pane_stream_entries(incoming))
-      |> dedupe_stream_entries()
-
-    existing
-    |> Map.merge(incoming)
-    |> Map.delete("stream_entries")
-    |> maybe_put_stream_entries(stream_entries)
-  end
-
-  defp merge_pane_state(existing, incoming), do: Map.merge(existing || %{}, incoming || %{})
-
-  defp pane_stream_entries(pane_state) when is_map(pane_state) do
-    case Map.get(pane_state, :stream_entries) || Map.get(pane_state, "stream_entries") do
-      entries when is_list(entries) -> entries
-      _entries -> []
-    end
-  end
-
-  defp pane_stream_entries(_pane_state), do: []
-
-  defp maybe_put_stream_entries(pane_state, []), do: pane_state
-
-  defp maybe_put_stream_entries(pane_state, entries),
-    do: Map.put(pane_state, :stream_entries, entries)
-
-  defp dedupe_stream_entries(entries) do
-    entries
-    |> Enum.reduce({[], MapSet.new()}, fn entry, {acc, seen} ->
-      key = stream_entry_dedupe_key(entry)
-
-      if MapSet.member?(seen, key) do
-        {acc, seen}
-      else
-        {[entry | acc], MapSet.put(seen, key)}
-      end
-    end)
-    |> elem(0)
-    |> Enum.reverse()
-  end
-
-  defp stream_entry_dedupe_key(entry) when is_map(entry) do
-    case Map.get(entry, :child_event_id) || Map.get(entry, "child_event_id") do
-      child_event_id when is_binary(child_event_id) and child_event_id != "" ->
-        {:child_event_id, child_event_id}
-
-      _child_event_id ->
-        {:stream_entry, stream_entry_value(entry, :event_seq),
-         stream_entry_value(entry, :runtime_seq), stream_entry_value(entry, :token),
-         stream_entry_value(entry, :delta), stream_entry_value(entry, :content)}
-    end
-  end
-
-  defp stream_entry_dedupe_key(entry), do: {:stream_entry, entry}
-
-  defp stream_entry_value(entry, key) when is_map(entry) and is_atom(key) do
-    Map.get(entry, key) || Map.get(entry, Atom.to_string(key))
-  end
-
-  defp earliest(nil, value), do: value
-  defp earliest(value, nil), do: value
-  defp earliest(left, right), do: min(left, right)
-
-  defp latest(nil, value), do: value
-  defp latest(value, nil), do: value
-  defp latest(left, right), do: max(left, right)
 end
