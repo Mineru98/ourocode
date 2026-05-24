@@ -38,6 +38,31 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
     assert Enum.at(lines, 4) == "   [Free answer] type below, then Enter"
   end
 
+  test "string-keyed detection requests render the same picker" do
+    det = %{
+      "request_id" => "wt-string",
+      request: %{
+        "questions" => [
+          %{
+            "id" => "scope",
+            "header" => "Scope",
+            "question" => "Which scope should we take?",
+            "options" => [
+              %{"label" => "small", "description" => "one module"},
+              %{"label" => "broad", "description" => "whole app"}
+            ]
+          }
+        ]
+      }
+    }
+
+    lines = Tui.wonder_picker_lines(det, %{qidx: 0, picks: %{0 => 1}})
+
+    assert "Scope" in lines
+    assert "Which scope should we take?" in lines
+    assert ">> [2] broad - whole app" in lines
+  end
+
   test "markdown emphasis is rendered as terminal text, not raw markers" do
     det =
       detection([

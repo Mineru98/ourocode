@@ -47,8 +47,14 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
   @spec questions(map()) :: [map()]
   def questions(detection) do
     case detection do
-      %{request: %{questions: questions}} when is_list(questions) -> questions
-      _other -> []
+      %{request: request} when is_map(request) ->
+        case field(request, :questions, []) do
+          questions when is_list(questions) -> questions
+          _other -> []
+        end
+
+      _other ->
+        []
     end
   end
 
@@ -92,7 +98,11 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
       |> Enum.with_index()
       |> Enum.flat_map(fn {q, qi} ->
         answer = review_answer_label(q, nav, qi)
-        ["[#{qi + 1}/#{total}] #{Text.md_text(Map.get(q, :header, "Question"))}", "  #{answer}"]
+
+        [
+          "[#{qi + 1}/#{total}] #{Text.md_text(field(q, :header, "Question"))}",
+          "  #{answer}"
+        ]
       end)
 
     [
@@ -103,7 +113,7 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
   end
 
   defp review_answer_label(q, nav, qi) do
-    options = Map.get(q, :options, [])
+    options = field(q, :options, [])
 
     if multi_select?(q) do
       nav_multi_pick(nav, qi)
@@ -123,7 +133,7 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
     options
     |> Enum.at(index)
     |> case do
-      %{} = opt -> Text.md_text(Map.get(opt, :label, "Option #{index + 1}"))
+      %{} = opt -> Text.md_text(field(opt, :label, "Option #{index + 1}"))
       _none -> "Free answer"
     end
   end
@@ -140,17 +150,17 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
 
     header =
       if n > 1,
-        do: "Question #{qi + 1}/#{n}#{progress}  ·  #{Text.md_text(Map.get(q, :header, ""))}",
-        else: Text.md_text(Map.get(q, :header, ""))
+        do: "Question #{qi + 1}/#{n}#{progress}  ·  #{Text.md_text(field(q, :header, ""))}",
+        else: Text.md_text(field(q, :header, ""))
 
     opt_lines =
       q
-      |> Map.get(:options, [])
+      |> field(:options, [])
       |> Enum.with_index()
       |> Enum.map(fn {opt, oi} ->
         row_cursor = if oi == cursor, do: ">", else: " "
-        label = Text.md_text(Map.get(opt, :label, ""))
-        desc = Text.md_text(Map.get(opt, :description, ""))
+        label = Text.md_text(field(opt, :label, ""))
+        desc = Text.md_text(field(opt, :description, ""))
 
         marker =
           if multi_select?(q),
@@ -163,11 +173,11 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
     free_row_cursor = if cursor == length(opt_lines), do: ">", else: " "
     free_row = "#{free_row_cursor}#{free_row_cursor} [Free answer] type below, then Enter"
 
-    [header, Text.md_text(Map.get(q, :question, "")) | opt_lines ++ [free_row]]
+    [header, Text.md_text(field(q, :question, "")) | opt_lines ++ [free_row]]
   end
 
   defp req_id(detection) do
-    case Map.get(detection, :request_id) do
+    case field(detection, :request_id, nil) do
       id when is_binary(id) and id != "" -> id
       _none -> "wt-" <> Integer.to_string(:erlang.phash2(questions(detection)))
     end
@@ -178,8 +188,8 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
     |> questions()
     |> Enum.with_index()
     |> Map.new(fn {q, qi} ->
-      opts = Map.get(q, :options, [])
-      idx = Enum.find_index(opts, &Map.get(&1, :recommended?, false)) || 0
+      opts = field(q, :options, [])
+      idx = Enum.find_index(opts, &field(&1, :recommended?, false)) || 0
       if multi_select?(q), do: {qi, MapSet.new([idx])}, else: {qi, idx}
     end)
   end
@@ -194,4 +204,10 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
 
   defp clamp_index(_i, 0), do: 0
   defp clamp_index(i, n), do: Integer.mod(i, n)
+
+  defp field(map, key, default) when is_map(map) and is_atom(key) do
+    Map.get(map, key, Map.get(map, Atom.to_string(key), default))
+  end
+
+  defp field(_map, _key, default), do: default
 end
