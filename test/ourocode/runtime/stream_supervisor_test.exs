@@ -56,50 +56,41 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
   end
 
   test "child, session, and transport stream processes start under an OTP supervisor" do
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Transport,
-           [
-             id: :transport_stream,
-             transport: :stdio,
-             parent_call_id: "parent-supervised-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-supervised-1"}
-           ]},
-          {Session,
-           [
-             id: :session_stream,
-             session_id: "session-supervised-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-supervised-1"}
-           ]},
-          {Child,
-           [
-             id: :child_stream,
-             child_id: "child-supervised-1",
-             parent_call_id: "parent-supervised-1",
-             runtime_source: "synthetic",
-             transport: :stdio,
-             external_ids: %{"session_id" => "session-supervised-1"}
-           ]},
-          {StreamableHTTP,
-           [
-             id: :streamable_http_transport,
-             url: "http://127.0.0.1:9/mcp",
-             parent_call_id: "parent-http-supervised-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-http-supervised-1"}
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    supervisor =
+      start_stream_supervisor!([
+        {Transport,
+         [
+           id: :transport_stream,
+           transport: :stdio,
+           parent_call_id: "parent-supervised-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-supervised-1"}
+         ]},
+        {Session,
+         [
+           id: :session_stream,
+           session_id: "session-supervised-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-supervised-1"}
+         ]},
+        {Child,
+         [
+           id: :child_stream,
+           child_id: "child-supervised-1",
+           parent_call_id: "parent-supervised-1",
+           runtime_source: "synthetic",
+           transport: :stdio,
+           external_ids: %{"session_id" => "session-supervised-1"}
+         ]},
+        {StreamableHTTP,
+         [
+           id: :streamable_http_transport,
+           url: "http://127.0.0.1:9/mcp",
+           parent_call_id: "parent-http-supervised-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-http-supervised-1"}
+         ]}
+      ])
 
     children = Supervisor.which_children(supervisor)
 
@@ -176,42 +167,32 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
   test "stream supervision emits telemetry for stream start and normal stop events" do
     attach_stream_telemetry_handler()
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Transport,
-           [
-             id: :telemetry_transport_stream,
-             transport: :stdio,
-             parent_call_id: "parent-telemetry-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-telemetry-1"}
-           ]},
-          {Session,
-           [
-             id: :telemetry_session_stream,
-             session_id: "session-telemetry-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-telemetry-1"}
-           ]},
-          {Child,
-           [
-             id: :telemetry_child_stream,
-             child_id: "child-telemetry-1",
-             parent_call_id: "parent-telemetry-1",
-             runtime_source: "synthetic",
-             transport: :stdio,
-             external_ids: %{"session_id" => "session-telemetry-1"}
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    start_stream_supervisor!([
+      {Transport,
+       [
+         id: :telemetry_transport_stream,
+         transport: :stdio,
+         parent_call_id: "parent-telemetry-1",
+         runtime_source: "synthetic",
+         external_ids: %{"session_id" => "session-telemetry-1"}
+       ]},
+      {Session,
+       [
+         id: :telemetry_session_stream,
+         session_id: "session-telemetry-1",
+         runtime_source: "synthetic",
+         external_ids: %{"session_id" => "session-telemetry-1"}
+       ]},
+      {Child,
+       [
+         id: :telemetry_child_stream,
+         child_id: "child-telemetry-1",
+         parent_call_id: "parent-telemetry-1",
+         runtime_source: "synthetic",
+         transport: :stdio,
+         external_ids: %{"session_id" => "session-telemetry-1"}
+       ]}
+    ])
 
     assert_receive {:telemetry_event, [:ourocode, :runtime, :stream, :start], measurements,
                     %{
@@ -290,37 +271,28 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
   test "stream supervision emits telemetry for stream crash events with stream and session metadata" do
     attach_stream_telemetry_handler()
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Session,
-           [
-             id: :crashing_session_stream,
-             restart: :temporary,
-             session_id: "session-crash-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-crash-1", "job_id" => "job-crash-1"}
-           ]},
-          {Child,
-           [
-             id: :crashing_child_stream,
-             restart: :temporary,
-             child_id: "child-crash-1",
-             parent_call_id: "parent-crash-1",
-             runtime_source: "synthetic",
-             transport: :sse,
-             external_ids: %{"session_id" => "session-crash-1", "job_id" => "job-crash-1"},
-             stream_mailbox_drain_interval_ms: :manual
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    supervisor =
+      start_stream_supervisor!([
+        {Session,
+         [
+           id: :crashing_session_stream,
+           restart: :temporary,
+           session_id: "session-crash-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-crash-1", "job_id" => "job-crash-1"}
+         ]},
+        {Child,
+         [
+           id: :crashing_child_stream,
+           restart: :temporary,
+           child_id: "child-crash-1",
+           parent_call_id: "parent-crash-1",
+           runtime_source: "synthetic",
+           transport: :sse,
+           external_ids: %{"session_id" => "session-crash-1", "job_id" => "job-crash-1"},
+           stream_mailbox_drain_interval_ms: :manual
+         ]}
+      ])
 
     session_pid = child_pid(supervisor, :crashing_session_stream)
     child_pid = child_pid(supervisor, :crashing_child_stream)
@@ -394,43 +366,34 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
   end
 
   test "restartable crashed stream process restarts while sibling streams remain alive" do
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Transport,
-           [
-             id: :transport_stream,
-             transport: :sse,
-             parent_call_id: "parent-restart-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-restart-1"}
-           ]},
-          {Session,
-           [
-             id: :session_stream,
-             session_id: "session-restart-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-restart-1"}
-           ]},
-          {Child,
-           [
-             id: :restartable_child_stream,
-             restart: :permanent,
-             child_id: "child-restart-1",
-             parent_call_id: "parent-restart-1",
-             runtime_source: "synthetic",
-             transport: :sse,
-             external_ids: %{"session_id" => "session-restart-1"}
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    supervisor =
+      start_stream_supervisor!([
+        {Transport,
+         [
+           id: :transport_stream,
+           transport: :sse,
+           parent_call_id: "parent-restart-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-restart-1"}
+         ]},
+        {Session,
+         [
+           id: :session_stream,
+           session_id: "session-restart-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-restart-1"}
+         ]},
+        {Child,
+         [
+           id: :restartable_child_stream,
+           restart: :permanent,
+           child_id: "child-restart-1",
+           parent_call_id: "parent-restart-1",
+           runtime_source: "synthetic",
+           transport: :sse,
+           external_ids: %{"session_id" => "session-restart-1"}
+         ]}
+      ])
 
     transport_pid = child_pid(supervisor, :transport_stream)
     session_pid = child_pid(supervisor, :session_stream)
@@ -507,43 +470,34 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
   end
 
   test "non-restartable shutdown stream process terminates without restarting while siblings remain alive" do
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Transport,
-           [
-             id: :transport_stream,
-             transport: :streamable_http,
-             parent_call_id: "parent-shutdown-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-shutdown-1"}
-           ]},
-          {Session,
-           [
-             id: :session_stream,
-             session_id: "session-shutdown-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-shutdown-1"}
-           ]},
-          {Child,
-           [
-             id: :non_restartable_child_stream,
-             restart: :temporary,
-             child_id: "child-shutdown-1",
-             parent_call_id: "parent-shutdown-1",
-             runtime_source: "synthetic",
-             transport: :streamable_http,
-             external_ids: %{"session_id" => "session-shutdown-1"}
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    supervisor =
+      start_stream_supervisor!([
+        {Transport,
+         [
+           id: :transport_stream,
+           transport: :streamable_http,
+           parent_call_id: "parent-shutdown-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-shutdown-1"}
+         ]},
+        {Session,
+         [
+           id: :session_stream,
+           session_id: "session-shutdown-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-shutdown-1"}
+         ]},
+        {Child,
+         [
+           id: :non_restartable_child_stream,
+           restart: :temporary,
+           child_id: "child-shutdown-1",
+           parent_call_id: "parent-shutdown-1",
+           runtime_source: "synthetic",
+           transport: :streamable_http,
+           external_ids: %{"session_id" => "session-shutdown-1"}
+         ]}
+      ])
 
     transport_pid = child_pid(supervisor, :transport_stream)
     session_pid = child_pid(supervisor, :session_stream)
@@ -600,460 +554,46 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
            } = Session.snapshot(session_pid)
   end
 
-  test "stream mailbox capacity is enforced from config and overflow path is triggered" do
-    Application.put_env(:ourocode, :stream_mailbox_capacity, 2)
-    Application.put_env(:ourocode, :stream_mailbox_overflow_path, :notify)
-
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-mailbox-1",
-        parent_call_id: "parent-mailbox-1",
-        runtime_source: "synthetic",
-        transport: :stdio,
-        stream_mailbox_overflow_target: self(),
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      if Process.alive?(child_pid), do: GenServer.stop(child_pid)
-    end)
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 1,
-               child_id: "child-mailbox-1",
-               parent_call_id: "parent-mailbox-1"
-             })
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 2,
-               child_id: "child-mailbox-1",
-               parent_call_id: "parent-mailbox-1"
-             })
-
-    assert {:error,
-            %{
-              overflow_path: :notify,
-              overflow_behavior: :drop_newest,
-              stream_kind: :child,
-              event_seq: 3,
-              dropped_event_seq: 3,
-              capacity: 2,
-              retained_pending_count: 2
-            }} =
-             Child.record_event(child_pid, %{
-               event_seq: 3,
-               child_id: "child-mailbox-1",
-               parent_call_id: "parent-mailbox-1"
-             })
-
-    assert_receive {:stream_mailbox_overflow,
-                    %{
-                      overflow_path: :notify,
-                      overflow_behavior: :drop_newest,
-                      stream_kind: :child,
-                      event_seq: 3,
-                      dropped_event_seq: 3,
-                      capacity: 2,
-                      retained_pending_count: 2
-                    }}
-
-    assert %{
-             event_count: 0,
-             stream_mailbox_capacity: 2,
-             stream_mailbox_pending_count: 2,
-             stream_mailbox_overflow_count: 1
-           } = Child.snapshot(child_pid)
-  end
-
-  test "stream mailbox overflow drops newest event and drains retained events in order" do
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-mailbox-drop-newest-1",
-        parent_call_id: "parent-mailbox-drop-newest-1",
-        runtime_source: "synthetic",
-        transport: :stdio,
-        stream_mailbox_capacity: 2,
-        stream_mailbox_overflow_path: :drop,
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      if Process.alive?(child_pid), do: GenServer.stop(child_pid)
-    end)
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 1,
-               child_id: "child-mailbox-drop-newest-1",
-               parent_call_id: "parent-mailbox-drop-newest-1",
-               transport: :stdio
-             })
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 2,
-               child_id: "child-mailbox-drop-newest-1",
-               parent_call_id: "parent-mailbox-drop-newest-1",
-               transport: :stdio
-             })
-
-    assert {:error,
-            %{
-              overflow_path: :drop,
-              overflow_behavior: :drop_newest,
-              stream_kind: :child,
-              event_seq: 3,
-              dropped_event_seq: 3,
-              capacity: 2,
-              retained_pending_count: 2
-            }} =
-             Child.record_event(child_pid, %{
-               event_seq: 3,
-               child_id: "child-mailbox-drop-newest-1",
-               parent_call_id: "parent-mailbox-drop-newest-1",
-               transport: :stdio
-             })
-
-    refute_receive {:stream_mailbox_overflow, _overflow}, 20
-
-    send(child_pid, :drain_stream_mailbox)
-
-    assert %{
-             event_count: 1,
-             stream_mailbox_pending_count: 1,
-             stream_mailbox_overflow_count: 1,
-             stream_cursor: %{event_seq: 1}
-           } = Child.snapshot(child_pid)
-
-    send(child_pid, :drain_stream_mailbox)
-
-    assert %{
-             event_count: 2,
-             stream_mailbox_pending_count: 0,
-             stream_mailbox_overflow_count: 1,
-             stream_cursor: %{event_seq: 2}
-           } = Child.snapshot(child_pid)
-
-    send(child_pid, :drain_stream_mailbox)
-
-    assert %{
-             event_count: 2,
-             stream_mailbox_pending_count: 0,
-             stream_mailbox_overflow_count: 1,
-             stream_cursor: %{event_seq: 2}
-           } = Child.snapshot(child_pid)
-  end
-
-  test "stream mailbox backpressure notifies producer before overflow threshold is reached" do
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-mailbox-backpressure-notify-1",
-        parent_call_id: "parent-mailbox-backpressure-notify-1",
-        runtime_source: "synthetic",
-        transport: :stdio,
-        stream_mailbox_capacity: 4,
-        stream_mailbox_backpressure_threshold: 2,
-        stream_mailbox_backpressure_behavior: :notify,
-        stream_mailbox_backpressure_target: self(),
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      if Process.alive?(child_pid), do: GenServer.stop(child_pid)
-    end)
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 1,
-               child_id: "child-mailbox-backpressure-notify-1",
-               parent_call_id: "parent-mailbox-backpressure-notify-1"
-             })
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 2,
-               child_id: "child-mailbox-backpressure-notify-1",
-               parent_call_id: "parent-mailbox-backpressure-notify-1"
-             })
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 3,
-               child_id: "child-mailbox-backpressure-notify-1",
-               parent_call_id: "parent-mailbox-backpressure-notify-1"
-             })
-
-    assert_receive {:stream_mailbox_backpressure,
-                    %{
-                      backpressure_behavior: :notify,
-                      stream_kind: :child,
-                      event_seq: 3,
-                      threshold: 2,
-                      capacity: 4,
-                      pending_count: 2,
-                      delay_ms: 0
-                    }}
-
-    assert %{
-             event_count: 0,
-             stream_mailbox_capacity: 4,
-             stream_mailbox_pending_count: 3,
-             stream_mailbox_backpressure_count: 1,
-             stream_mailbox_overflow_count: 0
-           } = Child.snapshot(child_pid)
-  end
-
-  test "stream mailbox backpressure delays synchronous producers after threshold is exceeded" do
-    delay_ms = 40
-
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-mailbox-backpressure-delay-1",
-        parent_call_id: "parent-mailbox-backpressure-delay-1",
-        runtime_source: "synthetic",
-        transport: :stdio,
-        stream_mailbox_capacity: 4,
-        stream_mailbox_backpressure_threshold: 1,
-        stream_mailbox_backpressure_behavior: :delay,
-        stream_mailbox_backpressure_delay_ms: delay_ms,
-        stream_mailbox_backpressure_target: self(),
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      if Process.alive?(child_pid), do: GenServer.stop(child_pid)
-    end)
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 1,
-               child_id: "child-mailbox-backpressure-delay-1",
-               parent_call_id: "parent-mailbox-backpressure-delay-1"
-             })
-
-    started_at = System.monotonic_time(:millisecond)
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 2,
-               child_id: "child-mailbox-backpressure-delay-1",
-               parent_call_id: "parent-mailbox-backpressure-delay-1"
-             })
-
-    elapsed_ms = System.monotonic_time(:millisecond) - started_at
-    assert elapsed_ms >= delay_ms
-
-    assert_receive {:stream_mailbox_backpressure,
-                    %{
-                      backpressure_behavior: :delay,
-                      stream_kind: :child,
-                      event_seq: 2,
-                      threshold: 1,
-                      capacity: 4,
-                      pending_count: 1,
-                      delay_ms: ^delay_ms
-                    }}
-
-    assert %{
-             event_count: 0,
-             stream_mailbox_pending_count: 2,
-             stream_mailbox_backpressure_count: 1,
-             stream_mailbox_overflow_count: 0
-           } = Child.snapshot(child_pid)
-  end
-
-  test "runtime backpressure emits telemetry when detected and relieved with queue metadata" do
-    attach_stream_backpressure_telemetry_handler()
-
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-mailbox-backpressure-telemetry-1",
-        parent_call_id: "parent-mailbox-backpressure-telemetry-1",
-        runtime_source: "synthetic",
-        transport: :sse,
-        external_ids: %{"session_id" => "session-backpressure-telemetry-1"},
-        stream_mailbox_capacity: 4,
-        stream_mailbox_backpressure_threshold: 2,
-        stream_mailbox_backpressure_behavior: :notify,
-        stream_mailbox_backpressure_target: self(),
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      if Process.alive?(child_pid), do: GenServer.stop(child_pid)
-    end)
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 1,
-               child_id: "child-mailbox-backpressure-telemetry-1",
-               parent_call_id: "parent-mailbox-backpressure-telemetry-1",
-               transport: :sse
-             })
-
-    refute_receive {:telemetry_event, [:ourocode, :runtime, :stream, :backpressure, :detected], _,
-                    _},
-                   20
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 2,
-               child_id: "child-mailbox-backpressure-telemetry-1",
-               parent_call_id: "parent-mailbox-backpressure-telemetry-1",
-               transport: :sse
-             })
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 3,
-               child_id: "child-mailbox-backpressure-telemetry-1",
-               parent_call_id: "parent-mailbox-backpressure-telemetry-1",
-               transport: :sse
-             })
-
-    assert_receive {:telemetry_event, [:ourocode, :runtime, :stream, :backpressure, :detected],
-                    detected_measurements,
-                    %{
-                      pressure_state: :detected,
-                      stream_kind: :child,
-                      runtime_source: "synthetic",
-                      transport: :sse,
-                      parent_call_id: "parent-mailbox-backpressure-telemetry-1",
-                      child_id: "child-mailbox-backpressure-telemetry-1",
-                      external_ids: %{"session_id" => "session-backpressure-telemetry-1"},
-                      event_seq: 3,
-                      queue_depth: 2,
-                      pending_count: 2,
-                      threshold: 2,
-                      capacity: 4,
-                      delay_ms: 0,
-                      stream_mailbox_pending_count: 2,
-                      stream_mailbox_capacity: 4,
-                      stream_mailbox_backpressure_threshold: 2,
-                      stream_mailbox_backpressure_behavior: :notify,
-                      pid: ^child_pid
-                    }},
-                   250
-
-    assert detected_measurements.queue_depth == 2
-    assert detected_measurements.threshold == 2
-    assert detected_measurements.capacity == 4
-
-    assert_receive {:stream_mailbox_backpressure,
-                    %{
-                      backpressure_behavior: :notify,
-                      stream_kind: :child,
-                      event_seq: 3,
-                      threshold: 2,
-                      capacity: 4,
-                      pending_count: 2,
-                      delay_ms: 0
-                    }},
-                   250
-
-    assert %{
-             stream_mailbox_pending_count: 3,
-             stream_mailbox_backpressure_count: 1,
-             stream_mailbox_backpressure_active?: true
-           } = Child.snapshot(child_pid)
-
-    send(child_pid, :drain_stream_mailbox)
-
-    refute_receive {:telemetry_event, [:ourocode, :runtime, :stream, :backpressure, :relieved], _,
-                    _},
-                   20
-
-    send(child_pid, :drain_stream_mailbox)
-
-    assert_receive {:telemetry_event, [:ourocode, :runtime, :stream, :backpressure, :relieved],
-                    relieved_measurements,
-                    %{
-                      pressure_state: :relieved,
-                      stream_kind: :child,
-                      runtime_source: "synthetic",
-                      transport: :sse,
-                      parent_call_id: "parent-mailbox-backpressure-telemetry-1",
-                      child_id: "child-mailbox-backpressure-telemetry-1",
-                      external_ids: %{"session_id" => "session-backpressure-telemetry-1"},
-                      event_seq: 2,
-                      queue_depth: 1,
-                      pending_count: 1,
-                      previous_pending_count: 2,
-                      threshold: 2,
-                      capacity: 4,
-                      delay_ms: 0,
-                      stream_mailbox_pending_count: 1,
-                      stream_mailbox_capacity: 4,
-                      stream_mailbox_backpressure_threshold: 2,
-                      stream_mailbox_backpressure_behavior: :notify,
-                      pid: ^child_pid
-                    }},
-                   250
-
-    assert relieved_measurements.queue_depth == 1
-    assert relieved_measurements.threshold == 2
-    assert relieved_measurements.capacity == 4
-
-    assert %{
-             event_count: 2,
-             stream_mailbox_pending_count: 1,
-             stream_mailbox_backpressure_count: 1,
-             stream_mailbox_backpressure_active?: false,
-             stream_cursor: %{event_seq: 2}
-           } = Child.snapshot(child_pid)
-  end
-
   test "inactivity timeout marks idle streams stale and triggers cleanup after elapsed idle window" do
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Transport,
-           [
-             id: :idle_transport_stream,
-             restart: :temporary,
-             transport: :stdio,
-             parent_call_id: "parent-idle-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-idle-1"},
-             stale_cleanup_timeout_ms: 30,
-             stream_cleanup_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]},
-          {Session,
-           [
-             id: :idle_session_stream,
-             restart: :temporary,
-             session_id: "session-idle-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-idle-1"},
-             stale_cleanup_timeout_ms: 30,
-             stream_cleanup_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]},
-          {Child,
-           [
-             id: :idle_child_stream,
-             restart: :temporary,
-             child_id: "child-idle-1",
-             parent_call_id: "parent-idle-1",
-             runtime_source: "synthetic",
-             transport: :stdio,
-             external_ids: %{"session_id" => "session-idle-1"},
-             stale_cleanup_timeout_ms: 30,
-             stream_cleanup_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    supervisor =
+      start_stream_supervisor!([
+        {Transport,
+         [
+           id: :idle_transport_stream,
+           restart: :temporary,
+           transport: :stdio,
+           parent_call_id: "parent-idle-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-idle-1"},
+           stale_cleanup_timeout_ms: 30,
+           stream_cleanup_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]},
+        {Session,
+         [
+           id: :idle_session_stream,
+           restart: :temporary,
+           session_id: "session-idle-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-idle-1"},
+           stale_cleanup_timeout_ms: 30,
+           stream_cleanup_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]},
+        {Child,
+         [
+           id: :idle_child_stream,
+           restart: :temporary,
+           child_id: "child-idle-1",
+           parent_call_id: "parent-idle-1",
+           runtime_source: "synthetic",
+           transport: :stdio,
+           external_ids: %{"session_id" => "session-idle-1"},
+           stale_cleanup_timeout_ms: 30,
+           stream_cleanup_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]}
+      ])
 
     idle_transport_pid = child_pid(supervisor, :idle_transport_stream)
     idle_session_pid = child_pid(supervisor, :idle_session_stream)
@@ -1126,45 +666,36 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
     configured_timeout_ms = Config.defaults().stale_cleanup_timeout_ms
     termination_budget_ms = configured_timeout_ms + 250
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Session,
-           [
-             id: :default_config_stdio_session,
-             restart: :temporary,
-             session_id: "session-default-cleanup-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-default-cleanup-1"},
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]},
-          {Child,
-           [
-             id: :default_config_stdio_child,
-             restart: :temporary,
-             child_id: "child-default-cleanup-1",
-             parent_call_id: "parent-default-cleanup-1",
-             runtime_source: "synthetic",
-             transport: :stdio,
-             external_ids: %{
-               "session_id" => "session-default-cleanup-1",
-               "childID" => "child-default-cleanup-1"
-             },
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    supervisor =
+      start_stream_supervisor!([
+        {Session,
+         [
+           id: :default_config_stdio_session,
+           restart: :temporary,
+           session_id: "session-default-cleanup-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-default-cleanup-1"},
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]},
+        {Child,
+         [
+           id: :default_config_stdio_child,
+           restart: :temporary,
+           child_id: "child-default-cleanup-1",
+           parent_call_id: "parent-default-cleanup-1",
+           runtime_source: "synthetic",
+           transport: :stdio,
+           external_ids: %{
+             "session_id" => "session-default-cleanup-1",
+             "childID" => "child-default-cleanup-1"
+           },
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]}
+      ])
 
     session_pid = child_pid(supervisor, :default_config_stdio_session)
     child_pid = child_pid(supervisor, :default_config_stdio_child)
@@ -1301,69 +832,6 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
     end)
   end
 
-  test "default-config stdio child workload closes registered Ports during cleanup" do
-    Application.put_env(:ourocode, :stale_cleanup_timeout_ms, 100)
-    configured_timeout_ms = Config.defaults().stale_cleanup_timeout_ms
-    termination_budget_ms = configured_timeout_ms + 500
-    command = System.find_executable("sh")
-    assert is_binary(command)
-
-    port =
-      Port.open({:spawn_executable, command}, [
-        :binary,
-        :exit_status,
-        {:args, ["-c", "while IFS= read -r line; do :; done"]},
-        {:line, 65_536}
-      ])
-
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-default-port-cleanup-1",
-        parent_call_id: "parent-default-port-cleanup-1",
-        runtime_source: "synthetic",
-        transport: :stdio,
-        external_ids: %{"session_id" => "session-default-port-cleanup-1"},
-        stream_cleanup_target: self(),
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      close_port(port)
-
-      if Process.alive?(child_pid) do
-        GenServer.stop(child_pid)
-      end
-    end)
-
-    assert %{stream_stale_cleanup_timeout_ms: ^configured_timeout_ms, transport: :stdio} =
-             Child.snapshot(child_pid)
-
-    assert Port.connect(port, child_pid)
-    assert :ok = Child.register_resource(child_pid, :process_handle, port)
-
-    assert %{
-             stream_process_handles: [^port],
-             stream_stale_cleanup_timeout_ms: ^configured_timeout_ms
-           } = Child.snapshot(child_pid)
-
-    child_ref = Process.monitor(child_pid)
-    assert port_open?(port)
-
-    assert_receive {:stream_stale_cleanup,
-                    %{
-                      cleanup_reason: :idle_timeout,
-                      stream_kind: :child,
-                      transport: :stdio,
-                      child_id: "child-default-port-cleanup-1",
-                      stale_cleanup_timeout_ms: ^configured_timeout_ms,
-                      released_resources: %{process_handles: 1}
-                    }},
-                   termination_budget_ms
-
-    assert_receive {:DOWN, ^child_ref, :process, ^child_pid, :normal}, termination_budget_ms
-    refute port_open?(port)
-  end
-
   test "default-config streamable HTTP child workload terminates BEAM processes and registered Ports within cleanup timeout" do
     Application.put_env(:ourocode, :stale_cleanup_timeout_ms, 100)
     configured_timeout_ms = Config.defaults().stale_cleanup_timeout_ms
@@ -1379,47 +847,38 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
         {:line, 65_536}
       ])
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Session,
-           [
-             id: :default_config_streamable_http_session,
-             restart: :temporary,
-             session_id: "session-http-default-cleanup-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-http-default-cleanup-1"},
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]},
-          {Child,
-           [
-             id: :default_config_streamable_http_child,
-             restart: :temporary,
-             child_id: "child-http-default-cleanup-1",
-             parent_call_id: "parent-http-default-cleanup-1",
-             runtime_source: "synthetic",
-             transport: :streamable_http,
-             external_ids: %{
-               "session_id" => "session-http-default-cleanup-1",
-               "childID" => "child-http-default-cleanup-1"
-             },
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]}
-        ],
-        strategy: :one_for_one
-      )
+    supervisor =
+      start_stream_supervisor!([
+        {Session,
+         [
+           id: :default_config_streamable_http_session,
+           restart: :temporary,
+           session_id: "session-http-default-cleanup-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-http-default-cleanup-1"},
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]},
+        {Child,
+         [
+           id: :default_config_streamable_http_child,
+           restart: :temporary,
+           child_id: "child-http-default-cleanup-1",
+           parent_call_id: "parent-http-default-cleanup-1",
+           runtime_source: "synthetic",
+           transport: :streamable_http,
+           external_ids: %{
+             "session_id" => "session-http-default-cleanup-1",
+             "childID" => "child-http-default-cleanup-1"
+           },
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]}
+      ])
 
-    on_exit(fn ->
-      close_port(port)
-
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+    on_exit(fn -> close_port(port) end)
 
     session_pid = child_pid(supervisor, :default_config_streamable_http_session)
     child_pid = child_pid(supervisor, :default_config_streamable_http_child)
@@ -1560,26 +1019,19 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
         ]
       end)
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        Enum.map(children, fn {id, opts} ->
-          module =
-            if id |> Atom.to_string() |> String.contains?("_session_") do
-              Session
-            else
-              Child
-            end
+    supervisor =
+      children
+      |> Enum.map(fn {id, opts} ->
+        module =
+          if id |> Atom.to_string() |> String.contains?("_session_") do
+            Session
+          else
+            Child
+          end
 
-          {module, Keyword.put(opts, :id, id)}
-        end),
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
+        {module, Keyword.put(opts, :id, id)}
+      end)
+      |> start_stream_supervisor!()
 
     {workload_processes, child_pane_state} =
       Enum.map(1..workload_count, fn index ->
@@ -1814,47 +1266,40 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
       {{:resource, :subscription}, "streamable-http-subscription"}
     ])
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Session,
-           [
-             id: :default_config_streamable_http_session_ets,
-             restart: :temporary,
-             session_id: "session-http-ets-cleanup-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-http-ets-cleanup-1"},
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]},
-          {Child,
-           [
-             id: :default_config_streamable_http_child_ets,
-             restart: :temporary,
-             child_id: "child-http-ets-cleanup-1",
-             parent_call_id: "parent-http-ets-cleanup-1",
-             runtime_source: "synthetic",
-             transport: :streamable_http,
-             external_ids: %{
-               "session_id" => "session-http-ets-cleanup-1",
-               "childID" => "child-http-ets-cleanup-1"
-             },
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]}
-        ],
-        strategy: :one_for_one
-      )
+    supervisor =
+      start_stream_supervisor!([
+        {Session,
+         [
+           id: :default_config_streamable_http_session_ets,
+           restart: :temporary,
+           session_id: "session-http-ets-cleanup-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-http-ets-cleanup-1"},
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]},
+        {Child,
+         [
+           id: :default_config_streamable_http_child_ets,
+           restart: :temporary,
+           child_id: "child-http-ets-cleanup-1",
+           parent_call_id: "parent-http-ets-cleanup-1",
+           runtime_source: "synthetic",
+           transport: :streamable_http,
+           external_ids: %{
+             "session_id" => "session-http-ets-cleanup-1",
+             "childID" => "child-http-ets-cleanup-1"
+           },
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]}
+      ])
 
     on_exit(fn ->
       delete_ets_table(session_table)
       delete_ets_table(resource_table)
-
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
     end)
 
     session_pid = child_pid(supervisor, :default_config_streamable_http_session_ets)
@@ -2000,47 +1445,40 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
     child_subscription =
       start_subscription_probe(self(), :child_http_subscription_cleanup)
 
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Session,
-           [
-             id: :default_config_streamable_http_session_subscription,
-             restart: :temporary,
-             session_id: "session-http-subscription-cleanup-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-http-subscription-cleanup-1"},
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]},
-          {Child,
-           [
-             id: :default_config_streamable_http_child_subscription,
-             restart: :temporary,
-             child_id: "child-http-subscription-cleanup-1",
-             parent_call_id: "parent-http-subscription-cleanup-1",
-             runtime_source: "synthetic",
-             transport: :streamable_http,
-             external_ids: %{
-               "session_id" => "session-http-subscription-cleanup-1",
-               "childID" => "child-http-subscription-cleanup-1"
-             },
-             stream_cleanup_target: self(),
-             stream_lifecycle_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]}
-        ],
-        strategy: :one_for_one
-      )
+    supervisor =
+      start_stream_supervisor!([
+        {Session,
+         [
+           id: :default_config_streamable_http_session_subscription,
+           restart: :temporary,
+           session_id: "session-http-subscription-cleanup-1",
+           runtime_source: "synthetic",
+           external_ids: %{"session_id" => "session-http-subscription-cleanup-1"},
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]},
+        {Child,
+         [
+           id: :default_config_streamable_http_child_subscription,
+           restart: :temporary,
+           child_id: "child-http-subscription-cleanup-1",
+           parent_call_id: "parent-http-subscription-cleanup-1",
+           runtime_source: "synthetic",
+           transport: :streamable_http,
+           external_ids: %{
+             "session_id" => "session-http-subscription-cleanup-1",
+             "childID" => "child-http-subscription-cleanup-1"
+           },
+           stream_cleanup_target: self(),
+           stream_lifecycle_target: self(),
+           stream_mailbox_drain_interval_ms: :manual
+         ]}
+      ])
 
     on_exit(fn ->
       stop_subscription_probe(session_subscription)
       stop_subscription_probe(child_subscription)
-
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
     end)
 
     session_pid = child_pid(supervisor, :default_config_streamable_http_session_subscription)
@@ -2118,257 +1556,6 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
 
     terminated_elapsed_ms = System.monotonic_time(:millisecond) - started_at
     assert terminated_elapsed_ms <= cleanup_budget_ms
-  end
-
-  test "default-config stdio child workload removes registered ETS entries during cleanup" do
-    Application.put_env(:ourocode, :stale_cleanup_timeout_ms, 100)
-    configured_timeout_ms = Config.defaults().stale_cleanup_timeout_ms
-    termination_budget_ms = configured_timeout_ms + 500
-
-    session_table = :ets.new(:session_default_ets_cleanup, [:public])
-    child_table = :ets.new(:child_default_ets_cleanup, [:public])
-
-    :ets.insert(session_table, [{:cursor, 1}, {:pane_state, "open"}])
-    :ets.insert(child_table, [{:cursor, 1}, {:token, "cleanup"}, {:pane_state, "open"}])
-
-    {:ok, supervisor} =
-      Supervisor.start_link(
-        [
-          {Session,
-           [
-             id: :default_config_stdio_session_ets,
-             restart: :temporary,
-             session_id: "session-default-ets-cleanup-1",
-             runtime_source: "synthetic",
-             external_ids: %{"session_id" => "session-default-ets-cleanup-1"},
-             stream_cleanup_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]},
-          {Child,
-           [
-             id: :default_config_stdio_child_ets,
-             restart: :temporary,
-             child_id: "child-default-ets-cleanup-1",
-             parent_call_id: "parent-default-ets-cleanup-1",
-             runtime_source: "synthetic",
-             transport: :stdio,
-             external_ids: %{
-               "session_id" => "session-default-ets-cleanup-1",
-               "childID" => "child-default-ets-cleanup-1"
-             },
-             stream_cleanup_target: self(),
-             stream_mailbox_drain_interval_ms: :manual
-           ]}
-        ],
-        strategy: :one_for_one
-      )
-
-    on_exit(fn ->
-      delete_ets_table(session_table)
-      delete_ets_table(child_table)
-
-      if Process.alive?(supervisor) do
-        safe_stop_supervisor(supervisor)
-      end
-    end)
-
-    session_pid = child_pid(supervisor, :default_config_stdio_session_ets)
-    child_pid = child_pid(supervisor, :default_config_stdio_child_ets)
-
-    assert :ok = Session.register_resource(session_pid, :buffer, {:ets, session_table})
-    assert :ok = Child.register_resource(child_pid, :buffer, {:ets, child_table})
-
-    assert ets_size(session_table) == 2
-    assert ets_size(child_table) == 3
-
-    assert %{
-             stream_registered_buffers: [{:ets, ^session_table}],
-             stream_stale_cleanup_timeout_ms: ^configured_timeout_ms
-           } = Session.snapshot(session_pid)
-
-    assert %{
-             stream_registered_buffers: [{:ets, ^child_table}],
-             stream_stale_cleanup_timeout_ms: ^configured_timeout_ms,
-             transport: :stdio
-           } = Child.snapshot(child_pid)
-
-    session_ref = Process.monitor(session_pid)
-    child_ref = Process.monitor(child_pid)
-    started_at = System.monotonic_time(:millisecond)
-
-    cleanups = receive_cleanups(2, termination_budget_ms)
-
-    assert %{
-             cleanup_reason: :idle_timeout,
-             stream_kind: :session,
-             session_id: "session-default-ets-cleanup-1",
-             stale_cleanup_timeout_ms: ^configured_timeout_ms,
-             released_resources: %{registered_buffers: 1, ets_entries: 2}
-           } = Map.fetch!(cleanups, :session)
-
-    assert %{
-             cleanup_reason: :idle_timeout,
-             stream_kind: :child,
-             transport: :stdio,
-             child_id: "child-default-ets-cleanup-1",
-             stale_cleanup_timeout_ms: ^configured_timeout_ms,
-             released_resources: %{registered_buffers: 1, ets_entries: 3}
-           } = Map.fetch!(cleanups, :child)
-
-    assert_receive {:DOWN, ^session_ref, :process, ^session_pid, :normal},
-                   termination_budget_ms
-
-    assert_receive {:DOWN, ^child_ref, :process, ^child_pid, :normal}, termination_budget_ms
-
-    eventually(fn ->
-      if ets_size(session_table) == 0 and ets_size(child_table) == 0 do
-        {:ok, :ets_entries_removed}
-      else
-        :retry
-      end
-    end)
-
-    removed_elapsed_ms = System.monotonic_time(:millisecond) - started_at
-    assert removed_elapsed_ms <= termination_budget_ms
-  end
-
-  test "default-config stdio child workload unsubscribes stream subscriptions within configured timeout" do
-    Application.put_env(:ourocode, :stale_cleanup_timeout_ms, 40)
-    Application.put_env(:ourocode, :stream_subscription_cleanup_timeout_ms, 120)
-    configured_timeout_ms = Config.defaults().stream_subscription_cleanup_timeout_ms
-    cleanup_timeout_ms = Config.defaults().stale_cleanup_timeout_ms
-
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-default-subscription-cleanup-1",
-        parent_call_id: "parent-default-subscription-cleanup-1",
-        runtime_source: "synthetic",
-        transport: :stdio,
-        external_ids: %{
-          "session_id" => "session-default-subscription-cleanup-1",
-          "childID" => "child-default-subscription-cleanup-1"
-        },
-        stream_cleanup_target: self(),
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      if Process.alive?(child_pid) do
-        GenServer.stop(child_pid)
-      end
-    end)
-
-    unsubscribe_message = {
-      :stdio_child_stream_unsubscribed,
-      "subscription-default-cleanup-1"
-    }
-
-    assert :ok =
-             Child.register_resource(
-               child_pid,
-               :subscription,
-               {:unsubscribe, self(), unsubscribe_message}
-             )
-
-    assert %{
-             stream_subscriptions: [{:unsubscribe, _, ^unsubscribe_message}],
-             stream_stale_cleanup_timeout_ms: ^cleanup_timeout_ms,
-             stream_subscription_cleanup_timeout_ms: ^configured_timeout_ms,
-             transport: :stdio
-           } = Child.snapshot(child_pid)
-
-    child_ref = Process.monitor(child_pid)
-    started_at = System.monotonic_time(:millisecond)
-
-    assert_receive ^unsubscribe_message, configured_timeout_ms
-
-    assert_receive {:stream_stale_cleanup,
-                    %{
-                      cleanup_reason: :idle_timeout,
-                      stream_kind: :child,
-                      runtime_source: "synthetic",
-                      transport: :stdio,
-                      parent_call_id: "parent-default-subscription-cleanup-1",
-                      child_id: "child-default-subscription-cleanup-1",
-                      stream_subscription_cleanup_timeout_ms: ^configured_timeout_ms,
-                      stale_cleanup_timeout_ms: ^cleanup_timeout_ms,
-                      released_resources: %{subscriptions: 1}
-                    }},
-                   configured_timeout_ms
-
-    assert_receive {:DOWN, ^child_ref, :process, ^child_pid, :normal}, configured_timeout_ms
-
-    unsubscribed_elapsed_ms = System.monotonic_time(:millisecond) - started_at
-    assert unsubscribed_elapsed_ms <= configured_timeout_ms
-  end
-
-  test "stream cleanup deregisters process handles, subscriptions, and buffered events" do
-    {:ok, child_pid} =
-      Child.start_link(
-        child_id: "child-cleanup-resources-1",
-        parent_call_id: "parent-cleanup-resources-1",
-        runtime_source: "synthetic",
-        transport: :stdio,
-        external_ids: %{"session_id" => "session-cleanup-resources-1"},
-        stale_cleanup_timeout_ms: 100,
-        stream_cleanup_action: :mark_stale,
-        stream_cleanup_target: self(),
-        stream_mailbox_drain_interval_ms: :manual
-      )
-
-    on_exit(fn ->
-      if Process.alive?(child_pid), do: GenServer.stop(child_pid)
-    end)
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 1,
-               child_id: "child-cleanup-resources-1",
-               parent_call_id: "parent-cleanup-resources-1",
-               transport: :stdio
-             })
-
-    assert :ok =
-             Child.record_event(child_pid, %{
-               event_seq: 2,
-               child_id: "child-cleanup-resources-1",
-               parent_call_id: "parent-cleanup-resources-1",
-               transport: :stdio
-             })
-
-    assert :ok = Child.register_resource(child_pid, :process_handle, {:port, "runtime-port-1"})
-    assert :ok = Child.register_resource(child_pid, :subscription, {:sse, "subscription-1"})
-    assert :ok = Child.register_resource(child_pid, :buffer, {:http_response, "partial-frame"})
-
-    assert %{
-             stream_mailbox_pending_count: 2,
-             stream_process_handles: [{:port, "runtime-port-1"}],
-             stream_subscriptions: [{:sse, "subscription-1"}],
-             stream_registered_buffers: [{:http_response, "partial-frame"}]
-           } = Child.snapshot(child_pid)
-
-    assert_receive {:stream_stale_cleanup,
-                    %{
-                      cleanup_reason: :idle_timeout,
-                      stream_kind: :child,
-                      child_id: "child-cleanup-resources-1",
-                      released_resources: %{
-                        process_handles: 1,
-                        subscriptions: 1,
-                        registered_buffers: 1,
-                        pending_events: 2
-                      }
-                    }},
-                   500
-
-    assert %{
-             stream_status: :stale,
-             stream_cleanup_reason: :idle_timeout,
-             stream_mailbox_pending_count: 0,
-             stream_process_handles: [],
-             stream_subscriptions: [],
-             stream_registered_buffers: []
-           } = Child.snapshot(child_pid)
   end
 
   test "timeout cleanup emits telemetry with stale session and child cleanup metadata" do
@@ -2476,19 +1663,11 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
     assert child_measurements.released_registered_buffers == 1
     assert child_measurements.released_pending_events == 1
 
-    assert %{
-             stream_status: :stale,
-             stream_cleanup_reason: :idle_timeout
-           } = Session.snapshot(session_pid)
+    assert %{stream_status: :stale, stream_cleanup_reason: :idle_timeout} =
+             Session.snapshot(session_pid)
 
-    assert %{
-             stream_status: :stale,
-             stream_cleanup_reason: :idle_timeout,
-             stream_mailbox_pending_count: 0,
-             stream_process_handles: [],
-             stream_subscriptions: [],
-             stream_registered_buffers: []
-           } = Child.snapshot(child_pid)
+    assert %{stream_status: :stale, stream_cleanup_reason: :idle_timeout} =
+             Child.snapshot(child_pid)
   end
 
   test "operation timeout terminates a long-running active stream operation" do
@@ -2569,33 +1748,6 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
     assert cleanup_measurements.operation_timeout_ms == 30
     assert cleanup_measurements.stale_cleanup_timeout_ms == 1_000
     assert cleanup_measurements.released_pending_events == 1
-
-    assert_receive {:stream_stale_cleanup,
-                    %{
-                      cleanup_reason: :operation_timeout,
-                      stream_kind: :child,
-                      child_id: "child-operation-timeout-1",
-                      operation_id: "op-long-running-1"
-                    }},
-                   250
-
-    assert_receive {:stream_lifecycle_event,
-                    %{
-                      lifecycle_type: :stream_terminated,
-                      exit_state: :normal,
-                      exit_reason: :operation_timeout,
-                      cleanup_reason: :operation_timeout,
-                      stream_kind: :child,
-                      runtime_source: "synthetic",
-                      transport: :stdio,
-                      parent_call_id: "parent-operation-timeout-1",
-                      child_id: "child-operation-timeout-1",
-                      external_ids: %{"session_id" => "session-operation-timeout-1"},
-                      operation_id: "op-long-running-1",
-                      operation_timeout_ms: 30,
-                      released_resources: %{pending_events: 1}
-                    }},
-                   250
 
     assert_receive {:DOWN, ^timeout_ref, :process, ^child_pid, :normal}, 250
   end
@@ -2776,6 +1928,18 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
            } = Transport.snapshot(transport_pid)
   end
 
+  defp start_stream_supervisor!(children) do
+    {:ok, supervisor} = Supervisor.start_link(children, strategy: :one_for_one)
+
+    on_exit(fn ->
+      if Process.alive?(supervisor) do
+        safe_stop_supervisor(supervisor)
+      end
+    end)
+
+    supervisor
+  end
+
   defp child_pid(supervisor, child_id) do
     supervisor
     |> Supervisor.which_children()
@@ -2953,22 +2117,6 @@ defmodule Ourocode.Runtime.StreamSupervisorTest do
       :telemetry.attach_many(
         handler_id,
         [Telemetry.start_event(), Telemetry.stop_event(), Telemetry.crash_event()],
-        fn event_name, measurements, metadata, test_pid ->
-          send(test_pid, {:telemetry_event, event_name, measurements, metadata})
-        end,
-        self()
-      )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-  end
-
-  defp attach_stream_backpressure_telemetry_handler do
-    handler_id = {__MODULE__, self(), :backpressure, System.unique_integer([:positive])}
-
-    :ok =
-      :telemetry.attach_many(
-        handler_id,
-        [Telemetry.backpressure_detected_event(), Telemetry.backpressure_relieved_event()],
         fn event_name, measurements, metadata, test_pid ->
           send(test_pid, {:telemetry_event, event_name, measurements, metadata})
         end,

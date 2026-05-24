@@ -7,9 +7,12 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
   external runtime still owns authoritative session/job status.
   """
 
-  alias Ourocode.Config
-  alias Ourocode.Runtime.Stream.Mailbox
+  alias Ourocode.Runtime.Stream.CleanupEvent
+  alias Ourocode.Runtime.Stream.LifecycleRouting
+  alias Ourocode.Runtime.Stream.LifecycleState
+  alias Ourocode.Runtime.Stream.Resources
   alias Ourocode.Runtime.Stream.Telemetry
+  alias Ourocode.Runtime.Stream.Timers
 
   @type stale_cleanup :: %{
           required(:cleanup_reason) => :idle_timeout | :operation_timeout,
@@ -35,39 +38,8 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
 
   @spec fields(keyword()) :: map()
   def fields(opts) when is_list(opts) do
-    config = Config.defaults()
     now_ms = Keyword.get(opts, :stream_now_ms, monotonic_ms())
-    timeout_ms = Keyword.get(opts, :stale_cleanup_timeout_ms, config.stale_cleanup_timeout_ms)
-
-    %{
-      stream_status: :active,
-      stream_last_activity_monotonic_ms: now_ms,
-      stream_stale_cleanup_timeout_ms: timeout_ms,
-      stream_subscription_cleanup_timeout_ms:
-        Keyword.get(
-          opts,
-          :stream_subscription_cleanup_timeout_ms,
-          config.stream_subscription_cleanup_timeout_ms
-        ),
-      stream_operation_timeout_ms:
-        Keyword.get(opts, :operation_timeout_ms, config.operation_timeout_ms),
-      stream_active_operation_timeout_ms: nil,
-      stream_active_operation_id: nil,
-      stream_operation_started_monotonic_ms: nil,
-      stream_operation_deadline_monotonic_ms: nil,
-      stream_operation_timer_ref: nil,
-      stream_operation_timeout_count: 0,
-      stream_lifecycle_target: Keyword.get(opts, :stream_lifecycle_target),
-      stream_operation_timeout_target: Keyword.get(opts, :stream_operation_timeout_target),
-      stream_cleanup_target: Keyword.get(opts, :stream_cleanup_target),
-      stream_cleanup_action: Keyword.get(opts, :stream_cleanup_action, :stop),
-      stream_process_handles: Keyword.get(opts, :stream_process_handles, []),
-      stream_subscriptions: Keyword.get(opts, :stream_subscriptions, []),
-      stream_registered_buffers: Keyword.get(opts, :stream_registered_buffers, []),
-      stream_cleanup_started_monotonic_ms: nil,
-      stream_cleanup_reason: nil,
-      stream_idle_timer_ref: schedule_idle_timeout(timeout_ms, now_ms)
-    }
+    LifecycleState.fields(opts, now_ms)
   end
 
   @spec register_resource(map(), :process_handle | :subscription | :buffer, term()) ::
@@ -93,14 +65,14 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
     now_ms = monotonic_ms()
 
     state
-    |> cancel_idle_timer()
+    |> Timers.cancel_idle()
     |> Map.put(:stream_status, :active)
     |> Map.put(:stream_last_activity_monotonic_ms, now_ms)
     |> Map.put(:stream_cleanup_started_monotonic_ms, nil)
     |> Map.put(:stream_cleanup_reason, nil)
     |> Map.put(
       :stream_idle_timer_ref,
-      schedule_idle_timeout(state.stream_stale_cleanup_timeout_ms, now_ms)
+      Timers.schedule_idle(state.stream_stale_cleanup_timeout_ms, now_ms)
     )
   end
 
@@ -112,7 +84,7 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
 
     state
     |> touch()
-    |> cancel_operation_timer()
+    |> Timers.cancel_operation()
     |> Map.put(:stream_status, :active)
     |> Map.put(:stream_active_operation_timeout_ms, timeout_ms)
     |> Map.put(:stream_active_operation_id, operation_id)
@@ -120,7 +92,7 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
     |> Map.put(:stream_operation_deadline_monotonic_ms, deadline_ms)
     |> Map.put(
       :stream_operation_timer_ref,
-      schedule_operation_timeout(timeout_ms, operation_id, deadline_ms)
+      Timers.schedule_operation(timeout_ms, operation_id, deadline_ms)
     )
   end
 
@@ -129,7 +101,7 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
   def complete_operation(%{stream_active_operation_id: operation_id} = state, operation_id) do
     state =
       state
-      |> cancel_operation_timer()
+      |> Timers.cancel_operation()
       |> Map.put(:stream_active_operation_id, nil)
       |> Map.put(:stream_active_operation_timeout_ms, nil)
       |> Map.put(:stream_operation_started_monotonic_ms, nil)
@@ -167,11 +139,11 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
     elapsed_ms = max(now_ms - state.stream_last_activity_monotonic_ms, 0)
 
     if elapsed_ms >= state.stream_stale_cleanup_timeout_ms do
-      {state, released_resources} = release_registered_resources(state)
-      cleanup = cleanup_event(state, now_ms, elapsed_ms, released_resources)
+      {state, released_resources} = Resources.release_registered(state)
+      cleanup = CleanupEvent.idle_timeout(state, now_ms, elapsed_ms, released_resources)
       Telemetry.emit_cleanup(state, cleanup)
-      route_cleanup(state, cleanup)
-      maybe_route_timeout_termination(state, cleanup)
+      LifecycleRouting.route_cleanup(state, cleanup)
+      LifecycleRouting.route_timeout_termination(state, cleanup)
 
       state =
         state
@@ -191,7 +163,7 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
         Map.put(
           state,
           :stream_idle_timer_ref,
-          schedule_idle_timeout(remaining_ms, state.stream_last_activity_monotonic_ms)
+          Timers.schedule_idle(remaining_ms, state.stream_last_activity_monotonic_ms)
         )
 
       {:noreply, state}
@@ -203,16 +175,17 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
 
     if now_ms >= state.stream_operation_deadline_monotonic_ms do
       elapsed_ms = max(now_ms - state.stream_operation_started_monotonic_ms, 0)
-      {state, released_resources} = release_registered_resources(state)
-      cleanup = operation_timeout_event(state, now_ms, elapsed_ms, released_resources)
+      {state, released_resources} = Resources.release_registered(state)
+      cleanup = CleanupEvent.operation_timeout(state, now_ms, elapsed_ms, released_resources)
       Telemetry.emit_cleanup(state, cleanup)
-      route_operation_timeout(state, cleanup)
-      route_cleanup(state, cleanup)
-      maybe_route_timeout_termination(state, cleanup)
+      LifecycleRouting.route_operation_timeout(state, cleanup)
+      LifecycleRouting.route_cleanup(state, cleanup)
+      LifecycleRouting.route_timeout_termination(state, cleanup)
 
       state =
         state
-        |> cancel_idle_timer()
+        |> Timers.cancel_idle()
+        |> Timers.cancel_operation()
         |> Map.put(:stream_status, :stale)
         |> Map.put(:stream_cleanup_started_monotonic_ms, now_ms)
         |> Map.put(:stream_cleanup_reason, :operation_timeout)
@@ -231,7 +204,7 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
         Map.put(
           state,
           :stream_operation_timer_ref,
-          schedule_operation_timeout(
+          Timers.schedule_operation(
             remaining_ms,
             state.stream_active_operation_id,
             state.stream_operation_deadline_monotonic_ms
@@ -240,210 +213,6 @@ defmodule Ourocode.Runtime.Stream.Lifecycle do
 
       {:noreply, state}
     end
-  end
-
-  defp cleanup_event(state, now_ms, elapsed_ms, released_resources) do
-    %{
-      cleanup_reason: :idle_timeout,
-      stream_kind: state.stream_kind,
-      runtime_source: Map.get(state, :runtime_source),
-      transport: Map.get(state, :transport),
-      parent_call_id: Map.get(state, :parent_call_id),
-      child_id: Map.get(state, :child_id),
-      session_id: Map.get(state, :session_id),
-      external_ids: Map.get(state, :external_ids, %{}),
-      stream_cursor: Map.get(state, :stream_cursor, %{}),
-      idle_elapsed_ms: elapsed_ms,
-      stale_cleanup_timeout_ms: state.stream_stale_cleanup_timeout_ms,
-      stream_subscription_cleanup_timeout_ms: state.stream_subscription_cleanup_timeout_ms,
-      last_activity_monotonic_ms: state.stream_last_activity_monotonic_ms,
-      cleanup_started_monotonic_ms: now_ms,
-      released_resources: released_resources
-    }
-  end
-
-  defp operation_timeout_event(state, now_ms, elapsed_ms, released_resources) do
-    %{
-      cleanup_reason: :operation_timeout,
-      stream_kind: state.stream_kind,
-      runtime_source: Map.get(state, :runtime_source),
-      transport: Map.get(state, :transport),
-      parent_call_id: Map.get(state, :parent_call_id),
-      child_id: Map.get(state, :child_id),
-      session_id: Map.get(state, :session_id),
-      external_ids: Map.get(state, :external_ids, %{}),
-      stream_cursor: Map.get(state, :stream_cursor, %{}),
-      operation_id: state.stream_active_operation_id,
-      operation_elapsed_ms: elapsed_ms,
-      operation_timeout_ms:
-        state.stream_active_operation_timeout_ms || state.stream_operation_timeout_ms,
-      stale_cleanup_timeout_ms: state.stream_stale_cleanup_timeout_ms,
-      stream_subscription_cleanup_timeout_ms: state.stream_subscription_cleanup_timeout_ms,
-      last_activity_monotonic_ms: state.stream_last_activity_monotonic_ms,
-      operation_started_monotonic_ms: state.stream_operation_started_monotonic_ms,
-      cleanup_started_monotonic_ms: now_ms,
-      released_resources: released_resources
-    }
-  end
-
-  defp release_registered_resources(state) do
-    process_handle_count = length(state.stream_process_handles)
-    subscription_count = length(state.stream_subscriptions)
-    registered_buffer_count = length(state.stream_registered_buffers)
-
-    Enum.each(state.stream_process_handles, &release_process_handle/1)
-    Enum.each(state.stream_subscriptions, &release_subscription/1)
-    ets_entry_count = release_registered_buffers(state.stream_registered_buffers)
-
-    {state, pending_event_count} = Mailbox.release_buffers(state)
-
-    released_resources = %{
-      process_handles: process_handle_count,
-      subscriptions: subscription_count,
-      registered_buffers: registered_buffer_count,
-      ets_entries: ets_entry_count,
-      pending_events: pending_event_count
-    }
-
-    state =
-      state
-      |> Map.put(:stream_process_handles, [])
-      |> Map.put(:stream_subscriptions, [])
-      |> Map.put(:stream_registered_buffers, [])
-
-    {state, released_resources}
-  end
-
-  defp release_process_handle(port) when is_port(port) do
-    if Port.info(port) do
-      Port.close(port)
-    end
-  rescue
-    ArgumentError -> :ok
-  end
-
-  defp release_process_handle(_resource), do: :ok
-
-  defp release_subscription(fun) when is_function(fun, 0) do
-    fun.()
-    :ok
-  rescue
-    _error -> :ok
-  catch
-    _kind, _reason -> :ok
-  end
-
-  defp release_subscription(fun) when is_function(fun, 1) do
-    fun.(:unsubscribe)
-    :ok
-  rescue
-    _error -> :ok
-  catch
-    _kind, _reason -> :ok
-  end
-
-  defp release_subscription({:unsubscribe, pid, message}) when is_pid(pid) do
-    send(pid, message)
-    :ok
-  end
-
-  defp release_subscription({:timer, timer_ref}) when is_reference(timer_ref) do
-    Process.cancel_timer(timer_ref)
-    :ok
-  end
-
-  defp release_subscription({:monitor, monitor_ref}) when is_reference(monitor_ref) do
-    Process.demonitor(monitor_ref, [:flush])
-    :ok
-  end
-
-  defp release_subscription(pid) when is_pid(pid) do
-    send(pid, {:unsubscribe, self()})
-    :ok
-  end
-
-  defp release_subscription(_resource), do: :ok
-
-  defp release_registered_buffers(buffers) do
-    Enum.reduce(buffers, 0, fn buffer, acc ->
-      acc + release_registered_buffer(buffer)
-    end)
-  end
-
-  defp release_registered_buffer({:ets, table}), do: release_ets_entries(table)
-  defp release_registered_buffer({:ets_table, table}), do: release_ets_entries(table)
-  defp release_registered_buffer(%{ets_table: table}), do: release_ets_entries(table)
-  defp release_registered_buffer(_buffer), do: 0
-
-  defp release_ets_entries(table) do
-    case :ets.info(table, :size) do
-      size when is_integer(size) ->
-        :ets.delete_all_objects(table)
-        size
-
-      :undefined ->
-        0
-    end
-  rescue
-    ArgumentError -> 0
-  end
-
-  defp route_operation_timeout(%{stream_operation_timeout_target: pid}, cleanup)
-       when is_pid(pid) do
-    send(pid, {:stream_operation_timeout, cleanup})
-  end
-
-  defp route_operation_timeout(_state, _cleanup), do: :ok
-
-  defp maybe_route_timeout_termination(%{stream_cleanup_action: :stop} = state, cleanup) do
-    route_lifecycle(state, timeout_termination_event(cleanup))
-  end
-
-  defp maybe_route_timeout_termination(_state, _cleanup), do: :ok
-
-  defp timeout_termination_event(cleanup) do
-    cleanup
-    |> Map.put(:lifecycle_type, :stream_terminated)
-    |> Map.put(:exit_state, :normal)
-    |> Map.put(:exit_reason, Map.fetch!(cleanup, :cleanup_reason))
-  end
-
-  defp route_lifecycle(%{stream_lifecycle_target: pid}, event) when is_pid(pid) do
-    send(pid, {:stream_lifecycle_event, event})
-  end
-
-  defp route_lifecycle(%{stream_lifecycle_target: fun}, event) when is_function(fun, 1) do
-    fun.(event)
-  end
-
-  defp route_lifecycle(_state, _event), do: :ok
-
-  defp route_cleanup(%{stream_cleanup_target: pid}, cleanup) when is_pid(pid) do
-    send(pid, {:stream_stale_cleanup, cleanup})
-  end
-
-  defp route_cleanup(_state, _cleanup), do: :ok
-
-  defp cancel_idle_timer(%{stream_idle_timer_ref: nil} = state), do: state
-
-  defp cancel_idle_timer(%{stream_idle_timer_ref: timer_ref} = state) do
-    Process.cancel_timer(timer_ref)
-    state
-  end
-
-  defp cancel_operation_timer(%{stream_operation_timer_ref: nil} = state), do: state
-
-  defp cancel_operation_timer(%{stream_operation_timer_ref: timer_ref} = state) do
-    Process.cancel_timer(timer_ref)
-    state
-  end
-
-  defp schedule_idle_timeout(timeout_ms, last_activity_ms) do
-    Process.send_after(self(), {:stream_idle_timeout, last_activity_ms}, timeout_ms)
-  end
-
-  defp schedule_operation_timeout(timeout_ms, operation_id, deadline_ms) do
-    Process.send_after(self(), {:stream_operation_timeout, operation_id, deadline_ms}, timeout_ms)
   end
 
   defp monotonic_ms, do: System.monotonic_time(:millisecond)

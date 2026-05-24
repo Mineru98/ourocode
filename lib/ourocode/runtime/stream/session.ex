@@ -10,34 +10,8 @@ defmodule Ourocode.Runtime.Stream.Session do
   alias Ourocode.Runtime.SessionSettings
   alias Ourocode.Runtime.Stream.Lifecycle
   alias Ourocode.Runtime.Stream.Mailbox
+  alias Ourocode.Runtime.Stream.SessionSettingsPatch
   alias Ourocode.Runtime.Stream.Telemetry
-
-  @settings_key_aliases %{
-    "external-ids" => :external_ids,
-    "external_ids" => :external_ids,
-    "operation-timeout-ms" => :operation_timeout_ms,
-    "operation_timeout_ms" => :operation_timeout_ms,
-    "stale-cleanup-timeout-ms" => :stale_cleanup_timeout_ms,
-    "stale_cleanup_timeout_ms" => :stale_cleanup_timeout_ms,
-    "stream-cleanup-action" => :stream_cleanup_action,
-    "stream_cleanup_action" => :stream_cleanup_action,
-    "stream-cursor" => :stream_cursor,
-    "stream_cursor" => :stream_cursor,
-    "stream-mailbox-backpressure-behavior" => :stream_mailbox_backpressure_behavior,
-    "stream_mailbox_backpressure_behavior" => :stream_mailbox_backpressure_behavior,
-    "stream-mailbox-backpressure-delay-ms" => :stream_mailbox_backpressure_delay_ms,
-    "stream_mailbox_backpressure_delay_ms" => :stream_mailbox_backpressure_delay_ms,
-    "stream-mailbox-backpressure-threshold" => :stream_mailbox_backpressure_threshold,
-    "stream_mailbox_backpressure_threshold" => :stream_mailbox_backpressure_threshold,
-    "stream-mailbox-capacity" => :stream_mailbox_capacity,
-    "stream_mailbox_capacity" => :stream_mailbox_capacity,
-    "stream-mailbox-drain-interval-ms" => :stream_mailbox_drain_interval_ms,
-    "stream_mailbox_drain_interval_ms" => :stream_mailbox_drain_interval_ms,
-    "stream-mailbox-overflow-path" => :stream_mailbox_overflow_path,
-    "stream_mailbox_overflow_path" => :stream_mailbox_overflow_path,
-    "stream-subscription-cleanup-timeout-ms" => :stream_subscription_cleanup_timeout_ms,
-    "stream_subscription_cleanup_timeout_ms" => :stream_subscription_cleanup_timeout_ms
-  }
 
   @type state :: %{
           required(:stream_kind) => :session,
@@ -181,11 +155,8 @@ defmodule Ourocode.Runtime.Stream.Session do
 
   @impl true
   def handle_call({:apply_settings, settings}, _from, state) do
-    with {:ok, patch} <- normalize_settings_patch(settings),
-         {:ok, normalized} <- SessionSettings.normalize(Map.merge(settings_base(state), patch)) do
-      state = apply_normalized_settings(state, normalized)
-      {:reply, {:ok, state}, state}
-    else
+    case SessionSettingsPatch.apply(state, settings) do
+      {:ok, state} -> {:reply, {:ok, state}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -246,86 +217,6 @@ defmodule Ourocode.Runtime.Stream.Session do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp normalize_settings_patch(settings) when is_list(settings) do
-    if Keyword.keyword?(settings) do
-      settings |> Map.new() |> normalize_settings_patch()
-    else
-      {:error, {:invalid_session_settings, "session settings must be a map or keyword list"}}
-    end
-  end
-
-  defp normalize_settings_patch(settings) when is_map(settings) do
-    {:ok, Map.new(settings, fn {key, value} -> {settings_key(key), value} end)}
-  end
-
-  defp settings_key(key) when is_atom(key), do: key
-
-  defp settings_key(key) when is_binary(key) do
-    key
-    |> String.trim()
-    |> String.replace("-", "_")
-    |> then(&Map.get(@settings_key_aliases, &1, &1))
-  end
-
-  defp settings_key(key), do: key
-
-  defp settings_base(state) do
-    %{
-      runtime_source: state.runtime_source,
-      session_id: state.session_id,
-      transport: Map.get(state, :transport),
-      external_ids: state.external_ids,
-      stream_cursor: state.stream_cursor,
-      stream_mailbox_capacity: state.stream_mailbox_capacity,
-      stream_mailbox_overflow_path: state.stream_mailbox_overflow_path,
-      stream_mailbox_backpressure_threshold: state.stream_mailbox_backpressure_threshold,
-      stream_mailbox_backpressure_behavior: state.stream_mailbox_backpressure_behavior,
-      stream_mailbox_backpressure_delay_ms: state.stream_mailbox_backpressure_delay_ms,
-      stale_cleanup_timeout_ms: state.stream_stale_cleanup_timeout_ms,
-      operation_timeout_ms: state.stream_operation_timeout_ms,
-      stream_subscription_cleanup_timeout_ms: state.stream_subscription_cleanup_timeout_ms,
-      stream_mailbox_drain_interval_ms: state.stream_mailbox_drain_interval_ms,
-      stream_cleanup_action: state.stream_cleanup_action
-    }
-  end
-
-  defp apply_normalized_settings(state, normalized) do
-    state
-    |> Map.put(:external_ids, Keyword.fetch!(normalized, :external_ids))
-    |> Map.put(:stream_cursor, Keyword.fetch!(normalized, :stream_cursor))
-    |> Map.put(:stream_mailbox_capacity, Keyword.fetch!(normalized, :stream_mailbox_capacity))
-    |> Map.put(
-      :stream_mailbox_overflow_path,
-      Keyword.fetch!(normalized, :stream_mailbox_overflow_path)
-    )
-    |> Map.put(
-      :stream_mailbox_backpressure_threshold,
-      Keyword.fetch!(normalized, :stream_mailbox_backpressure_threshold)
-    )
-    |> Map.put(
-      :stream_mailbox_backpressure_behavior,
-      Keyword.fetch!(normalized, :stream_mailbox_backpressure_behavior)
-    )
-    |> Map.put(
-      :stream_mailbox_backpressure_delay_ms,
-      Keyword.fetch!(normalized, :stream_mailbox_backpressure_delay_ms)
-    )
-    |> Map.put(
-      :stream_stale_cleanup_timeout_ms,
-      Keyword.fetch!(normalized, :stale_cleanup_timeout_ms)
-    )
-    |> Map.put(:stream_operation_timeout_ms, Keyword.fetch!(normalized, :operation_timeout_ms))
-    |> Map.put(
-      :stream_subscription_cleanup_timeout_ms,
-      Keyword.fetch!(normalized, :stream_subscription_cleanup_timeout_ms)
-    )
-    |> Map.put(
-      :stream_mailbox_drain_interval_ms,
-      Keyword.fetch!(normalized, :stream_mailbox_drain_interval_ms)
-    )
-    |> Map.put(:stream_cleanup_action, Keyword.fetch!(normalized, :stream_cleanup_action))
-  end
 
   defp default_child_id(opts) do
     {__MODULE__, Keyword.get(opts, :runtime_source, "synthetic"), Keyword.get(opts, :session_id)}
