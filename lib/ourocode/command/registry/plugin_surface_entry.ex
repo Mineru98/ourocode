@@ -72,6 +72,7 @@ defmodule Ourocode.Command.Registry.PluginSurfaceEntry do
         loaded_from: plugin.path,
         provenance: plugin.provenance,
         trust_policy: plugin.trust_policy,
+        trust_policy_state: plugin.trust_policy_state,
         trust_evaluation: plugin.trust_evaluation,
         package_identity: ConfigSchema.to_map(plugin)["package_identity"],
         source_attribution: source_attribution
