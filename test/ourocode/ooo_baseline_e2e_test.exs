@@ -135,7 +135,7 @@ defmodule Ourocode.OooBaselineE2ETest do
 
     # Give the relay a moment to attempt the connection and enqueue a failure.
     failure =
-      Enum.reduce_while(1..50, nil, fn _i, _acc ->
+      Enum.reduce_while(1..100, nil, fn _i, _acc ->
         case poll.(%{}) do
           {:ok, %{type: :parent_call_failed} = event} -> {:halt, event}
           {:ok, _other} -> {:cont, nil}

@@ -4,7 +4,14 @@ defmodule Ourocode.Terminal.PromptStoreTest do
   alias Ourocode.Terminal.PromptStore
 
   defp tmp_dir do
-    Path.join(System.tmp_dir!(), "ourocode-prompt-store-#{System.unique_integer([:positive])}")
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "ourocode-prompt-store-#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    File.rm_rf!(dir)
+    dir
   end
 
   test "persists prompt history as newest-first unique entries" do
