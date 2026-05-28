@@ -35,6 +35,23 @@ defmodule Ourocode.Terminal.InterviewPanel do
   @spec wonder_picker_lines(map(), map() | nil) :: [String.t()]
   def wonder_picker_lines(detection, nav), do: WonderPicker.lines(detection, nav)
 
+  @spec interview_detection(map()) :: map() | nil
+  def interview_detection(result) do
+    case interview_state(result) do
+      %{question: question} = interview when is_binary(question) ->
+        if answered_current_question?(interview) do
+          nil
+        else
+          question
+          |> String.trim()
+          |> question_detection(interview)
+        end
+
+      _other ->
+        nil
+    end
+  end
+
   @spec interview_reasoning_lines(map(), integer() | nil) :: [String.t()]
   def interview_reasoning_lines(result, tick \\ nil) do
     case {completed_user_done?(result), interview_state(result)} do
@@ -194,9 +211,16 @@ defmodule Ourocode.Terminal.InterviewPanel do
 
   defp question_picker_lines(question, interview) do
     question = plain_line(question)
+    question |> question_detection(interview) |> wonder_picker_lines(nil)
+  end
+
+  defp question_detection("", _interview), do: nil
+
+  defp question_detection(question, interview) do
+    question = plain_line(question)
     options = question_options(interview, question)
 
-    detection = %{
+    %{
       request: %{
         questions: [
           %{
@@ -208,8 +232,6 @@ defmodule Ourocode.Terminal.InterviewPanel do
         ]
       }
     }
-
-    wonder_picker_lines(detection, nil)
   end
 
   defp question_options(%{question_options: [_first | _rest] = options}, _question), do: options

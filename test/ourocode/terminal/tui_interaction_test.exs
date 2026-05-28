@@ -57,6 +57,39 @@ defmodule Ourocode.Terminal.TuiInteractionTest do
     assert_received {:submitted, [1, 1]}
   end
 
+  test "empty enter submits the selected plain interview option", %{
+    output: output,
+    state: state
+  } do
+    parent = self()
+    TuiState.put_wonder_nav(state, %{qidx: 0, picks: %{0 => 1}})
+
+    result = %{
+      pane_snapshot: fn ->
+        %{
+          interview: %{
+            question: "Which email service first?",
+            question_options: [
+              %{label: "Gmail", description: "Google inboxes"},
+              %{label: "Outlook", description: "Microsoft inboxes"}
+            ]
+          },
+          paused: false
+        }
+      end,
+      interview_answer: fn answer ->
+        send(parent, {:answer, answer})
+        {:ok, answer}
+      end
+    }
+
+    assert :ok = TuiInteraction.handle_event(%{key: :enter}, result, output, state)
+    assert_received {:answer, "Outlook"}
+
+    {_input, captured} = StringIO.contents(output)
+    assert captured =~ "you> Outlook"
+  end
+
   test "escape invokes wonder pause callback", %{output: output, state: state} do
     parent = self()
 

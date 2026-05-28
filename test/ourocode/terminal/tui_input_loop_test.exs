@@ -211,6 +211,40 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
     refute_received {:redraw, "/", 80, 24}
   end
 
+  test "arrow keys move plain interview options without mouse focus", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    result = %{
+      pane_snapshot: fn ->
+        %{
+          interview: %{
+            question: "Which email service first?",
+            question_options: [
+              %{label: "Gmail", description: "Google inboxes"},
+              %{label: "Outlook", description: "Microsoft inboxes"}
+            ]
+          },
+          paused: false
+        }
+      end
+    }
+
+    assert TuiInputLoop.handle_events(
+             [%{key: :down}],
+             result,
+             output,
+             state,
+             80,
+             24,
+             callbacks
+           ) == :continue
+
+    assert TuiState.wonder_nav(state).picks == %{0 => 1}
+    assert_received {:redraw, "", 80, 24}
+  end
+
   test "tick does not redraw a pending cancel prefix during active interview", %{
     callbacks: callbacks,
     output: output,

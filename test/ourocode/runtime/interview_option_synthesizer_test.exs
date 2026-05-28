@@ -52,6 +52,21 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizerTest do
            ]
   end
 
+  test "does not split parenthesized email service examples into broken choices" do
+    options =
+      InterviewOptionSynthesizer.options(
+        [],
+        "어떤 이메일 계정/서비스(Gmail, Outlook, Apple Mail/IMAP 등)를 우선 연결해야 하고, “중요한 이메일”은 어떤 기준으로 판단되길 원하시나요?"
+      )
+
+    assert Enum.map(options, & &1["label"]) == [
+             "Connect Gmail first",
+             "Connect Outlook first",
+             "Connect Apple Mail/IMAP first",
+             "Define importance criteria"
+           ]
+  end
+
   test "creates onboarding-specific fallbacks for broad onboarding prompts" do
     options =
       InterviewOptionSynthesizer.options(

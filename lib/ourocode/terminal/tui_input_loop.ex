@@ -50,7 +50,7 @@ defmodule Ourocode.Terminal.TuiInputLoop do
       match?(%{key: :ctrl_c}, event) ->
         :exit
 
-      TuiInteraction.capturing?(result, state) and TuiInteraction.wonder_active?(result) and
+      TuiInteraction.capturing?(result, state) and TuiInteraction.selection_active?(result) and
           TuiInteraction.nav_event?(event, TuiState.buffer(state), result, state) ->
         TuiInteraction.handle_nav(event, result, state)
         draw.()

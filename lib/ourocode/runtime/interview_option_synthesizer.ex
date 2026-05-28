@@ -99,6 +99,27 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
           }
         ]
 
+      String.contains?(normalized, ["email", "이메일"]) and
+          String.contains?(normalized, ["gmail", "outlook", "imap", "mail"]) ->
+        [
+          %{
+            "label" => "Connect Gmail first",
+            "description" => "Prioritize the most common personal and workspace inbox"
+          },
+          %{
+            "label" => "Connect Outlook first",
+            "description" => "Prioritize Microsoft 365 and Exchange users"
+          },
+          %{
+            "label" => "Connect Apple Mail/IMAP first",
+            "description" => "Prioritize broad IMAP compatibility"
+          },
+          %{
+            "label" => "Define importance criteria",
+            "description" => "Clarify how important email should be detected"
+          }
+        ]
+
       String.contains?(normalized, ["template choice", "template selection", "which template"]) ->
         [
           %{
@@ -280,9 +301,11 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
   end
 
   defp option_list_text?(text) do
-    text =~ ~r/\b(?:or|versus|vs\.?)\b/iu or
-      text =~ ~r/(?:아니면|또는|혹은)/u or
-      delimiter_count(text) >= 2
+    list_text = strip_parenthetical_spans(text)
+
+    list_text =~ ~r/\b(?:or|versus|vs\.?)\b/iu or
+      list_text =~ ~r/(?:아니면|또는|혹은)/u or
+      delimiter_count(list_text) >= 2
   end
 
   defp delimiter_count(text) do
@@ -295,9 +318,14 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
 
   defp split_option_candidates(text) do
     text
+    |> strip_parenthetical_spans()
     |> String.replace(~r/\b(?:or|versus|vs\.?)\b/iu, ",")
     |> String.replace(~r/\s*(?:아니면|또는|혹은)\s*/u, ",")
     |> String.split(~r/\s*[,，、]\s*/u)
+  end
+
+  defp strip_parenthetical_spans(text) do
+    Regex.replace(~r/[\(\（][^\)\）]*[\)\）]/u, text, "")
   end
 
   defp normalize_candidates(candidates) when length(candidates) < 2, do: []

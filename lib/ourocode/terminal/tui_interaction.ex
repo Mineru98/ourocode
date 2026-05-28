@@ -18,7 +18,7 @@ defmodule Ourocode.Terminal.TuiInteraction do
         :ok
 
       :not_handled ->
-        submit_wonder_selection(result, output, state)
+        submit_selection(result, output, state)
     end
   end
 
@@ -81,14 +81,14 @@ defmodule Ourocode.Terminal.TuiInteraction do
     WonderNavigation.nav_event?(
       event,
       buffer,
-      wonder_detection(result),
+      selection_detection(result),
       TuiState.wonder_nav(state)
     )
   end
 
   @spec handle_nav(map(), map(), pid()) :: :ok
   def handle_nav(event, result, state) do
-    detection = wonder_detection(result)
+    detection = selection_detection(result)
 
     case nav_after(detection, TuiState.wonder_nav(state), event) do
       nil -> :ok
@@ -104,7 +104,7 @@ defmodule Ourocode.Terminal.TuiInteraction do
   @spec free_text_payload(map(), pid(), String.t()) :: map()
   def free_text_payload(result, state, answer) do
     WonderNavigation.free_text_payload(
-      wonder_detection(result),
+      selection_detection(result),
       TuiState.wonder_nav(state),
       answer
     )
@@ -133,6 +133,9 @@ defmodule Ourocode.Terminal.TuiInteraction do
   @spec wonder_active?(map()) :: boolean()
   def wonder_active?(result), do: wonder_detection(result) != nil
 
+  @spec selection_active?(map()) :: boolean()
+  def selection_active?(result), do: selection_detection(result) != nil
+
   @spec interview_active?(map()) :: boolean()
   def interview_active?(result) do
     case interview_state(result) do
@@ -147,10 +150,15 @@ defmodule Ourocode.Terminal.TuiInteraction do
   @spec wonder_detection(map()) :: map() | nil
   def wonder_detection(result), do: InterviewLiveState.wonder_tool(result)
 
+  @spec selection_detection(map()) :: map() | nil
+  def selection_detection(result) do
+    wonder_detection(result) || InterviewPanel.interview_detection(result)
+  end
+
   @spec interview_state(map()) :: map() | nil
   def interview_state(result), do: InterviewLiveState.interview(result)
 
-  defp submit_wonder_selection(result, output, state) do
+  defp submit_selection(result, output, state) do
     cond do
       any_free_answer_selected?(result, state) ->
         :ok
@@ -161,23 +169,67 @@ defmodule Ourocode.Terminal.TuiInteraction do
 
       true ->
         TuiState.push_notification(state, "step submitting - sending selected answers")
-        submit = Map.get(result, :wonder_answer)
-        selections = selections(result, state)
 
-        case submit && submit.(selections) do
-          {:ok, decision} ->
-            selected = Map.get(decision, :selected_label, "")
-            TuiState.push_notification(state, accepted_notification(selected))
-            log(output, "you> #{selected}")
-
-          _other ->
-            :ok
+        if wonder_active?(result) do
+          submit_wonder_selection(result, output, state)
+        else
+          submit_interview_selection(result, output, state)
         end
     end
   end
 
+  defp submit_wonder_selection(result, output, state) do
+    submit = Map.get(result, :wonder_answer)
+    selections = selections(result, state)
+
+    case submit && submit.(selections) do
+      {:ok, decision} ->
+        selected = Map.get(decision, :selected_label, "")
+        TuiState.push_notification(state, accepted_notification(selected))
+        log(output, "you> #{selected}")
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp submit_interview_selection(result, output, state) do
+    case selected_interview_label(result, state) do
+      label when is_binary(label) and label != "" ->
+        send = Map.get(result, :interview_answer)
+
+        case send && send.(label) do
+          {:ok, _text} ->
+            TuiState.push_notification(state, accepted_notification(label))
+            log(output, "you> #{label}")
+
+          _other ->
+            log(output, "No active interview answer target.")
+        end
+
+      _free_text ->
+        :ok
+    end
+  end
+
+  defp selected_interview_label(result, state) do
+    detection = selection_detection(result)
+    nav = TuiState.wonder_nav(state)
+
+    with %{} = question <- WonderNavigation.active_question(detection, nav),
+         [selected | _rest] <- WonderNavigation.selections(detection, nav),
+         selected when is_integer(selected) <- selected,
+         options when is_list(options) <-
+           Map.get(question, :options, Map.get(question, "options", [])),
+         %{} = option <- Enum.at(options, selected - 1) do
+      Map.get(option, :label, Map.get(option, "label", ""))
+    else
+      _other -> nil
+    end
+  end
+
   defp needs_review?(result, state) do
-    detection = wonder_detection(result)
+    detection = selection_detection(result)
     qcount = detection |> InterviewPanel.wonder_questions() |> length()
     nav = TuiState.wonder_nav(state)
 
@@ -185,12 +237,12 @@ defmodule Ourocode.Terminal.TuiInteraction do
   end
 
   defp selections(result, state) do
-    WonderNavigation.selections(wonder_detection(result), TuiState.wonder_nav(state))
+    WonderNavigation.selections(selection_detection(result), TuiState.wonder_nav(state))
   end
 
   defp any_free_answer_selected?(result, state) do
     WonderNavigation.any_free_answer_selected?(
-      wonder_detection(result),
+      selection_detection(result),
       TuiState.wonder_nav(state)
     )
   end
