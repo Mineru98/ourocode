@@ -61,9 +61,11 @@ defmodule Ourocode.Terminal.ApplicationTest do
     assert result.initial_terminal_frame ==
              Ourocode.Terminal.ShellRenderer.render_initial_frame(result)
 
-    assert result.initial_terminal_frame =~ "ourocode terminal"
-    assert result.initial_terminal_frame =~ "session=terminal-dashboard-test"
-    assert result.initial_terminal_frame =~ "+-- Task"
+    assert result.initial_terminal_frame =~ "ourocode agent"
+    assert result.initial_terminal_frame =~ "Start here:"
+    assert result.initial_terminal_frame =~ "Prompt: Describe a task for a new session"
+    refute result.initial_terminal_frame =~ "session=terminal-dashboard-test"
+    refute result.initial_terminal_frame =~ "region="
     assert Process.alive?(result.runtime.supervisor_pid)
     assert result.runtime.service_statuses.transport_supervisor == :ready
     assert result.runtime.service_statuses.command_registry == :ready

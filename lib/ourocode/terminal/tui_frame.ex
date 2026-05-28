@@ -6,14 +6,17 @@ defmodule Ourocode.Terminal.TuiFrame do
   alias Ourocode.Terminal.{
     Palette,
     LiveResult,
+    LiveTurnActivity,
     Screen,
+    ScreenStyles,
     ShellRenderer,
     Suggestions,
     TuiCompletions,
     TuiDriverSession,
     TuiInteraction,
     TuiModelSelection,
-    TuiState
+    TuiState,
+    WorkspaceText
   }
 
   @min_width 40
@@ -24,6 +27,10 @@ defmodule Ourocode.Terminal.TuiFrame do
           [String.t()]
   def frame_lines(frame, activity, prompt_buffer, columns, rows, opts \\ %{})
       when is_binary(frame) and is_list(activity) and is_binary(prompt_buffer) do
+    workspace_active? = workspace_active_from_opts?(opts)
+    activity = opts_workspace_activity(opts) || activity
+    opts = Map.put(opts, :workspace_active, workspace_active?)
+
     frame
     |> parse_sections()
     |> then(&compose(columns, rows, &1, activity, prompt_buffer, opts))
@@ -33,29 +40,71 @@ defmodule Ourocode.Terminal.TuiFrame do
   @spec redraw(map(), pid(), pid(), String.t(), pos_integer(), pos_integer(), keyword()) :: :ok
   def redraw(result, output, state, prompt_buffer, columns, rows, opts \\ []) do
     TuiState.bump_tick(state)
-    sections = parse_sections(ShellRenderer.render_initial_frame(LiveResult.result(result)))
-    activity = activity_lines(output)
+
+    result =
+      result
+      |> LiveResult.result()
+      |> display_result(state)
+
+    sections = parse_sections(ShellRenderer.render_initial_frame(result))
+    activity = workspace_activity(state) || activity_lines(output)
 
     nav = sync_wonder_nav(state, result)
+
+    interview_block = interview_block_lines(result, nav, TuiState.tick(state))
+    interview_reasoning = interview_reasoning_lines(result, TuiState.tick(state))
+    mcp_activity = mcp_activity_lines(result)
 
     view_opts =
       state
       |> view_opts(opts)
-      |> Map.put(:interview_block, interview_block_lines(result, nav, TuiState.tick(state)))
-      |> Map.put(:interview_reasoning, interview_reasoning_lines(result, TuiState.tick(state)))
-      |> Map.put(:mcp_activity, mcp_activity_lines(result))
+      |> Map.put(:interview_block, interview_block)
+      |> Map.put(:interview_reasoning, interview_reasoning)
+      |> Map.put(:mcp_activity, mcp_activity)
       |> Map.put(
         :wonder_focus,
         TuiInteraction.wonder_active?(result) and not TuiInteraction.paused?(result)
       )
       |> Map.put(:interview_paused, TuiInteraction.paused?(result))
+      |> Map.put(:workspace_active, TuiState.workspace_active?(state))
+
+    maybe_complete_live_turn(state, view_opts)
 
     screen = compose(columns, rows, sections, activity, prompt_buffer, view_opts)
 
-    {iodata, screen} = Screen.diff(TuiState.prev_screen(state), screen)
+    theme = ScreenStyles.theme()
+    previous_screen = previous_screen_for_theme(state, theme)
+    {iodata, screen} = Screen.diff(previous_screen, screen)
     TuiState.put_prev_screen(state, screen)
+    TuiState.put_render_theme(state, theme)
     TuiDriverSession.write(state, iodata)
-    cursor_to_prompt(state, rows, columns, prompt_buffer)
+    cursor_to_prompt(state, rows, columns, prompt_buffer, view_opts)
+  end
+
+  @doc false
+  @spec previous_screen_for_theme(pid(), :dark | :light) :: term() | nil
+  def previous_screen_for_theme(state, theme) do
+    if TuiState.render_theme(state) == theme do
+      TuiState.prev_screen(state)
+    end
+  end
+
+  defp display_result(result, state) do
+    cond do
+      TuiState.interview_cancelled?(state) ->
+        result
+        |> Map.delete(:wonder_tool)
+        |> Map.update(:interview, nil, fn
+          %{} = interview -> Map.put(interview, :complete, :user_done)
+          other -> other
+        end)
+
+      TuiState.force_interview_paused?(state) ->
+        Map.put(result, :paused, true)
+
+      true ->
+        result
+    end
   end
 
   @spec view_opts(pid(), keyword()) :: map()
@@ -69,6 +118,8 @@ defmodule Ourocode.Terminal.TuiFrame do
       login: TuiState.login(state),
       streaming: TuiState.streaming?(state),
       key_help: TuiState.key_help?(state),
+      live_turn_activity:
+        LiveTurnActivity.view(TuiState.live_turn_event(state), TuiState.tick(state)),
       tick: TuiState.tick(state),
       scroll: TuiState.scroll_off(state),
       pidx: TuiState.pidx(state),
@@ -126,6 +177,19 @@ defmodule Ourocode.Terminal.TuiFrame do
     Ourocode.Terminal.InterviewPanel.mcp_activity_lines(result)
   end
 
+  defp maybe_complete_live_turn(state, opts) do
+    if TuiState.live_turn_event(state) && live_turn_surface_ready?(opts) do
+      TuiState.put_live_turn_event(state, nil)
+    end
+  end
+
+  defp live_turn_surface_ready?(opts) do
+    Map.get(opts, :workspace_active, false) or
+      match?({_marker, _lines, _hint}, Map.get(opts, :interview_block)) or
+      Map.get(opts, :mcp_activity, []) != [] or
+      Map.get(opts, :interview_reasoning, []) != []
+  end
+
   defp compose(columns, rows, sections, activity, prompt_buffer, opts) do
     Ourocode.Terminal.Renderer.compose(columns, rows, sections, activity, prompt_buffer, opts)
   end
@@ -138,15 +202,49 @@ defmodule Ourocode.Terminal.TuiFrame do
     String.split(captured, "\n", trim: true)
   end
 
-  defp cursor_to_prompt(state, rows, columns, prompt_buffer) do
+  defp workspace_activity(state) do
+    case TuiState.workspace(state) do
+      workspace when is_map(workspace) ->
+        workspace
+        |> WorkspaceText.render()
+        |> String.split("\n", trim: true)
+
+      _none ->
+        nil
+    end
+  end
+
+  defp opts_workspace_activity(%{workspace: workspace}) when is_map(workspace) do
+    workspace
+    |> WorkspaceText.render()
+    |> String.split("\n", trim: true)
+  end
+
+  defp opts_workspace_activity(_opts), do: nil
+
+  defp workspace_active_from_opts?(%{workspace: workspace}), do: is_map(workspace)
+  defp workspace_active_from_opts?(opts), do: Map.get(opts, :workspace_active, false)
+
+  defp cursor_to_prompt(state, rows, columns, prompt_buffer, opts) do
     height = max(rows, @min_height)
     width = max(columns, @min_width)
 
     prefix =
       prompt_buffer |> String.graphemes() |> Enum.take(TuiState.cursor(state)) |> Enum.join()
 
+    prompt_start_col = prompt_text_column(opts)
     ansi_row = height - 1
-    ansi_col = min(@body + 1 + Screen.text_width(prefix), width)
+    ansi_col = min(prompt_start_col + Screen.text_width(prefix), width)
     TuiDriverSession.write(state, "\e[#{ansi_row};#{ansi_col}H\e[?25h")
+  end
+
+  defp prompt_text_column(opts) do
+    live_activity? = Map.get(opts, :live_turn_activity, []) != []
+
+    if live_activity? or Map.get(opts, :streaming, false) do
+      @body + 4 + 1
+    else
+      @body + 1
+    end
   end
 end

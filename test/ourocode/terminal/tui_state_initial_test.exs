@@ -46,6 +46,7 @@ defmodule Ourocode.Terminal.TuiStateInitialTest do
     assert state.wonder_nav == nil
     assert state.notifications == []
     assert state.prev_screen == nil
+    assert state.render_theme == nil
     assert state.streaming == false
   end
 end

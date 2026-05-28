@@ -9,8 +9,8 @@ defmodule Ourocode.BaselineEndToEndTest do
     4. streamable HTTP interview tokens normalized, journaled, and rendered
        within the <=5s first-visible-event budget with no sequence loss,
     5. official ouroboros plugin visible as loaded in the plugin status area,
-    6. focused child pane steering ("transport는 stdio, SSE, streamable HTTP
-       모두 필요해.") routed and acknowledged back to that child session,
+    6. focused child pane steering ("transport must include stdio, SSE, and
+       streamable HTTP.") routed and acknowledged back to that child session,
     7. journal replay reconstructing the same normalized event order.
   """
 
@@ -24,8 +24,8 @@ defmodule Ourocode.BaselineEndToEndTest do
   alias Ourocode.TaskRequest
   alias Ourocode.Terminal.PluginStatusArea
 
-  @prompt "ooo interview로 ourocode의 MCP streamable UI 요구사항을 정리해줘"
-  @steering_text "transport는 stdio, SSE, streamable HTTP 모두 필요해."
+  @prompt "ooo interview define ourocode MCP streamable UI requirements"
+  @steering_text "transport must include stdio, SSE, and streamable HTTP."
   @first_visible_event_budget_ms 5_000
 
   test "ooo interview baseline drives parent/child panes, <=5s no-loss streaming, and steering" do
@@ -111,8 +111,8 @@ defmodule Ourocode.BaselineEndToEndTest do
 
     body =
       [
-        interview_frame(parent_call_id, child_id, 1, "어떤 MCP transport가 필요하신가요?"),
-        interview_frame(parent_call_id, child_id, 2, "stdio/SSE/streamable HTTP 우선순위는?")
+        interview_frame(parent_call_id, child_id, 1, "Which MCP transport is needed?"),
+        interview_frame(parent_call_id, child_id, 2, "What is the stdio/SSE/HTTP priority?")
       ]
       |> IO.iodata_to_binary()
 
@@ -179,8 +179,8 @@ defmodule Ourocode.BaselineEndToEndTest do
            ] = rendered_child.working
 
     assert Enum.map(child_stream_entries, & &1.token) == [
-             "어떤 MCP transport가 필요하신가요?",
-             "stdio/SSE/streamable HTTP 우선순위는?"
+             "Which MCP transport is needed?",
+             "What is the stdio/SSE/HTTP priority?"
            ]
 
     # 5. streaming_no_loss: contiguous monotonic sequence + replay reconstruction.
@@ -194,8 +194,8 @@ defmodule Ourocode.BaselineEndToEndTest do
              Enum.map(normalized_events, & &1.event_seq)
 
     assert Enum.map(replayed, &interview_token/1) == [
-             "어떤 MCP transport가 필요하신가요?",
-             "stdio/SSE/streamable HTTP 우선순위는?"
+             "Which MCP transport is needed?",
+             "What is the stdio/SSE/HTTP priority?"
            ]
 
     # 6. Official ouroboros plugin is visible as loaded in the plugin status area.
@@ -213,9 +213,9 @@ defmodule Ourocode.BaselineEndToEndTest do
         ]
       })
 
-    assert plugin_text =~ "ouroboros-plugin"
-    assert plugin_text =~ "source=official"
-    assert plugin_text =~ "state=loaded"
+    assert plugin_text =~ "Guided workflows"
+    assert plugin_text =~ "Official plugin"
+    assert plugin_text =~ "loaded"
 
     # 7. Focusing the child pane and steering routes to that child session only.
     pane_model = %{

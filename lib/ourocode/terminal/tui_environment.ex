@@ -26,10 +26,16 @@ defmodule Ourocode.Terminal.TuiEnvironment do
   def terminal_exit_sequence, do: TuiDriverSession.exit_sequence()
 
   @spec test_run?() :: boolean()
-  def test_run?, do: is_pid(Process.whereis(ExUnit.Server))
+  def test_run?, do: is_pid(Process.whereis(ExUnit.Server)) or mix_test_env?()
 
   @spec stdio_device?(term()) :: boolean()
   def stdio_device?(:stdio), do: true
   def stdio_device?(:standard_io), do: true
   def stdio_device?(_other), do: false
+
+  defp mix_test_env? do
+    Code.ensure_loaded?(Mix) and function_exported?(Mix, :env, 0) and Mix.env() == :test
+  rescue
+    _exception -> false
+  end
 end

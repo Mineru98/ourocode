@@ -216,7 +216,7 @@ defmodule Ourocode.CLI.SmokeTest do
       queued_notifications: runtime.queued_notifications,
       hooks: runtime.hooks,
       wonder_tool: runtime.wonder_tool,
-      startup_event: List.last(journal_entries)
+      startup_event: Enum.find(journal_entries, &startup_event_recorded?/1)
     }
   end
 
@@ -228,8 +228,7 @@ defmodule Ourocode.CLI.SmokeTest do
         core_interaction_config_guard.core_interaction_requires_endpoint? == false,
       runtime_initialized?: startup_state.status == :ready,
       runtime_shutdown?: shutdown_state.orderly? == true,
-      startup_state_recorded?:
-        match?(%{type: :runtime_startup_succeeded}, startup_state.startup_event),
+      startup_state_recorded?: startup_event_recorded?(startup_state.startup_event),
       journal_replayable?: startup_state.journal.replayable? == true,
       task_request_accepted?:
         is_nil(Map.get(context, :initial_task_request)) or
@@ -261,8 +260,7 @@ defmodule Ourocode.CLI.SmokeTest do
         core_interaction_config_guard.core_interaction_requires_endpoint? == false,
       runtime_initialized?: startup_state.status == :ready,
       runtime_shutdown?: false,
-      startup_state_recorded?:
-        match?(%{type: :runtime_startup_succeeded}, startup_state.startup_event),
+      startup_state_recorded?: startup_event_recorded?(startup_state.startup_event),
       journal_replayable?: startup_state.journal.replayable? == true,
       task_request_accepted?:
         is_nil(Map.get(context, :initial_task_request)) or
@@ -278,6 +276,11 @@ defmodule Ourocode.CLI.SmokeTest do
   end
 
   defp maybe_emit_summary(result, _options), do: result
+
+  defp startup_event_recorded?(%{type: :runtime_startup_succeeded}), do: true
+  defp startup_event_recorded?(%{type: "runtime_startup_succeeded"}), do: true
+  defp startup_event_recorded?(%{"type" => "runtime_startup_succeeded"}), do: true
+  defp startup_event_recorded?(_event), do: false
 
   defp smoke_status(%{orderly?: true}), do: :healthy
   defp smoke_status(_shutdown_state), do: :unhealthy

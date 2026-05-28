@@ -95,7 +95,9 @@ defmodule Ourocode.Terminal.TtyDriver do
   end
 
   @spec tty?() :: boolean()
-  def tty?, do: match?({:ok, _}, :io.columns())
+  def tty? do
+    System.get_env("OUROCODE_FORCE_TTY") == "1" or match?({:ok, _}, :io.columns())
+  end
 
   @doc false
   def enter_sequence, do: "\e[?1049h\e[?25l\e[2J\e[H"

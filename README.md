@@ -1,19 +1,24 @@
 # Ourocode
 
-![Ourocode terminal interview UI](docs/assets/ourocode-readme-hero.png)
+![Ourocode TUI demo](docs/assets/ourocode-tui-demo.gif)
 
-Ourocode is a terminal-native AI workbench for running structured agent workflows without leaving your shell. It combines a raw terminal UI, MCP/Ouroboros workflow orchestration, wonderTool decision checkpoints, local command discovery, and model backends such as Claude CLI, Codex CLI, Gemini CLI, and ChatGPT/Codex OAuth.
+Ourocode is a terminal workbench for planning real work, delegating it to guided agents, and verifying the result without leaving your shell. It gives you a fast keyboard UI, structured interviews with selectable answers, active-work views, connected-tool checks, and JSON evidence for automation.
 
-The project is currently optimized for local macOS development and early user testing.
+Product site draft: [docs/site](docs/site/index.html)
+
+The current release is optimized for local macOS development and guided workflow testing.
 
 ## What It Does
 
-- Runs `ooo` workflows from an interactive terminal session.
-- Turns interview questions into focused wonderTool pickers with arrow-key navigation, free answers, pause/resume, and visible loading states.
-- Keeps MCP parent/child runtime state, session streams, and workflow progress visible in terminal panes.
-- Provides command discovery with `/`, `ooo`, `@file`, and `@mcp:` style prompt overlays.
-- Supports readline-style editing keys, prompt history, pasted image file tokens, and terminal resize/zoom recovery.
-- Builds as an Elixir `escript` plus a small Rust tty helper.
+- Starts structured work with `ooo pm <goal>` and keeps the first useful choice visible quickly.
+- Shows delegated work with task, state, current output, and actions.
+- Turns interview checkpoints into focused pickers with number keys, custom answers, pause, and cancel.
+- Exposes `/agents`, `/sessions`, `/mcps`, `/config`, `/sandbox`, and `/verify` as product surfaces, not only debug logs.
+- Runs headless with `--prompt` and `--format json` for scripts, CI, and remote operators.
+- Supports command discovery with `/`, `ooo`, `@file`, and prompt overlays.
+- Writes current visual verification captures to `docs/assets/visual/` when
+  `/verify` or `--verify` runs, including first start, PM picker, agents,
+  cancel, verify, theme, and README media.
 
 ## Quick Start
 
@@ -49,13 +54,35 @@ Detect available model backends:
 ./ourocode --detect
 ```
 
+Run product verification or drive Ourocode from automation:
+
+```bash
+./ourocode --verify --format json --project-dir .
+./ourocode --prompt "/agents" --format json --project-dir .
+./ourocode --prompt "ooo pm design plugin onboarding" --format json --project-dir .
+```
+
+See [Headless CLI Automation](docs/remote-headless-control.md) for JSON
+evidence, active-work views, connected-tool readiness, and safety posture.
+
 Inside the TUI:
 
 ```text
+/               choose ooo pm, ooo interview, or ooo auto
+/help           show the guided starts and command reference
+/commands       list every available command
 /model          choose a model backend
 /login          sign in for ChatGPT/Codex OAuth
+/agents         inspect active work and answers waiting on you
+/mcp            show connected tools and readiness
+/mcps           show connected tools and readiness
+/config         show local setup status
+/theme          switch light or dark mode
+/verify         run product checks
+/sandbox        inspect safety mode, roots, network posture, and actions
+ooo pm          shape product requirements with answer choices
 ooo interview   start a structured interview flow
-ooo help        see workflow commands
+ooo auto        interview, draft a plan, then execute after approval
 @               mention project files
 Ctrl-G          show active key help
 ```
@@ -95,20 +122,20 @@ README.md
 Generated artifacts:
 
 ```text
-dist/ourocode-v0.1.2-darwin-arm64.tar.gz
-dist/ourocode-v0.1.2-darwin-arm64.tar.gz.sha256
+dist/ourocode-v0.1.11-darwin-arm64.tar.gz
+dist/ourocode-v0.1.11-darwin-arm64.tar.gz.sha256
 ```
 
 Install from an unpacked release:
 
 ```bash
-tar -xzf dist/ourocode-v0.1.2-darwin-arm64.tar.gz
-cd ourocode-v0.1.2-darwin-arm64
+tar -xzf dist/ourocode-v0.1.11-darwin-arm64.tar.gz
+cd ourocode-v0.1.11-darwin-arm64
 ./install.sh
 ourocode
 ```
 
-The next distribution channel should be a Homebrew tap:
+Homebrew is planned but not yet the supported install path:
 
 ```bash
 brew tap Q00/ourocode
@@ -118,6 +145,9 @@ brew install ourocode
 Longer term, Ourocode should move toward a single self-contained binary or app bundle so users do not need to install Elixir/Rust just to run it.
 
 ## Architecture
+
+This section is for contributors and plugin authors. Day-to-day users should
+start with `ourocode`, `ooo pm <goal>`, `/agents`, and `--verify`.
 
 ```text
 Terminal TUI
@@ -160,4 +190,4 @@ Build everything:
 
 ## Status
 
-This is an early release branch for getting real users onto the terminal workflow. The current priority is packaging, installer polish, and feedback from actual interview/wonderTool sessions.
+This is an early release branch for getting real users onto the terminal workflow. The current priority is packaging, installer polish, and feedback from actual guided interview sessions.

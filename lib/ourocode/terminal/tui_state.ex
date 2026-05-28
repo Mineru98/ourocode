@@ -8,7 +8,8 @@ defmodule Ourocode.Terminal.TuiState do
     Notifications,
     PromptStore,
     TuiFileCache,
-    TuiStateInitial
+    TuiStateInitial,
+    WorkspaceNavigation
   }
 
   @double_press_ms 800
@@ -27,6 +28,22 @@ defmodule Ourocode.Terminal.TuiState do
   @spec put_wonder_nav(pid(), map() | nil) :: :ok
   def put_wonder_nav(state, nav), do: Agent.update(state, &%{&1 | wonder_nav: nav})
 
+  @spec force_interview_paused?(pid()) :: boolean()
+  def force_interview_paused?(state),
+    do: Agent.get(state, &Map.get(&1, :force_interview_paused, false))
+
+  @spec put_force_interview_paused(pid(), boolean()) :: :ok
+  def put_force_interview_paused(state, paused?),
+    do: Agent.update(state, &Map.put(&1, :force_interview_paused, paused?))
+
+  @spec interview_cancelled?(pid()) :: boolean()
+  def interview_cancelled?(state),
+    do: Agent.get(state, &Map.get(&1, :interview_cancelled, false))
+
+  @spec put_interview_cancelled(pid(), boolean()) :: :ok
+  def put_interview_cancelled(state, cancelled?),
+    do: Agent.update(state, &Map.put(&1, :interview_cancelled, cancelled?))
+
   @spec scroll_off(pid()) :: non_neg_integer()
   def scroll_off(state), do: Agent.get(state, & &1.scroll)
 
@@ -35,6 +52,34 @@ defmodule Ourocode.Terminal.TuiState do
 
   @spec scroll_by(pid(), integer()) :: :ok
   def scroll_by(state, delta), do: put_scroll(state, scroll_off(state) + delta)
+
+  @spec workspace(pid()) :: map() | nil
+  def workspace(state), do: Agent.get(state, &Map.get(&1, :workspace))
+
+  @spec put_workspace(pid(), map() | nil) :: :ok
+  def put_workspace(state, workspace),
+    do: Agent.update(state, &Map.put(&1, :workspace, workspace))
+
+  @spec workspace_active?(pid()) :: boolean()
+  def workspace_active?(state), do: WorkspaceNavigation.active?(workspace(state))
+
+  @spec move_workspace(pid(), -1 | 1) :: :ok
+  def move_workspace(state, direction) do
+    Agent.update(state, fn tui_state ->
+      Map.put(
+        tui_state,
+        :workspace,
+        WorkspaceNavigation.move(Map.get(tui_state, :workspace), direction)
+      )
+    end)
+  end
+
+  @spec workspace_enter_action(pid()) :: String.t() | nil
+  def workspace_enter_action(state), do: WorkspaceNavigation.enter_action(workspace(state))
+
+  @spec workspace_shortcut_action(pid(), String.t()) :: String.t() | nil
+  def workspace_shortcut_action(state, shortcut),
+    do: WorkspaceNavigation.shortcut_action(workspace(state), shortcut)
 
   @spec put_model_id(pid(), atom()) :: :ok
   def put_model_id(state, id), do: Agent.update(state, &%{&1 | model_id: id, model_cache: nil})
@@ -68,6 +113,13 @@ defmodule Ourocode.Terminal.TuiState do
 
   @spec set_streaming(pid(), boolean()) :: :ok
   def set_streaming(state, on), do: Agent.update(state, &%{&1 | streaming: on})
+
+  @spec live_turn_event(pid()) :: map() | nil
+  def live_turn_event(state), do: Agent.get(state, &Map.get(&1, :live_turn_event))
+
+  @spec put_live_turn_event(pid(), map() | nil) :: :ok
+  def put_live_turn_event(state, event),
+    do: Agent.update(state, &Map.put(&1, :live_turn_event, event))
 
   @spec key_help?(pid()) :: boolean()
   def key_help?(state), do: Agent.get(state, & &1.key_help)
@@ -195,5 +247,13 @@ defmodule Ourocode.Terminal.TuiState do
   @spec put_prev_screen(pid(), term()) :: :ok
   def put_prev_screen(state, screen) do
     Agent.update(state, fn s -> %{s | prev_screen: screen} end)
+  end
+
+  @spec render_theme(pid()) :: :dark | :light | nil
+  def render_theme(state), do: Agent.get(state, &Map.get(&1, :render_theme))
+
+  @spec put_render_theme(pid(), :dark | :light | nil) :: :ok
+  def put_render_theme(state, theme) when theme in [:dark, :light, nil] do
+    Agent.update(state, fn s -> Map.put(s, :render_theme, theme) end)
   end
 end

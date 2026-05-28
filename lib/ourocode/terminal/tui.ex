@@ -65,6 +65,7 @@ defmodule Ourocode.Terminal.Tui do
             |> Map.put(:output, output)
             |> Map.put(:read_line, read_line)
             |> Map.put(:prompt, @prompt)
+            |> attach_live_turn_feedback(state)
             |> attach_active_model_provider(state)
 
           loop_fun.(result, loop_options)
@@ -98,6 +99,16 @@ defmodule Ourocode.Terminal.Tui do
       _other ->
         options
     end
+  end
+
+  defp attach_live_turn_feedback(options, state) do
+    existing =
+      Map.get(options, :on_prompt_state_change, fn _state_event, _startup_result -> :ok end)
+
+    Map.put(options, :on_prompt_state_change, fn state_event, startup_result ->
+      TuiState.put_live_turn_event(state, state_event)
+      existing.(state_event, startup_result)
+    end)
   end
 
   defp read_key_line(result, output, state) do
@@ -158,7 +169,7 @@ defmodule Ourocode.Terminal.Tui do
 
   # The shared conversation tail, color-coded by speaker so the dialectic
   # reads at a glance: MCP (the question generator) amber, MAIN (the
-  # answerer/main session's resolved turn) green, YOU (your judgment) bold.
+  # answerer/main session's resolved turn) green, Answer (your judgment) bold.
   # `drop_trailing_mcp?` hides the open question here when the picker below
   # already renders it. Returned as {text, style} rows the block paints
   # verbatim (no '> ' / strong inference).

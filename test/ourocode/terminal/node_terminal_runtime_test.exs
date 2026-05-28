@@ -72,8 +72,8 @@ defmodule Ourocode.Terminal.NodeTerminalRuntimeTest do
           "ui_surface=\#{startup.ui_surface}",
           "root_ui_module=\#{inspect(startup.root_ui_module)}",
           "renderer=\#{inspect(startup.terminal_renderer)}",
-          "frame_contains_prompt=\#{String.contains?(frame, "> Describe a task for a new session")}",
-          "frame_contains_header=\#{String.contains?(frame, "ourocode terminal")}"
+          "frame_contains_prompt=\#{String.contains?(frame, "Prompt: Describe a task for a new session")}",
+          "frame_contains_header=\#{String.contains?(frame, "ourocode agent")}"
         ]
       rescue
         exception ->

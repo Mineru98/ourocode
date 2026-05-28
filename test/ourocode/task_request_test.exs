@@ -184,6 +184,7 @@ defmodule Ourocode.TaskRequestTest do
   test "annotates Ouroboros workflow routes with adapter route intent" do
     cases = [
       {"ooo interview clarify cleanup policy", :interview},
+      {"ooo pm build onboarding", :interview},
       {"ouroboros seed create dispatcher contract", :seed},
       {"ooo run seed_abc123.yaml", :run},
       {"Run Ouroboros workflow evolve for the plugin renderer", :evolve},
