@@ -82,7 +82,7 @@ defmodule Ourocode.Terminal.Screen do
     end)
   end
 
-  @doc "Display columns a grapheme occupies (CJK/fullwidth = 2, else 1)."
+  @doc "Display columns a grapheme occupies (fullwidth = 2, else 1)."
   @spec char_width(String.t()) :: 1 | 2
   defdelegate char_width(grapheme), to: ScreenText
 

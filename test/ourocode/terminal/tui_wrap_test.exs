@@ -33,8 +33,8 @@ defmodule Ourocode.Terminal.TuiWrapTest do
   end
 
   test "wrapping is display-width aware for CJK (2 columns per glyph)" do
-    # 6 Hangul syllables = 12 display columns; width 8 must break them up.
-    text = "가나다라마바"
+    # 6 wide CJK graphemes = 12 display columns; width 8 must break them up.
+    text = "世界中文測試"
     segments = Tui.wrap_text(text, 8)
 
     assert length(segments) >= 2
@@ -44,8 +44,8 @@ defmodule Ourocode.Terminal.TuiWrapTest do
 
   test "a width too small for a double-width glyph still terminates" do
     # Regression: truncate/2 returns "" here; hard_split must force progress.
-    segments = Tui.wrap_text("가나다", 1)
-    assert Enum.join(segments) == "가나다"
+    segments = Tui.wrap_text("世界中", 1)
+    assert Enum.join(segments) == "世界中"
     assert length(segments) == 3
   end
 

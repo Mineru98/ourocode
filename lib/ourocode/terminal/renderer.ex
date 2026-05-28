@@ -24,15 +24,22 @@ defmodule Ourocode.Terminal.Renderer do
     login = Map.get(opts, :login)
     palette = Map.get(opts, :palette)
     model_overlay = Map.get(opts, :model)
-    interview_block = Map.get(opts, :interview_block)
+    workspace_active? = Map.get(opts, :workspace_active, false)
+    interview_block = if workspace_active?, do: nil, else: Map.get(opts, :interview_block)
     wonder_focus = Map.get(opts, :wonder_focus, false)
     reasoning = Map.get(opts, :interview_reasoning, [])
     mcp_activity = Map.get(opts, :mcp_activity, [])
-    activity = RendererPausedInterview.activity(activity, opts)
+    live_turn_activity = Map.get(opts, :live_turn_activity, [])
+
+    activity =
+      if workspace_active?, do: activity, else: RendererPausedInterview.activity(activity, opts)
+
     interview_present? = match?({_marker, _lines, _hint}, interview_block)
     interview_owns_left? = interview_present? and not Map.get(opts, :interview_paused, false)
     body_activity = if interview_owns_left?, do: [], else: activity
     palette = RendererPausedInterview.palette(palette, prompt_buffer, opts)
+    overlay_active? = palette != nil or model_overlay != nil
+    body_activity = if workspace_active? and overlay_active?, do: [], else: body_activity
 
     overlay_slot =
       prompt_buffer
@@ -40,6 +47,23 @@ defmodule Ourocode.Terminal.Renderer do
         mode,
         Map.merge(opts, %{palette: palette, model: model_overlay})
       )
+
+    overlay_owns_body? =
+      modal_overlay?(overlay_slot) and (workspace_active? or interview_present?)
+
+    interview_block = if overlay_owns_body?, do: nil, else: interview_block
+    interview_present? = match?({_marker, _lines, _hint}, interview_block)
+    decision_focus? = wonder_focus or interview_decision?(interview_block)
+    interview_owns_left? = interview_present? and not Map.get(opts, :interview_paused, false)
+    body_activity = if overlay_owns_body?, do: [], else: body_activity
+
+    body_activity =
+      if live_turn_activity != [] and not workspace_active? and not interview_present? and
+           not overlay_active? do
+        body_activity ++ live_turn_activity
+      else
+        body_activity
+      end
 
     composer_rule = height - 3
     transcript_top = 4
@@ -50,12 +74,16 @@ defmodule Ourocode.Terminal.Renderer do
       |> RendererChrome.draw_header(width, kv, opts)
 
     scroll = Map.get(opts, :scroll, 0)
-    split? = RuntimeSplit.mcp_active?(sections) or reasoning != [] or mcp_activity != []
+
+    split? =
+      not workspace_active? and
+        not interview_present? and
+        (RuntimeSplit.mcp_active?(sections) or reasoning != [] or mcp_activity != [])
 
     # A live picker is an intentional checkpoint: mute the rest of the body
     # and let the decision UI own the available space so it cannot be missed.
     screen =
-      if wonder_focus and interview_present? do
+      if decision_focus? and interview_present? do
         RendererInterview.draw_focus(
           screen,
           width,
@@ -73,7 +101,7 @@ defmodule Ourocode.Terminal.Renderer do
     # telemetry panel keeps its full height so it does not jump when questions
     # arrive.
     {screen, body_top} =
-      case {wonder_focus, interview_block} do
+      case {decision_focus?, interview_block} do
         {true, {_marker, _lines, _hint}} ->
           {screen, transcript_top}
 
@@ -81,18 +109,13 @@ defmodule Ourocode.Terminal.Renderer do
           {screen, transcript_top}
 
         {_focus, {marker, lines, hint}} ->
-          left_w = RuntimeSplit.split_left_width(width)
-
-          block_w =
-            if reasoning == [] and not RuntimeSplit.mcp_active?(sections), do: width, else: left_w
-
           max_rows = max(transcript_bottom - transcript_top - 1, 1)
 
           {screen, used} =
             RendererInterview.draw_block(
               screen,
               transcript_top,
-              block_w,
+              width,
               marker,
               lines,
               hint,
@@ -104,13 +127,13 @@ defmodule Ourocode.Terminal.Renderer do
 
     screen =
       cond do
-        wonder_focus and interview_present? ->
+        decision_focus? and interview_present? ->
           screen
 
         login ->
           RendererLoginCard.draw(screen, width, transcript_top, transcript_bottom, login)
 
-        palette || model_overlay ->
+        overlay_active? ->
           draw_transcript(
             screen,
             width,
@@ -132,7 +155,8 @@ defmodule Ourocode.Terminal.Renderer do
             sections,
             scroll,
             reasoning,
-            mcp_activity
+            mcp_activity,
+            Map.get(opts, :runtime_split, %{})
           )
 
         interview_owns_left? ->
@@ -144,8 +168,10 @@ defmodule Ourocode.Terminal.Renderer do
 
     screen = RendererOverlaySlot.draw(screen, width, transcript_bottom, overlay_slot)
 
+    composer_opts = Map.put(opts, :interview_decision, decision_focus? and interview_present?)
+
     screen
-    |> RendererChrome.draw_composer(width, composer_rule, prompt_buffer, mode, opts)
+    |> RendererChrome.draw_composer(width, composer_rule, prompt_buffer, mode, composer_opts)
     |> RendererChrome.draw_status_bar(width, height - 1, kv, sections, mode, opts)
   end
 
@@ -171,9 +197,9 @@ defmodule Ourocode.Terminal.Renderer do
     )
   end
 
-  # Left: scrollable conversation transcript. Right: MCP internals, parent
-  # workflow on top, child session stream on the bottom. The split is what
-  # makes streaming legible instead of a flat interleaved log.
+  # Left: scrollable conversation transcript. Right: active work, with the
+  # Main MCP session on top and delegated session below. The split makes streaming
+  # legible instead of a flat interleaved log.
   # Borderless sidebar style: one dim vertical rule is the only separator; the
   # right column is a bare titled telemetry sidebar whose sections size to
   # their content, not to the region. A too-narrow terminal collapses cleanly
@@ -188,7 +214,8 @@ defmodule Ourocode.Terminal.Renderer do
          sections,
          scroll,
          reasoning,
-         mcp_activity
+         mcp_activity,
+         runtime_split_opts
        ) do
     RuntimeSplit.draw(
       screen,
@@ -201,7 +228,8 @@ defmodule Ourocode.Terminal.Renderer do
       scroll,
       reasoning,
       mcp_activity,
-      &RendererTranscript.draw/8
+      &RendererTranscript.draw/8,
+      runtime_split_opts
     )
   end
 
@@ -210,6 +238,24 @@ defmodule Ourocode.Terminal.Renderer do
   @doc false
   @spec wrap_text(String.t(), pos_integer()) :: [String.t()]
   def wrap_text(text, width), do: RendererInterview.wrap_text(text, width)
+
+  defp interview_decision?({_marker, lines, _hint}) when is_list(lines) do
+    Enum.any?(lines, fn
+      {text, _style} when is_binary(text) -> decision_line?(text)
+      text when is_binary(text) -> decision_line?(text)
+      _other -> false
+    end)
+  end
+
+  defp interview_decision?(_block), do: false
+
+  defp modal_overlay?({kind, _payload}) when kind in [:palette, :model], do: true
+  defp modal_overlay?(_overlay_slot), do: false
+
+  defp decision_line?(text) do
+    trimmed = String.trim_leading(text)
+    String.starts_with?(text, ">> [") or String.starts_with?(trimmed, "[1]")
+  end
 
   # The render model is the SSoT text projection; parsing it keeps the TUI
   # automatically in sync with every area renderer without duplicating them.

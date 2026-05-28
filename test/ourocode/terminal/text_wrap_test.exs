@@ -20,7 +20,7 @@ defmodule Ourocode.Terminal.TextWrapTest do
   end
 
   test "handles too-narrow widths and blank input" do
-    assert TextWrap.wrap("가나다", 1) == ["가", "나", "다"]
+    assert TextWrap.wrap("世界中", 1) == ["世", "界", "中"]
     assert TextWrap.wrap("", 10) == [""]
     assert TextWrap.wrap("   ", 10) == [""]
     assert TextWrap.wrap(nil, 10) == [""]

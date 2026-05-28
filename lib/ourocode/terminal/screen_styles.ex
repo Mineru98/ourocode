@@ -5,39 +5,54 @@ defmodule Ourocode.Terminal.ScreenStyles do
 
   @reset "\e[0m"
 
-  # 24-bit truecolor design system. The Rust tty helper writes frames verbatim
-  # to the host terminal (no SGR rewriting, no capability gating), so colour
-  # depth is the terminal's, not ours to fear. Identity is one warm gold accent
-  # used rarely (wordmark, caret, selection, live pulse, interview rail) over a
-  # cool neutral ramp; body text stays the terminal's own foreground so it
-  # adapts to the user's theme. Restraint, not saturation, carries the look.
+  # 24-bit truecolor design system. Every style owns foreground and background:
+  # light mode stays on white-toned surfaces, and dark mode stays on dark-toned
+  # surfaces. Accents are restrained signals, not alternate surfaces.
   # Every entry leads with `0;` so each styled run is fully self-contained:
   # weight and colour reset before they are re-set, so a bold run never bleeds
   # into the dim run beside it on the same row.
-  @styles %{
-    brand: "\e[0;1;38;2;227;179;65m",
-    accent: "\e[0;38;2;227;179;65m",
-    strong: "\e[0;1;38;2;245;245;247m",
-    label: "\e[0;1;38;2;142;142;150m",
-    dim: "\e[0;38;2;141;141;149m",
-    muted: "\e[0;38;2;101;101;110m",
-    border: "\e[0;38;2;58;58;64m",
-    title: "\e[0;1;38;2;227;179;65m",
-    ok: "\e[0;38;2;63;185;80m",
-    warn: "\e[0;38;2;210;153;34m",
-    err: "\e[0;38;2;248;81;73m",
-    placeholder: "\e[0;38;2;84;84;93m",
-    text: "\e[0m",
-    # Panel surface: a self-contained shaded sidebar that owns both its
-    # background and foreground so contrast is guaranteed regardless of the
-    # host terminal theme (the global palette stays adaptive). A subtle light
-    # fill separates the right pane without any rule or box character.
-    p_fill: "\e[0;48;2;233;233;236m",
-    p_title: "\e[0;1;48;2;233;233;236;38;2;31;31;36m",
-    p_accent: "\e[0;48;2;233;233;236;38;2;150;108;22m",
-    p_dim: "\e[0;48;2;233;233;236;38;2;77;77;85m",
-    p_muted: "\e[0;48;2;233;233;236;38;2;135;135;143m",
-    p_err: "\e[0;48;2;233;233;236;38;2;179;38;30m"
+  @dark_styles %{
+    brand: "\e[0;1;48;2;10;10;11;38;2;102;217;194m",
+    accent: "\e[0;48;2;10;10;11;38;2;232;164;92m",
+    strong: "\e[0;1;48;2;10;10;11;38;2;245;245;247m",
+    label: "\e[0;1;48;2;10;10;11;38;2;142;142;150m",
+    dim: "\e[0;48;2;10;10;11;38;2;141;141;149m",
+    muted: "\e[0;48;2;10;10;11;38;2;101;101;110m",
+    border: "\e[0;48;2;10;10;11;38;2;58;58;64m",
+    title: "\e[0;1;48;2;10;10;11;38;2;102;217;194m",
+    ok: "\e[0;48;2;10;10;11;38;2;102;217;194m",
+    warn: "\e[0;48;2;10;10;11;38;2;232;164;92m",
+    err: "\e[0;48;2;10;10;11;38;2;248;81;73m",
+    placeholder: "\e[0;48;2;10;10;11;38;2;84;84;93m",
+    text: "\e[0;48;2;10;10;11;38;2;226;226;229m",
+    p_fill: "\e[0;48;2;17;17;17;38;2;224;224;224m",
+    p_title: "\e[0;1;48;2;17;17;17;38;2;224;224;224m",
+    p_accent: "\e[0;1;48;2;17;17;17;38;2;102;217;194m",
+    p_dim: "\e[0;48;2;17;17;17;38;2;168;168;168m",
+    p_muted: "\e[0;48;2;17;17;17;38;2;104;104;104m",
+    p_err: "\e[0;48;2;17;17;17;38;2;223;138;138m"
+  }
+
+  @light_styles %{
+    brand: "\e[0;1;48;2;250;250;249;38;2;20;102;90m",
+    accent: "\e[0;48;2;250;250;249;38;2;153;96;35m",
+    strong: "\e[0;1;48;2;250;250;249;38;2;23;23;25m",
+    label: "\e[0;1;48;2;250;250;249;38;2;96;96;104m",
+    dim: "\e[0;48;2;250;250;249;38;2;92;92;99m",
+    muted: "\e[0;48;2;250;250;249;38;2;122;122;130m",
+    border: "\e[0;48;2;250;250;249;38;2;218;218;214m",
+    title: "\e[0;1;48;2;250;250;249;38;2;20;102;90m",
+    ok: "\e[0;48;2;250;250;249;38;2;20;102;90m",
+    warn: "\e[0;48;2;250;250;249;38;2;153;96;35m",
+    err: "\e[0;48;2;250;250;249;38;2;181;42;42m",
+    placeholder: "\e[0;48;2;250;250;249;38;2;153;153;158m",
+    text: "\e[0;48;2;250;250;249;38;2;34;34;38m",
+    p_fill: "\e[0;48;2;242;242;240;38;2;42;42;46m",
+    p_title: "\e[0;1;48;2;242;242;240;38;2;34;34;38m",
+    p_accent: "\e[0;1;48;2;242;242;240;38;2;20;102;90m",
+    p_dim: "\e[0;48;2;242;242;240;38;2;82;82;88m",
+    p_muted: "\e[0;48;2;242;242;240;38;2;132;132;138m",
+    p_err: "\e[0;48;2;242;242;240;38;2;181;42;42m"
   }
 
   @type style ::
@@ -65,8 +80,30 @@ defmodule Ourocode.Terminal.ScreenStyles do
   def reset, do: @reset
 
   @spec sgr(style()) :: String.t()
-  def sgr(style), do: Map.fetch!(@styles, style)
+  def sgr(style), do: sgr(style, theme())
+
+  @spec sgr(style(), :dark | :light) :: String.t()
+  def sgr(style, theme) when theme in [:dark, :light], do: Map.fetch!(styles(theme), style)
+
+  @spec styles(:dark | :light) :: map()
+  def styles(:dark), do: @dark_styles
+  def styles(:light), do: @light_styles
+
+  @spec theme() :: :dark | :light
+  def theme, do: theme(System.get_env())
+
+  @spec theme(map()) :: :dark | :light
+  def theme(env) when is_map(env) do
+    env
+    |> Map.get("OUROCODE_THEME", "")
+    |> String.downcase()
+    |> case do
+      value when value in ["light", "white"] -> :light
+      "dark" -> :dark
+      _other -> :light
+    end
+  end
 
   @spec styled?(style() | nil) :: boolean()
-  def styled?(style), do: style not in [nil, :text]
+  def styled?(style), do: not is_nil(style)
 end

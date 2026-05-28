@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560">
+  <title>Theme light</title>
+  <rect width="100%" height="100%" rx="24" fill="#fafaf9"/>
+  <rect x="18" y="18" width="1244" height="524" rx="18" fill="#f2f2f0" stroke="#d6d6d2"/>
+  <circle cx="46" cy="45" r="6" fill="#b52a2a"/>
+  <circle cx="68" cy="45" r="6" fill="#9a6a12"/>
+  <circle cx="90" cy="45" r="6" fill="#14665a"/>
+  <text x="112" y="51" fill="#14665a" font-family="JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700">ourocode</text>
+  <text x="36" y="92" fill="#996023" font-family="JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">theme light:</text>
+  <text x="36" y="116" fill="#222226" font-family="JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">  canvas: white-toned surface</text>
+  <text x="36" y="140" fill="#222226" font-family="JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">  panel: soft light panel</text>
+  <text x="36" y="164" fill="#996023" font-family="JetBrains Mono, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">  action: /theme dark</text>
+</svg>

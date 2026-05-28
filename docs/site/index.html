@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ourocode - terminal workbench for guided agents</title>
+    <meta
+      name="description"
+      content="Ourocode is a keyboard-first terminal workbench for PM interviews, guided agents, approval-gated execution, and product verification evidence."
+    />
+    <meta name="theme-color" content="#fafaf9" />
+    <meta property="og:title" content="Ourocode" />
+    <meta
+      property="og:description"
+      content="Plan, delegate, approve, and verify guided agent work from one terminal."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="../assets/ourocode-readme-hero.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header" aria-label="Primary">
+      <a class="brand" href="#top" aria-label="Ourocode home">
+        <span class="brand-mark">oc</span>
+        <span>Ourocode</span>
+      </a>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#workflows">Workflows</a>
+        <a href="#evidence">Evidence</a>
+        <a href="#install">Install</a>
+      </nav>
+      <a class="header-action" href="https://github.com/Q00/ourocode">GitHub</a>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <img
+          class="hero-media"
+          src="../assets/ourocode-tui-demo.gif"
+          alt="Ourocode terminal interface showing guided work"
+        />
+        <div class="hero-shade"></div>
+        <div class="hero-copy">
+          <p class="eyebrow">terminal workbench for guided agents</p>
+          <h1 id="hero-title">Ourocode</h1>
+          <p class="hero-lede">
+            Start with a PM interview, clarify the task, approve execution, and keep proof in the terminal.
+          </p>
+          <div class="hero-actions" id="install">
+            <button class="copy-command" type="button" data-copy="curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash">
+              <span>curl -fsSL .../install.sh | bash</span>
+              <span class="copy-state">copy</span>
+            </button>
+            <a class="secondary-action" href="../remote-headless-control.md">Headless JSON</a>
+          </div>
+        </div>
+        <div class="hero-status" aria-label="Current verification status">
+          <span>verify</span>
+          <strong>22/22 passed</strong>
+        </div>
+      </section>
+
+      <section class="strip" aria-label="Core commands">
+        <div>
+          <span>ooo pm</span>
+          <p>shape product requirements with answer choices</p>
+        </div>
+        <div>
+          <span>ooo interview</span>
+          <p>clarify decisions through structured rounds</p>
+        </div>
+        <div>
+          <span>ooo auto</span>
+          <p>plan, approve, execute, then verify</p>
+        </div>
+      </section>
+
+      <section class="section split" id="workflows">
+        <div class="section-copy">
+          <p class="eyebrow">less chat, more flow</p>
+          <h2>Three starts. One terminal surface.</h2>
+          <p>
+            Ourocode opens with the work modes people actually need: product discovery, requirement
+            clarification, and approval-gated automation. Each run stays visible in `/agents` with current
+            state, useful actions, and verification evidence.
+          </p>
+        </div>
+        <div class="workflow-stack" aria-label="Workflow lanes">
+          <article class="lane active">
+            <span>01</span>
+            <h3>PM interview</h3>
+            <p>Answer options appear in-place so the next decision is obvious.</p>
+          </article>
+          <article class="lane">
+            <span>02</span>
+            <h3>Seed plan</h3>
+            <p>Constraints and acceptance criteria become a reviewable plan.</p>
+          </article>
+          <article class="lane">
+            <span>03</span>
+            <h3>Approval gate</h3>
+            <p>Project file changes wait until the plan is explicitly approved.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section evidence" id="evidence">
+        <div class="section-heading">
+          <p class="eyebrow">prove the work</p>
+          <h2>Verification is a product surface.</h2>
+        </div>
+        <div class="evidence-grid">
+          <figure class="terminal-shot wide">
+            <img src="../assets/ourocode-readme-hero.png" alt="Ourocode first-start terminal frame" />
+            <figcaption>First-start view: PM, interview, and auto are visible immediately.</figcaption>
+          </figure>
+          <figure class="terminal-shot">
+            <img src="../assets/visual/agents.svg" alt="Ourocode agents workspace capture" />
+            <figcaption>Active work stays inspectable through `/agents`.</figcaption>
+          </figure>
+          <figure class="terminal-shot">
+            <img src="../assets/visual/verify.svg" alt="Ourocode verification capture" />
+            <figcaption>`/verify` collects startup, plugin, TUI, visual, and approval evidence.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section compare">
+        <div class="compare-row">
+          <div>
+            <p class="eyebrow">inspired by modern CLI agents</p>
+            <h2>Built around decisions, not log watching.</h2>
+          </div>
+          <p>
+            Grok CLI emphasizes sub-agents, headless prompts, verification, and a fast terminal UI.
+            Ourocode takes those expectations and makes guided decisions the default interface.
+          </p>
+        </div>
+        <div class="check-grid">
+          <div><strong>Sub-agent ready</strong><span>Active panes, sessions, and `/agents` inspection.</span></div>
+          <div><strong>Approval first</strong><span>`ooo auto` stops before mutating project files.</span></div>
+          <div><strong>Scriptable</strong><span>`--prompt` and `--format json` for automation.</span></div>
+          <div><strong>Visual proof</strong><span>Theme, TUI, PNG, GIF, and terminal replay artifacts.</span></div>
+        </div>
+      </section>
+
+      <section class="section install-panel">
+        <div>
+          <p class="eyebrow">install</p>
+          <h2>Run it from a source checkout or release build.</h2>
+        </div>
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
+ourocode
+ourocode --prompt "/agents" --format json
+ourocode --verify --format json --project-dir .</code></pre>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Ourocode</span>
+      <a href="https://github.com/Q00/ourocode">GitHub</a>
+      <a href="../remote-headless-control.md">Automation docs</a>
+    </footer>
+    <script src="./site.js"></script>
+  </body>
+</html>

@@ -33,7 +33,13 @@ defmodule Ourocode.Terminal.RendererOverlaySlotTest do
              })
 
     assert {:ooo_suggestions, [{"ooo run", "execute"}], 0} =
-             RendererOverlaySlot.build("ooo", :normal, %{
+             RendererOverlaySlot.build("ooo run", :normal, %{
+               ooo_commands: [{"ooo run", "execute"}],
+               key_help: true
+             })
+
+    assert {:ooo_suggestions, [{"ooo run", "execute"}], 0} =
+             RendererOverlaySlot.build("ooo run seed.yaml", :normal, %{
                ooo_commands: [{"ooo run", "execute"}],
                key_help: true
              })

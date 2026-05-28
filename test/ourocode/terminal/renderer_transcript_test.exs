@@ -10,8 +10,16 @@ defmodule Ourocode.Terminal.RendererTranscriptTest do
       |> Screen.to_lines()
 
     assert Enum.any?(lines, &String.contains?(&1, "ourocode"))
-    assert Enum.any?(lines, &String.contains?(&1, "Sign in with  /login"))
-    assert Enum.any?(lines, &String.contains?(&1, "or type  /  to browse commands"))
+
+    assert Enum.any?(lines, &String.contains?(&1, "Choose a start mode"))
+    assert Enum.any?(lines, &String.contains?(&1, "pm"))
+    assert Enum.any?(lines, &String.contains?(&1, "interview"))
+    assert Enum.any?(lines, &String.contains?(&1, "auto"))
+    assert Enum.any?(lines, &String.contains?(&1, "/ for commands"))
+    refute Enum.any?(lines, &String.contains?(&1, "/sessions"))
+    refute Enum.any?(lines, &String.contains?(&1, "/preflight"))
+    refute Enum.any?(lines, &String.contains?(&1, "Work state"))
+    refute Enum.any?(lines, &String.contains?(&1, "Useful commands"))
   end
 
   test "keeps screen unchanged when there is no activity and no hint" do
@@ -26,10 +34,21 @@ defmodule Ourocode.Terminal.RendererTranscriptTest do
       |> RendererTranscript.draw(50, 1, 6, ["you> hello", "ourocode> hi"], true, 0)
       |> Screen.to_lines()
 
-    assert Enum.any?(lines, &String.contains?(&1, "YOU"))
-    assert Enum.any?(lines, &String.contains?(&1, "| hello"))
+    assert Enum.any?(lines, &String.contains?(&1, "Answer"))
+    assert Enum.any?(lines, &String.contains?(&1, "│ hello"))
     assert Enum.any?(lines, &String.contains?(&1, "OUROCODE"))
-    assert Enum.any?(lines, &String.contains?(&1, "| hi"))
+    assert Enum.any?(lines, &String.contains?(&1, "│ hi"))
+  end
+
+  test "draws cancellation as a status row, not a bullet log" do
+    text =
+      Screen.new(60, 6)
+      |> RendererTranscript.draw(60, 0, 5, ["Interview cancelled."], true, 0)
+      |> Screen.to_lines()
+      |> Enum.join("\n")
+
+    assert text =~ "│ Interview cancelled."
+    refute text =~ "• Interview cancelled."
   end
 
   test "scrolls back from the transcript tail" do
@@ -51,6 +70,33 @@ defmodule Ourocode.Terminal.RendererTranscriptTest do
     refute tail =~ "line 3"
     assert scrolled =~ "line 6"
     refute scrolled =~ "line 8"
+  end
+
+  test "workspace activity renders from the top instead of the transcript tail" do
+    activity =
+      [
+        "Resume",
+        "resumable · 8 items",
+        "Work"
+      ] ++
+        Enum.map(1..8, &"  #{if(&1 == 1, do: ">>", else: "  ")} Saved workspace #{&1}") ++
+        [
+          "Focus",
+          "  Saved workspace 1 · resumable",
+          "Try /resume latest | /resume 1",
+          "Move with Up/Dn rows; Enter resume; type to compose"
+        ]
+
+    text =
+      Screen.new(80, 8)
+      |> RendererTranscript.draw(80, 0, 7, activity, true, 0)
+      |> Screen.to_lines()
+      |> Enum.join("\n")
+
+    assert text =~ "Resume"
+    assert text =~ "resumable"
+    assert text =~ "Work"
+    refute text =~ "Run:"
   end
 
   test "does nothing when the target region has no room" do

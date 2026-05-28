@@ -45,18 +45,27 @@ defmodule Ourocode.Terminal.TuiFrameTest do
     text = Enum.join(lines, "\n")
 
     assert Enum.any?(lines, &String.contains?(&1, "ourocode"))
-    assert text =~ "Sign in with  /login,  then ask anything"
-    assert text =~ "or type  /  to browse commands"
+    assert text =~ "Choose one starting mode"
+    assert text =~ "ooo pm <goal>"
+    assert text =~ "ooo interview <goal>"
+    assert text =~ "ooo auto <goal>"
+    assert text =~ "/ for commands"
+    refute text =~ "/preflight"
+    refute text =~ "/sessions"
+    refute text =~ "Work state"
+    refute text =~ "Useful commands"
     refute text =~ "Nothing here yet"
     refute text =~ "SESSIONS"
+    refute text =~ "baseline"
   end
 
   test "status bar uses conditional density and mode-aware hints" do
     normal = render("", [], %{}, 120) |> Enum.join("\n")
     assert normal =~ "ready"
-    assert normal =~ "stdio sse http"
-    assert normal =~ "/  commands"
-    assert normal =~ "^C  exit"
+    assert normal =~ ""
+    assert normal =~ "/ commands"
+    assert normal =~ "ooo work"
+    assert normal =~ "^C"
     # zeros and idle are hidden, not spelled out
     refute normal =~ "sessions 0"
     refute normal =~ "hooks idle"
@@ -78,21 +87,41 @@ defmodule Ourocode.Terminal.TuiFrameTest do
     assert text =~ "Esc again to clear input"
   end
 
-  test "command palette shows selected command details and capability semantics" do
+  test "live turn activity appears after a submitted guided command" do
+    text =
+      render("", ["task: starting"], %{
+        live_turn_activity: [
+          "live: PM interview is opening",
+          "  activity: ■■⬝ waiting for the first visible update",
+          "  pulse: watching for first question"
+        ]
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "task: starting"
+    assert text =~ "live: PM interview is opening"
+    assert text =~ "activity: ■■⬝ waiting for the first visible update"
+    assert text =~ "pulse: watching for first question"
+    assert text =~ "■⬝⬝"
+    assert text =~ "Queue a follow-up; Esc interrupts"
+  end
+
+  test "command palette shows selected command details without internal metadata" do
     text =
       render("/", [], %{mode: :palette, palette: %{entries: Palette.entries(), index: 0}})
       |> Enum.join("\n")
 
-    assert text =~ "selected /help"
-    assert text =~ "source=builtin"
-    assert text =~ "trust=builtin"
-    assert text =~ "category=discovery"
-    assert text =~ "capability kernel/read_only/default"
-    assert text =~ "aliases=/?"
+    assert text =~ "● /ooo pm"
+    assert text =~ "Guided work"
+    assert text =~ "Read-only"
+    assert text =~ "Usage · ooo pm · goal required"
+    refute text =~ "source="
+    refute text =~ "trust="
+    refute text =~ "capability kernel"
   end
 
   test "typed prompt replaces the composer placeholder" do
-    text = render("ooo interview로 정리해줘") |> Enum.join("\n")
+    text = render("ooo interview summarize this") |> Enum.join("\n")
     assert text =~ "> "
     assert text =~ "ooo interview"
     refute text =~ "Send a message"
@@ -101,18 +130,30 @@ defmodule Ourocode.Terminal.TuiFrameTest do
   test "ooo prompt opens a lightweight command suggestion overlay" do
     text = render("ooo") |> Enum.join("\n")
 
-    assert text =~ "ooo commands"
+    assert text =~ "ooo structured work"
+    assert text =~ "ooo pm"
     assert text =~ "ooo interview"
-    assert text =~ "ooo seed"
-    assert text =~ "ooo ralph"
+    assert text =~ "ooo auto"
+    refute text =~ "ooo seed"
+    refute text =~ "ooo ralph"
   end
 
   test "ooo prompt filters command suggestions by the next token" do
     text = render("ooo int") |> Enum.join("\n")
 
-    assert text =~ "ooo commands"
+    assert text =~ "ooo structured work"
     assert text =~ "ooo interview"
     refute text =~ "ooo seed"
+
+    pm_text = render("ooo p") |> Enum.join("\n")
+    assert pm_text =~ "ooo pm"
+    refute pm_text =~ "ooo publish"
+
+    starter_text = render("ooo ") |> Enum.join("\n")
+    assert starter_text =~ "ooo pm"
+    assert starter_text =~ "ooo interview"
+    assert starter_text =~ "ooo auto"
+    refute starter_text =~ "ooo seed"
 
     assert render("ooo eval") |> Enum.join("\n") =~ "ooo evaluate"
     assert render("ooo brown") |> Enum.join("\n") =~ "ooo brownfield"
@@ -140,7 +181,7 @@ defmodule Ourocode.Terminal.TuiFrameTest do
   test "key help overlay shows active-mode shortcuts" do
     text = render("", [], %{key_help: true}) |> Enum.join("\n")
 
-    assert text =~ "+- keys"
+    assert text =~ "keys"
     assert text =~ "@"
     assert text =~ "file mentions"
     assert text =~ "Ctrl-A/E"
@@ -159,16 +200,202 @@ defmodule Ourocode.Terminal.TuiFrameTest do
   end
 
   test "transcript renders turns as labelled, railed blocks newest at the bottom" do
-    lines = render("", ["you> hello", "ourocode> hi there", "queued task task_1"])
+    lines = render("", ["you> hello", "ourocode> hi there", "task: queued task_1"])
     text = Enum.join(lines, "\n")
 
-    assert text =~ "YOU"
+    assert text =~ "Answer"
     assert text =~ "OUROCODE"
-    assert text =~ "| hello"
-    assert text =~ "| hi there"
-    assert text =~ "queued task task_1"
+    assert text =~ "│ hello"
+    assert text =~ "│ hi there"
+    assert text =~ "task: queued task_1"
     refute text =~ "you> hello"
     refute text =~ "Sign in with"
+  end
+
+  test "workspace command output renders as a selected management panel" do
+    activity = [
+      "Plugins",
+      "ready; 1 installed plugin",
+      "Choose:",
+      "  >> Guided workflows - loaded · ready",
+      "Now:",
+      "  role: guided work",
+      "Commands: /mcp",
+      "Use Up/Dn rows; Enter inspect; type to compose"
+    ]
+
+    text = render("", activity) |> Enum.join("\n")
+
+    assert text =~ "Plugins"
+    assert text =~ "Choose:"
+    assert text =~ ">> Guided workflows - loaded · ready"
+    assert text =~ "Now:"
+    refute text =~ "row actions"
+    assert text =~ "Commands: /mcp"
+    refute text =~ "• Plugins"
+    assert text =~ "• >> Guided workflows"
+  end
+
+  test "large workspace keeps header and actions visible" do
+    records =
+      Enum.map(1..10, fn index ->
+        %{
+          id: "record:#{index}",
+          title: "Saved workspace #{index}",
+          state: "resumable",
+          actions: []
+        }
+      end)
+
+    workspace = %{
+      kind: "resume",
+      title: "Resume",
+      status: "resumable",
+      selected: "record:1",
+      records: records,
+      detail: List.first(records),
+      actions: [
+        %{shortcut: "l", command: "/resume latest", id: "latest", enabled: true},
+        %{shortcut: "Enter", command: "/resume 1", id: "resume", enabled: true}
+      ],
+      shortcuts: ["Up/Dn rows", "Enter resume", "type to compose"],
+      next: "Choose a numbered workspace to resume."
+    }
+
+    text =
+      render("", [], %{workspace: workspace})
+      |> Enum.join("\n")
+
+    assert text =~ "Resume"
+    assert text =~ "resumable; 10 choices"
+    assert text =~ ">> Saved workspace 1 - resumable"
+    assert text =~ "5 more choices below"
+    assert text =~ "Open /resume latest | /resume 1"
+    assert text =~ "Use Up/Dn rows; Enter resume; type to compose"
+    refute text =~ "Saved workspace 10"
+  end
+
+  test "active workspace state overrides stale captured activity" do
+    first = %{id: "record:first", title: "First", state: "ready", actions: []}
+
+    workspace = %{
+      kind: "plugins",
+      title: "Plugins",
+      status: "ready",
+      selected: "record:first",
+      records: [first],
+      detail: first,
+      actions: [%{shortcut: "v", command: "/verify", id: "verify", enabled: true}],
+      shortcuts: ["j/k move"],
+      next: "Run /verify."
+    }
+
+    text =
+      render("", ["stale log entry"], %{workspace: workspace})
+      |> Enum.join("\n")
+
+    assert text =~ "Plugins"
+    assert text =~ ">> First - ready"
+    assert text =~ "workspace focus"
+    assert text =~ "Enter row action"
+    refute text =~ "stale log entry"
+  end
+
+  test "workspace focus hint adapts in narrow terminals" do
+    first = %{id: "record:first", title: "First", state: "ready", actions: []}
+
+    workspace = %{
+      kind: "plugins",
+      title: "Plugins",
+      status: "ready",
+      selected: "record:first",
+      records: [first],
+      detail: first,
+      actions: [],
+      shortcuts: ["j/k move"],
+      next: "Run /verify."
+    }
+
+    narrow =
+      render("", [], %{workspace: workspace}, 60)
+      |> Enum.join("\n")
+
+    assert narrow =~ "workspace"
+    assert narrow =~ "Up/Dn rows"
+    assert narrow =~ "Enter action"
+    refute narrow =~ "/ commands"
+  end
+
+  test "command palette cleanly owns the body over an active workspace" do
+    first = %{id: "record:first", title: "First", state: "ready", actions: []}
+
+    workspace = %{
+      kind: "plugins",
+      title: "Plugins",
+      status: "ready",
+      selected: "record:first",
+      records: [first],
+      detail: first,
+      actions: [%{shortcut: "v", command: "/verify", id: "verify", enabled: true}],
+      shortcuts: ["j/k move"],
+      next: "Run /verify."
+    }
+
+    text =
+      render("/co", [], %{
+        mode: :palette,
+        palette: %{entries: Palette.filter(Palette.entries(), "/co"), index: 0},
+        workspace: workspace
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "commands  ("
+    assert text =~ "/commands"
+    assert text =~ "> /co"
+    refute text =~ "Plugins"
+    refute text =~ ">> First - ready"
+    refute text =~ "Try /verify"
+  end
+
+  test "workspace view overrides a paused interview body" do
+    first = %{id: "record:first", title: "First", state: "ready", actions: []}
+
+    workspace = %{
+      kind: "plugins",
+      title: "Plugins",
+      status: "ready",
+      selected: "record:first",
+      records: [first],
+      detail: first,
+      actions: [],
+      shortcuts: ["j/k move"],
+      next: "Run /verify."
+    }
+
+    text =
+      render("", ["paused interview transcript"], %{
+        workspace: workspace,
+        mcp_activity: ["activity: state saved"],
+        interview_reasoning: ["step paused - discussing"],
+        interview_paused: true,
+        interview_block:
+          {"INTERVIEW (paused)",
+           [
+             "Which workflow should continue?",
+             ">> [1] Keep the interview visible",
+             "[Custom answer] type any text, then Enter"
+           ], "/answer <text> resumes"}
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "Plugins"
+    assert text =~ ">> First - ready"
+    assert text =~ "workspace focus"
+    refute text =~ "Which workflow should continue?"
+    refute text =~ "Keep the interview visible"
+    refute text =~ "paused interview transcript"
+    refute text =~ "activity log"
+    refute text =~ "step paused"
   end
 
   test "command palette overlay lists filtered registry entries" do
@@ -183,7 +410,69 @@ defmodule Ourocode.Terminal.TuiFrameTest do
     refute text =~ "/help"
   end
 
-  test "paused interview palette exposes answer command only in that context" do
+  test "command palette owns body while active over an interview" do
+    entries = Palette.filter(Palette.entries(), "/agents")
+
+    text =
+      render("/agents", ["you> previous answer"], %{
+        mode: :palette,
+        palette: %{entries: entries, index: 0},
+        wonder_focus: true,
+        interview_block:
+          {"INTERVIEW",
+           [
+             "Question  Which onboarding moment matters?",
+             ">> [1] Install plugin",
+             "   [2] Validate tools"
+           ], "type custom answer"}
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "commands  ("
+    assert text =~ "/agents"
+    refute text =~ "Which onboarding moment matters?"
+    refute text =~ "Install plugin"
+    refute text =~ "previous answer"
+  end
+
+  test "command palette owns body while active over a workspace" do
+    workspace = %{
+      kind: "agents",
+      title: "Agents",
+      status: "running",
+      selected: "agent:active",
+      records: [
+        %{
+          id: "agent:active",
+          label: "Active interview",
+          status: "running",
+          fields: %{current: "long active interview question"}
+        }
+      ],
+      detail: %{id: "agent:active", label: "Active interview", fields: %{current: "detail"}},
+      actions: [],
+      shortcuts: ["j/k move"],
+      next: "Watch active work."
+    }
+
+    entries = Palette.filter(Palette.entries(), "/cancel")
+
+    text =
+      render("/cancel", ["stale workspace transcript"], %{
+        mode: :palette,
+        palette: %{entries: entries, index: 0},
+        workspace: workspace
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "commands  (1)"
+    assert text =~ "/cancel"
+    refute text =~ "agents workspace"
+    refute text =~ "Active interview"
+    refute text =~ "stale workspace transcript"
+  end
+
+  test "paused interview slash commands do not open a competing overlay" do
     paused =
       render("/answer", [], %{
         mode: :palette,
@@ -192,21 +481,24 @@ defmodule Ourocode.Terminal.TuiFrameTest do
       })
       |> Enum.join("\n")
 
-    assert paused =~ "commands  (1)"
-    assert paused =~ "/answer"
-    assert paused =~ "Use while paused"
+    assert paused =~ "> /answer"
+    refute paused =~ "commands  (1)"
+    refute paused =~ "Use while paused"
 
     paused_with_text =
-      render("/answer 한글로 진행", [], %{
+      render("/answer proceed with the builder flow", [], %{
         mode: :palette,
-        palette: %{entries: Palette.filter(Palette.entries(), "/answer 한글로 진행"), index: 0},
+        palette: %{
+          entries: Palette.filter(Palette.entries(), "/answer proceed with the builder flow"),
+          index: 0
+        },
         interview_paused: true
       })
       |> Enum.join("\n")
 
-    assert paused_with_text =~ "commands  (1)"
-    assert paused_with_text =~ "/answer"
-    assert paused_with_text =~ "/answer <answer>"
+    assert paused_with_text =~ "> /answer proceed with the builder flow"
+    refute paused_with_text =~ "commands  (1)"
+    refute paused_with_text =~ "Use while paused"
 
     normal =
       render("/answer", [], %{
@@ -244,7 +536,7 @@ defmodule Ourocode.Terminal.TuiFrameTest do
       })
       |> Enum.join("\n")
 
-    assert text =~ "+- model"
+    assert text =~ "model"
     assert text =~ "codex  (ChatGPT)"
     assert text =~ "sign in required"
     assert text =~ "claude cli"

@@ -3,6 +3,21 @@ defmodule Ourocode.Terminal.RendererChromeTest do
 
   alias Ourocode.Terminal.{RendererChrome, Screen}
 
+  test "draw_header uses product-facing subtitle" do
+    lines =
+      90
+      |> Screen.new(4)
+      |> RendererChrome.draw_header(90, %{"status" => "healthy"}, %{
+        auth: {"model: codex cli", :ok}
+      })
+      |> Screen.to_lines()
+
+    text = Enum.join(lines, "\n")
+
+    assert text =~ "plan, delegate, and verify from one terminal"
+    refute text =~ "interactive baseline"
+  end
+
   test "draw_composer uses prompt text and highlights ooo token through rendered text" do
     lines =
       60
@@ -14,6 +29,18 @@ defmodule Ourocode.Terminal.RendererChromeTest do
 
     assert text =~ "> ooo interview"
     refute text =~ "Message ourocode"
+  end
+
+  test "draw_composer uses compact placeholder on narrow terminals" do
+    text =
+      60
+      |> Screen.new(8)
+      |> RendererChrome.draw_composer(60, 4, "", :normal, %{})
+      |> Screen.to_lines()
+      |> Enum.join("\n")
+
+    assert text =~ "Type / or ooo; Enter runs"
+    refute text =~ "ooo starts structure"
   end
 
   test "draw_status_bar surfaces notification over default hints" do
@@ -30,8 +57,49 @@ defmodule Ourocode.Terminal.RendererChromeTest do
 
     text = Enum.join(lines, "\n")
 
-    assert text =~ "ready   stdio sse http"
+    assert text =~ "ready"
     assert text =~ "Esc again to clear input"
     refute text =~ "^C  exit"
+  end
+
+  test "draw_status_bar does not report offline when the app is healthy" do
+    lines =
+      80
+      |> Screen.new(4)
+      |> RendererChrome.draw_status_bar(
+        80,
+        3,
+        %{"runtime" => "unknown", "status" => "healthy", "transports" => "none"},
+        %{},
+        :normal,
+        %{}
+      )
+      |> Screen.to_lines()
+
+    text = Enum.join(lines, "\n")
+
+    assert text =~ "ready"
+    refute text =~ "offline"
+  end
+
+  test "draw_status_bar uses local instead of offline for an active terminal without transports" do
+    lines =
+      80
+      |> Screen.new(4)
+      |> RendererChrome.draw_status_bar(
+        80,
+        3,
+        %{"runtime" => "?", "transports" => "none"},
+        %{},
+        :normal,
+        %{}
+      )
+      |> Screen.to_lines()
+
+    text = Enum.join(lines, "\n")
+
+    assert text =~ "main"
+    refute text =~ "?"
+    refute text =~ "offline"
   end
 end

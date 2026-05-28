@@ -1,7 +1,7 @@
 defmodule Ourocode.Terminal.ScreenTest do
   use ExUnit.Case, async: true
 
-  alias Ourocode.Terminal.Screen
+  alias Ourocode.Terminal.{Screen, ScreenStyles}
 
   test "put_text writes a string at coordinates and clips to width" do
     lines =
@@ -84,41 +84,67 @@ defmodule Ourocode.Terminal.ScreenTest do
       |> Screen.to_ansi()
       |> IO.iodata_to_binary()
 
-    assert ansi =~ "\e[0;38;2;63;185;80m"
+    assert ansi =~ ScreenStyles.sgr(:ok)
     assert ansi =~ "ok"
     assert String.ends_with?(ansi, "\e[0m")
   end
 
-  test "char_width/text_width treat CJK/Hangul as two columns" do
+  test "char_width/text_width treat wide CJK graphemes as two columns" do
     assert Screen.char_width("a") == 1
-    assert Screen.char_width("한") == 2
+    assert Screen.char_width("界") == 2
     assert Screen.char_width("中") == 2
-    assert Screen.text_width("hi한글") == 2 + 2 + 2
+    assert Screen.text_width("hi世界") == 2 + 2 + 2
   end
 
   test "truncate clips by display width, not grapheme count" do
-    assert Screen.truncate("한글ab", 5) == "한글a"
-    assert Screen.truncate("한글ab", 4) == "한글"
-    assert Screen.truncate("한글ab", 3) == "한"
+    assert Screen.truncate("世界ab", 5) == "世界a"
+    assert Screen.truncate("世界ab", 4) == "世界"
+    assert Screen.truncate("世界ab", 3) == "世"
     assert Screen.truncate("abc", 0) == ""
   end
 
   test "wide glyphs occupy two cells and do not desync following columns" do
     lines =
       Screen.new(12, 1)
-      |> Screen.put_text(0, 0, "한glx")
+      |> Screen.put_text(0, 0, "界glx")
       |> Screen.to_lines()
 
-    # '한'(2) + 'g'(1) 'l'(1) 'x'(1) = 5 display columns, no shifting.
-    assert hd(lines) == "한glx"
+    # '界'(2) + 'g'(1) 'l'(1) 'x'(1) = 5 display columns, no shifting.
+    assert hd(lines) == "界glx"
 
     ansi =
       Screen.new(12, 1)
-      |> Screen.put_text(0, 0, "한x")
+      |> Screen.put_text(0, 0, "界x")
       |> Screen.to_ansi()
       |> IO.iodata_to_binary()
 
     # The continuation cell emits nothing, so 'x' is not pushed right.
-    assert ansi =~ "한x"
+    assert ansi =~ "界x"
+  end
+
+  test "modern Hangul uses continuation cells like other wide glyphs" do
+    text = hangul([0xC778, 0xD130, 0xBDF0])
+
+    lines =
+      Screen.new(12, 1)
+      |> Screen.put_text(0, 0, text)
+      |> Screen.to_lines()
+
+    assert hd(lines) == text
+
+    ansi =
+      Screen.new(12, 1)
+      |> Screen.put_text(0, 0, text)
+      |> Screen.to_ansi()
+      |> IO.iodata_to_binary()
+
+    assert ansi =~ text
+    assert Screen.text_width(text) == 6
+  end
+
+  defp hangul(codepoints) do
+    codepoints
+    |> Enum.map(&<<&1::utf8>>)
+    |> Enum.join()
   end
 end
