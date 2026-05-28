@@ -25,14 +25,23 @@ defmodule Ourocode.Terminal.TuiNormalSubmitTest do
     refute_received {:entered, _line}
   end
 
-  test "handle submits selected ooo suggestion", %{state: state} do
+  test "handle completes selected ooo suggestion without dispatching", %{state: state} do
     parent = self()
     Agent.update(state, &%{&1 | buffer: "ooo", cursor: 3, pidx: 1})
 
     assert :continue = TuiNormalSubmit.handle(state, callbacks(parent), draw(parent), cont())
+    assert TuiState.buffer(state) =~ ~r/^ooo \w+ $/
+    assert_received :draw
+    refute_received {:entered, _line}
+  end
+
+  test "handle submits completed ooo command after the user confirms", %{state: state} do
+    parent = self()
+    Agent.update(state, &%{&1 | buffer: "ooo interview ", cursor: 14, pidx: 0})
+
+    assert :continue = TuiNormalSubmit.handle(state, callbacks(parent), draw(parent), cont())
     assert TuiState.buffer(state) == ""
-    assert_received {:entered, line}
-    assert line =~ "ooo "
+    assert_received {:entered, "ooo interview"}
   end
 
   test "handle trims normal input and remembers history", %{state: state} do
@@ -45,6 +54,43 @@ defmodule Ourocode.Terminal.TuiNormalSubmitTest do
 
     TuiState.move_history(state, -1)
     assert TuiState.buffer(state) == "hello"
+  end
+
+  test "handle submits selected workspace row action when composer is empty", %{state: state} do
+    parent = self()
+    TuiState.put_workspace(state, workspace())
+
+    assert :continue = TuiNormalSubmit.handle(state, callbacks(parent), draw(parent), cont())
+
+    assert TuiState.buffer(state) == ""
+    assert_received {:entered, "/first"}
+
+    TuiState.move_history(state, -1)
+    assert TuiState.buffer(state) == "/first"
+  end
+
+  test "handle inserts placeholder workspace action into composer instead of executing it", %{
+    state: state
+  } do
+    parent = self()
+    TuiState.put_workspace(state, placeholder_workspace())
+
+    assert :continue = TuiNormalSubmit.handle(state, callbacks(parent), draw(parent), cont())
+
+    assert TuiState.buffer(state) == "/preflight "
+    assert_received :draw
+    refute_received {:entered, _line}
+  end
+
+  test "handle ignores workspace action when composer has text", %{state: state} do
+    parent = self()
+    TuiState.put_workspace(state, workspace())
+    Agent.update(state, &%{&1 | buffer: "hello", cursor: 5})
+
+    assert :continue = TuiNormalSubmit.handle(state, callbacks(parent), draw(parent), cont())
+
+    assert_received {:entered, "hello"}
+    refute_received {:entered, "/first"}
   end
 
   test "handle propagates submit and exit callback results", %{state: state} do
@@ -77,4 +123,32 @@ defmodule Ourocode.Terminal.TuiNormalSubmitTest do
 
   defp draw(parent \\ self()), do: fn -> send(parent, :draw) end
   defp cont, do: fn -> :continue end
+
+  defp workspace do
+    first = %{id: "record:first", title: "First", actions: [%{command: "/first", enabled: true}]}
+
+    %{
+      kind: "test",
+      selected: "record:first",
+      records: [first],
+      detail: first,
+      actions: []
+    }
+  end
+
+  defp placeholder_workspace do
+    first = %{
+      id: "record:first",
+      title: "First",
+      actions: [%{command: "/preflight <command>", enabled: true}]
+    }
+
+    %{
+      kind: "test",
+      selected: "record:first",
+      records: [first],
+      detail: first,
+      actions: []
+    }
+  end
 end

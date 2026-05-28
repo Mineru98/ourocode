@@ -5,11 +5,20 @@ defmodule Ourocode.Terminal.TuiNormalNavigation do
 
   @spec move_vertical(pid(), -1 | 1, boolean()) :: :ok
   def move_vertical(state, direction, test_run?) when direction in [-1, 1] do
-    if suggestion_active?(state, test_run?) do
-      TuiState.put_pidx(state, TuiState.pidx(state) + direction)
-    else
-      TuiState.move_history(state, direction)
+    cond do
+      suggestion_active?(state, test_run?) ->
+        TuiState.put_pidx(state, TuiState.pidx(state) + direction)
+
+      workspace_navigable?(state) ->
+        TuiState.move_workspace(state, direction)
+
+      true ->
+        TuiState.move_history(state, direction)
     end
+  end
+
+  defp workspace_navigable?(state) do
+    TuiState.buffer(state) == "" and TuiState.workspace_active?(state)
   end
 
   @spec suggestion_active?(pid(), boolean()) :: boolean()

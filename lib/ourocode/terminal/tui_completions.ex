@@ -29,6 +29,10 @@ defmodule Ourocode.Terminal.TuiCompletions do
     prompt_buffer = TuiState.buffer(state)
 
     Suggestions.ooo_prompt?(prompt_buffer) and
+      not Suggestions.completed_ooo_command?(
+        prompt_buffer,
+        ooo_commands(state, test_run?)
+      ) and
       Suggestions.ooo_suggestions(prompt_buffer, :normal, false, ooo_commands(state, test_run?)) !=
         []
   end
@@ -75,6 +79,36 @@ defmodule Ourocode.Terminal.TuiCompletions do
 
       _none ->
         :ok
+    end
+  end
+
+  @spec insert_ooo_choice(pid(), boolean()) :: :ok
+  def insert_ooo_choice(state, test_run?) when is_pid(state) and is_boolean(test_run?) do
+    choice =
+      state
+      |> TuiState.buffer()
+      |> ooo_choice(TuiState.pidx(state), state, test_run?)
+
+    Agent.update(state, fn tui_state ->
+      buffer = choice <> " "
+      %{tui_state | buffer: buffer, cursor: String.length(buffer), pidx: 0}
+    end)
+  end
+
+  @spec insert_active_choice(pid(), boolean()) :: boolean()
+  def insert_active_choice(state, test_run?) when is_pid(state) and is_boolean(test_run?) do
+    cond do
+      file_mention_suggesting?(state) ->
+        insert_file_mention_choice(state)
+        TuiState.put_pidx(state, 0)
+        true
+
+      ooo_suggesting?(state, test_run?) ->
+        insert_ooo_choice(state, test_run?)
+        true
+
+      true ->
+        false
     end
   end
 

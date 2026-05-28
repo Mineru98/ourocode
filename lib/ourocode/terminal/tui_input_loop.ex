@@ -50,20 +50,48 @@ defmodule Ourocode.Terminal.TuiInputLoop do
       match?(%{key: :ctrl_c}, event) ->
         :exit
 
-      TuiInteraction.capturing?(result) and TuiInteraction.wonder_active?(result) and
+      TuiInteraction.capturing?(result, state) and TuiInteraction.wonder_active?(result) and
           TuiInteraction.nav_event?(event, TuiState.buffer(state), result, state) ->
         TuiInteraction.handle_nav(event, result, state)
         draw.()
         cont.()
 
-      TuiInteraction.capturing?(result) and
-          match?(%{key: k} when k in [:enter, :escape], event) ->
+      TuiInteraction.capturing?(result, state) and
+        match?(%{key: k} when k in [:enter, :escape], event) and
+          not slash_submit?(event, state) ->
         TuiInteraction.handle_event(event, result, output, state)
         draw.()
         cont.()
 
       true ->
         handle_normal_event(event, result, output, state, columns, rows, callbacks, cont, draw)
+    end
+  end
+
+  @doc false
+  @spec handle_tick(map(), pid(), pid(), pos_integer(), pos_integer(), callbacks()) ::
+          :continue | :exit | {:submit, String.t()}
+  def handle_tick(result, output, state, columns, rows, callbacks) do
+    case TuiState.take_leftover(state) do
+      <<27>> ->
+        handle_events(
+          [%{type: :key, key: :escape, char: nil}],
+          result,
+          output,
+          state,
+          columns,
+          rows,
+          callbacks
+        )
+
+      leftover ->
+        TuiState.put_leftover(state, leftover)
+
+        unless pending_cancel_prefix?(result, state) do
+          redraw(callbacks, result, output, state, TuiState.buffer(state), columns, rows)
+        end
+
+        :continue
     end
   end
 
@@ -74,8 +102,12 @@ defmodule Ourocode.Terminal.TuiInputLoop do
 
       :tick ->
         {columns, rows} = TuiDriverSession.refresh_size(state)
-        redraw(callbacks, result, output, state, TuiState.buffer(state), columns, rows)
-        read_key_loop(result, output, state, callbacks)
+
+        case handle_tick(result, output, state, columns, rows, callbacks) do
+          {:submit, line} -> line
+          :exit -> :eof
+          :continue -> read_key_loop(result, output, state, callbacks)
+        end
 
       {:ok, chunk} ->
         {columns, rows} = TuiDriverSession.refresh_size(state)
@@ -100,8 +132,25 @@ defmodule Ourocode.Terminal.TuiInputLoop do
       handle_enter: fn line ->
         Map.fetch!(callbacks, :handle_enter).(line, result, output, state, columns, rows)
       end,
+      interview_capturing?: TuiInteraction.capturing?(result, state),
       test_run?: Map.fetch!(callbacks, :test_run?)
     })
+  end
+
+  defp slash_submit?(%{key: :enter}, state) do
+    state
+    |> TuiState.buffer()
+    |> String.trim_leading()
+    |> String.starts_with?("/")
+  end
+
+  defp slash_submit?(_event, _state), do: false
+
+  defp pending_cancel_prefix?(result, state) do
+    buffer = TuiState.buffer(state)
+
+    TuiInteraction.capturing?(result, state) and buffer != "" and
+      String.starts_with?("/cancel", buffer)
   end
 
   defp redraw(callbacks, result, output, state, prompt_buffer, columns, rows) do

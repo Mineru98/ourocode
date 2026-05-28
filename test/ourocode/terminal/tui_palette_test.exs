@@ -76,4 +76,46 @@ defmodule Ourocode.Terminal.TuiPaletteTest do
 
     assert TuiState.mode(state) == :normal
   end
+
+  test "handle_event preserves typed arguments for argument commands", %{state: state} do
+    TuiState.put_mode(state, :palette)
+    TuiState.edit_buffer(state, %{key: :paste, char: "/theme light"})
+
+    assert {:submit, "/theme light"} =
+             TuiPalette.handle_event(
+               %{key: :enter},
+               state,
+               fn line -> {:submit, line} end,
+               fn -> :drawn end,
+               fn -> :continued end
+             )
+
+    assert TuiState.mode(state) == :normal
+  end
+
+  test "handle_event inserts guided work command instead of submitting immediately", %{
+    state: state
+  } do
+    TuiState.put_mode(state, :palette)
+    TuiState.edit_buffer(state, %{key: :paste, char: "/"})
+    TuiState.put_pidx(state, 0)
+    parent = self()
+
+    assert :continued =
+             TuiPalette.handle_event(
+               %{key: :enter},
+               state,
+               fn line ->
+                 send(parent, {:submitted, line})
+                 {:submit, line}
+               end,
+               fn -> send(parent, :drawn) end,
+               fn -> :continued end
+             )
+
+    refute_received {:submitted, _line}
+    assert_received :drawn
+    assert TuiState.mode(state) == :normal
+    assert TuiState.buffer(state) == "ooo pm "
+  end
 end

@@ -5,12 +5,12 @@ defmodule Ourocode.Terminal.KeyUtf8Test do
 
   test "takes complete multi-byte graphemes and returns the rest" do
     assert KeyUtf8.take("éx") == {:ok, "é", "x"}
-    assert KeyUtf8.take("한x") == {:ok, "한", "x"}
+    assert KeyUtf8.take("界x") == {:ok, "界", "x"}
     assert KeyUtf8.take("😀x") == {:ok, "😀", "x"}
   end
 
   test "reports incomplete sequences" do
-    <<lead, _tail::binary>> = "한"
+    <<lead, _tail::binary>> = "界"
 
     assert KeyUtf8.take(<<>>) == :incomplete
     assert KeyUtf8.take(<<lead>>) == :incomplete

@@ -8,7 +8,7 @@ defmodule Ourocode.Terminal.KeyEventTest do
   end
 
   test "char builds printable character events" do
-    assert KeyEvent.char("한") == %{type: :key, key: :char, char: "한"}
+    assert KeyEvent.char("界") == %{type: :key, key: :char, char: "界"}
   end
 
   test "paste builds bracketed paste events" do

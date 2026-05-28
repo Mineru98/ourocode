@@ -40,6 +40,149 @@ defmodule Ourocode.Terminal.TuiSubmitTest do
     assert_receive {:redraw, "", 80, 24}
   end
 
+  test "handle stores workspace model for management slash commands", %{
+    output: output,
+    state: state
+  } do
+    callbacks = callbacks(self())
+
+    assert {:submit, "/sandbox"} =
+             TuiSubmit.handle("/sandbox", %{}, output, state, 80, 24, callbacks)
+
+    assert %{kind: "sandbox", selected: "control:writable-roots"} = TuiState.workspace(state)
+
+    assert {:submit, "/agents"} =
+             TuiSubmit.handle(
+               "/agents",
+               %{runtime: %{pane_model: %{panes: %{}}}},
+               output,
+               state,
+               80,
+               24,
+               callbacks
+             )
+
+    assert %{kind: "agents", selected: "agent:ready:pm-interview"} = TuiState.workspace(state)
+  end
+
+  test "handle stores sessions and bare resume list workspaces", %{
+    output: output,
+    state: state
+  } do
+    callbacks = callbacks(self())
+
+    assert {:submit, "/sessions"} =
+             TuiSubmit.handle("/sessions", %{}, output, state, 80, 24, callbacks)
+
+    assert %{kind: "sessions"} = TuiState.workspace(state)
+
+    assert {:submit, "/resume"} =
+             TuiSubmit.handle("/resume", %{}, output, state, 80, 24, callbacks)
+
+    assert %{kind: "resume"} = TuiState.workspace(state)
+  end
+
+  test "handle does not replace resume action output with the list workspace", %{
+    output: output,
+    state: state
+  } do
+    callbacks = callbacks(self())
+    TuiState.put_workspace(state, %{kind: "resume", records: []})
+
+    assert {:submit, "/resume 1"} =
+             TuiSubmit.handle("/resume 1", %{}, output, state, 80, 24, callbacks)
+
+    assert TuiState.workspace(state) == nil
+  end
+
+  test "handle stores startup workspace for ooo workflows", %{output: output, state: state} do
+    callbacks = callbacks(self())
+    TuiState.put_workspace(state, %{kind: "plugins", records: []})
+
+    assert {:submit, "ooo auto improve startup"} =
+             TuiSubmit.handle("ooo auto improve startup", %{}, output, state, 80, 24, callbacks)
+
+    assert %{
+             kind: "workflow",
+             title: "Auto Run",
+             status: "approval plan starting",
+             detail: %{
+               title: "Auto run",
+               fields: %{
+                 current: "interview -> seed -> execute -> verify",
+                 progress: ["starting now", "approval checkpoint before file changes"]
+               }
+             }
+           } = TuiState.workspace(state)
+  end
+
+  test "handle cancel targets an active interview before slash dispatch", %{
+    output: output,
+    state: state
+  } do
+    callbacks = callbacks(self())
+    parent = self()
+
+    result = %{
+      pane_snapshot: fn -> %{interview: %{question: "Stop?"}, paused: true} end,
+      interview_answer: fn answer ->
+        send(parent, {:answer, answer})
+        {:ok, answer}
+      end
+    }
+
+    TuiState.put_workspace(state, %{kind: "agents", records: []})
+
+    assert :continue = TuiSubmit.handle("/cancel", result, output, state, 80, 24, callbacks)
+    assert_received {:answer, "cancel"}
+    assert TuiState.mode(state) == :normal
+
+    assert %{kind: "interview", title: "Interview Stopped", status: "cancelled"} =
+             workspace =
+             TuiState.workspace(state)
+
+    assert get_in(workspace, [:detail, :title]) == "Interview stopped"
+
+    {_input, captured} = StringIO.contents(output)
+    assert captured == ""
+    refute captured =~ "you> /cancel"
+    refute captured =~ "existing output"
+  end
+
+  test "handle slash answer closes palette state before redrawing", %{
+    output: output,
+    state: state
+  } do
+    callbacks = callbacks(self())
+    parent = self()
+
+    TuiState.put_mode(state, :palette)
+    TuiState.put_pidx(state, 3)
+
+    result = %{
+      pane_snapshot: fn -> %{interview: %{question: "Continue?"}, paused: true} end,
+      interview_answer: fn answer ->
+        send(parent, {:answer, answer})
+        {:ok, answer}
+      end
+    }
+
+    assert :continue =
+             TuiSubmit.handle(
+               "/answer proceed with setup",
+               result,
+               output,
+               state,
+               80,
+               24,
+               callbacks
+             )
+
+    assert_received {:answer, "proceed with setup"}
+    assert TuiState.mode(state) == :normal
+    assert TuiState.pidx(state) == 0
+  end
+
   test "handle clears captured output and redraws", %{output: output, state: state} do
     callbacks = callbacks(self())
 

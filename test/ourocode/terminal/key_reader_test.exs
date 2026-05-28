@@ -115,14 +115,14 @@ defmodule Ourocode.Terminal.KeyReaderTest do
   end
 
   test "decodes a multi-byte UTF-8 grapheme and buffers an incomplete tail" do
-    assert {[{:char, "안"}], ""} = keys("안")
+    assert {[{:char, "界"}], ""} = keys("界")
 
-    <<lead, tail::binary>> = "녕"
+    <<lead, tail::binary>> = "中"
     assert {[], buffered} = keys(<<lead>>)
     assert buffered == <<lead>>
 
     {events, rest} = KeyReader.decode(<<lead>> <> tail)
-    assert Enum.map(events, & &1.char) == ["녕"]
+    assert Enum.map(events, & &1.char) == ["中"]
     assert rest == ""
   end
 

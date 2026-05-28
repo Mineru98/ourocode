@@ -8,6 +8,7 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
     TuiNormalKey,
     TuiNormalNavigation,
     TuiNormalSubmit,
+    TuiCompletions,
     TuiPalette,
     TuiState
   }
@@ -42,7 +43,10 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
       {:model, model_event} ->
         TuiModelEvent.handle(model_event, state, callbacks, draw, cont)
 
-      {:normal, %{key: down}} when down in [:down, :tab, :ctrl_n] ->
+      {:normal, %{key: :tab}} ->
+        handle_tab(state, callbacks, draw, cont)
+
+      {:normal, %{key: down}} when down in [:down, :ctrl_n] ->
         handle_down(state, callbacks)
         draw.()
         cont.()
@@ -53,12 +57,18 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
         cont.()
 
       {:normal, %{key: :char, char: "/"}} ->
-        if TuiState.buffer(state) == "" do
-          TuiState.put_mode(state, :palette)
-          TuiState.put_pidx(state, 0)
-        end
+        cond do
+          cancel_prefix_event?(state, event, callbacks) ->
+            edit_cancel_prefix(state, event, callbacks, cont)
 
-        edit_and_redraw(state, event, draw, cont)
+          TuiState.buffer(state) == "" and slash_opens_palette?(state, callbacks) ->
+            TuiState.put_mode(state, :palette)
+            TuiState.put_pidx(state, 0)
+            edit_and_redraw(state, event, draw, cont)
+
+          true ->
+            edit_and_redraw(state, event, draw, cont)
+        end
 
       {:normal, %{key: :enter}} ->
         handle_enter(state, callbacks, draw, cont)
@@ -79,7 +89,11 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
         cont.()
 
       {:normal, %{key: :char, char: char}} when is_binary(char) ->
-        edit_and_redraw(state, event, draw, cont)
+        if cancel_prefix_event?(state, event, callbacks) do
+          edit_cancel_prefix(state, event, callbacks, cont)
+        else
+          edit_and_redraw(state, event, draw, cont)
+        end
 
       {:normal, %{key: :paste, char: text}} when is_binary(text) ->
         edit_and_redraw(state, event, draw, cont)
@@ -99,6 +113,17 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
     TuiNormalNavigation.move_vertical(state, 1, test_run?(callbacks))
   end
 
+  defp handle_tab(state, callbacks, draw, cont) do
+    if TuiCompletions.insert_active_choice(state, test_run?(callbacks)) do
+      draw.()
+      cont.()
+    else
+      handle_down(state, callbacks)
+      draw.()
+      cont.()
+    end
+  end
+
   defp handle_up(state, callbacks) do
     TuiNormalNavigation.move_vertical(state, -1, test_run?(callbacks))
   end
@@ -113,6 +138,27 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
     TuiState.reset_history_cursor(state)
     draw.()
     cont.()
+  end
+
+  defp edit_cancel_prefix(state, event, callbacks, cont) do
+    TuiState.edit_buffer(state, event)
+    TuiState.put_pidx(state, 0)
+    TuiState.reset_history_cursor(state)
+
+    if TuiState.buffer(state) == "/cancel" do
+      _ = TuiState.take_buffer(state)
+
+      callbacks
+      |> Map.fetch!(:handle_enter)
+      |> then(& &1.("/cancel"))
+      |> case do
+        {:submit, line} -> {:submit, line}
+        :exit -> :exit
+        _other -> cont.()
+      end
+    else
+      cont.()
+    end
   end
 
   defp scroll_and_redraw(state, delta, draw, cont) do
@@ -140,4 +186,16 @@ defmodule Ourocode.Terminal.TuiNormalEvent do
       _other -> false
     end
   end
+
+  defp slash_opens_palette?(state, callbacks) do
+    not TuiState.force_interview_paused?(state) and
+      not Map.get(callbacks, :interview_capturing?, false)
+  end
+
+  defp cancel_prefix_event?(state, %{key: :char, char: char}, callbacks) when is_binary(char) do
+    Map.get(callbacks, :interview_capturing?, false) and
+      String.starts_with?("/cancel", TuiState.buffer(state) <> char)
+  end
+
+  defp cancel_prefix_event?(_state, _event, _callbacks), do: false
 end

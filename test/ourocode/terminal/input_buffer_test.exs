@@ -11,10 +11,10 @@ defmodule Ourocode.Terminal.InputBufferTest do
   end
 
   test "inserts and deletes grapheme-safe text" do
-    graphemes = String.graphemes("a한b")
+    graphemes = String.graphemes("a界b")
 
     assert InputBuffer.insert_text(graphemes, 2, "🙂") ==
-             {String.graphemes("a한🙂b"), 3}
+             {String.graphemes("a界🙂b"), 3}
 
     assert InputBuffer.delete_before(graphemes, 2) == {String.graphemes("ab"), 1}
     assert InputBuffer.delete_at(graphemes, 1) == {String.graphemes("ab"), 1}

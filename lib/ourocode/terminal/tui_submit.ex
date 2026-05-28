@@ -2,7 +2,14 @@ defmodule Ourocode.Terminal.TuiSubmit do
   @moduledoc false
 
   alias Ourocode.Provider.Codex
-  alias Ourocode.Terminal.{TuiChat, TuiInteraction, TuiLogin, TuiState}
+
+  alias Ourocode.Terminal.{
+    TuiChat,
+    TuiInteraction,
+    TuiLogin,
+    TuiState,
+    WorkspaceModel
+  }
 
   @spec handle(String.t(), map(), pid(), pid(), pos_integer(), pos_integer(), keyword()) ::
           :continue | :exit | {:submit, String.t()}
@@ -24,13 +31,28 @@ defmodule Ourocode.Terminal.TuiSubmit do
 
   def handle("/clear", result, output, state, cols, rows, callbacks) do
     clear_captured_output(output)
+    TuiState.put_workspace(state, nil)
     redraw(callbacks).(result, output, state, "", cols, rows)
     :continue
   end
 
-  def handle("/answer " <> answer, result, output, state, _cols, _rows, _callbacks) do
+  def handle("/answer " <> answer, result, output, state, cols, rows, callbacks) do
+    close_overlay(state)
     TuiInteraction.submit_slash_answer(answer, result, output, state)
+    redraw(callbacks).(result, output, state, "", cols, rows)
     :continue
+  end
+
+  def handle("/cancel", result, output, state, cols, rows, callbacks) do
+    case TuiInteraction.submit_cancel(result, output, state) do
+      :handled ->
+        close_overlay(state)
+        redraw(callbacks).(result, output, state, "", cols, rows)
+        :continue
+
+      :not_handled ->
+        {:submit, "/cancel"}
+    end
   end
 
   def handle("/exit", _result, _output, _state, _cols, _rows, _callbacks), do: :exit
@@ -44,16 +66,25 @@ defmodule Ourocode.Terminal.TuiSubmit do
     :continue
   end
 
-  def handle("/" <> _ = line, _result, _output, _state, _cols, _rows, _callbacks) do
+  def handle("/" <> _ = line, result, _output, state, _cols, _rows, _callbacks) do
+    maybe_put_workspace(line, result, state)
     {:submit, line}
   end
 
   def handle("ooo" <> _ = line, result, output, state, cols, rows, callbacks) do
+    if auto_workflow?(line) do
+      TuiState.put_workspace(state, WorkspaceModel.workflow_start(line))
+    else
+      TuiState.put_workspace(state, nil)
+    end
+
     redraw(callbacks).(result, output, state, "", cols, rows)
     {:submit, line}
   end
 
   def handle(prompt, result, output, state, cols, rows, callbacks) do
+    TuiState.put_workspace(state, nil)
+
     TuiChat.chat(
       prompt,
       result,
@@ -73,10 +104,42 @@ defmodule Ourocode.Terminal.TuiSubmit do
 
   defp log(output, text), do: IO.puts(output, text)
 
+  defp close_overlay(state) do
+    TuiState.put_mode(state, :normal)
+    TuiState.put_pidx(state, 0)
+  end
+
   defp clear_captured_output(output) do
     StringIO.flush(output)
     :ok
   rescue
     _exception -> :ok
+  end
+
+  defp maybe_put_workspace(line, result, state) do
+    [command | args] = String.split(line, ~r/\s+/, parts: 2)
+
+    if workspace_preview_command?(command, args) do
+      tui_state = %{
+        startup_result: display_result(result, state),
+        pane_model: get_in(result, [:runtime, :pane_model]) || %{}
+      }
+
+      TuiState.put_workspace(state, WorkspaceModel.build(command, tui_state, %{}))
+    else
+      TuiState.put_workspace(state, nil)
+    end
+  end
+
+  defp workspace_preview_command?("/resume", [_args]), do: false
+  defp workspace_preview_command?(command, _args), do: WorkspaceModel.management_command?(command)
+
+  defp display_result(result, state) do
+    if TuiState.force_interview_paused?(state), do: Map.put(result, :paused, true), else: result
+  end
+
+  defp auto_workflow?(line) do
+    normalized = line |> String.trim() |> String.downcase()
+    normalized == "ooo auto" or String.starts_with?(normalized, "ooo auto ")
   end
 end

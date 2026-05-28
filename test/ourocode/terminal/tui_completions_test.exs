@@ -38,4 +38,28 @@ defmodule Ourocode.Terminal.TuiCompletionsTest do
     assert Agent.get(state, & &1.buffer) == "open @lib/ourocode/terminal/tui.ex "
     assert Agent.get(state, & &1.cursor) == String.length("open @lib/ourocode/terminal/tui.ex ")
   end
+
+  test "insert_active_choice completes the selected ooo command" do
+    state = TuiState.start_link()
+
+    Agent.update(state, fn tui_state ->
+      %{tui_state | buffer: "ooo int", cursor: String.length("ooo int"), pidx: 0}
+    end)
+
+    assert TuiCompletions.insert_active_choice(state, true)
+    assert Agent.get(state, & &1.buffer) == "ooo interview "
+    assert Agent.get(state, & &1.cursor) == String.length("ooo interview ")
+    assert Agent.get(state, & &1.pidx) == 0
+  end
+
+  test "insert_active_choice leaves normal input unchanged" do
+    state = TuiState.start_link()
+
+    Agent.update(state, fn tui_state ->
+      %{tui_state | buffer: "normal input", cursor: String.length("normal input"), pidx: 0}
+    end)
+
+    refute TuiCompletions.insert_active_choice(state, true)
+    assert Agent.get(state, & &1.buffer) == "normal input"
+  end
 end

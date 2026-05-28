@@ -69,6 +69,27 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
     assert_received {:handle_enter, "hello", 100, 30}
   end
 
+  test "tab completes a partial ooo command", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    TuiState.edit_buffer(state, %{key: :paste, char: "ooo int"})
+
+    assert TuiInputLoop.handle_events(
+             [%{key: :tab}],
+             %{},
+             output,
+             state,
+             80,
+             24,
+             callbacks
+           ) == :continue
+
+    assert TuiState.buffer(state) == "ooo interview "
+    assert_received {:redraw, "ooo interview ", 80, 24}
+  end
+
   test "ctrl-c exits before later events are applied", %{
     callbacks: callbacks,
     output: output,
@@ -87,6 +108,135 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
     assert TuiState.buffer(state) == ""
   end
 
+  test "tick flushes a buffered standalone escape immediately", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    parent = self()
+    TuiState.put_leftover(state, <<27>>)
+
+    result = %{
+      pane_snapshot: fn -> %{wonder_tool: detection(), paused: false} end,
+      wonder_answer: fn _payload -> {:ok, %{}} end,
+      wonder_pause: fn -> send(parent, :paused) end
+    }
+
+    assert TuiInputLoop.handle_tick(result, output, state, 80, 24, callbacks) == :continue
+    assert_received :paused
+    assert TuiState.take_leftover(state) == ""
+  end
+
+  test "tick preserves incomplete escape sequences", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    TuiState.put_leftover(state, <<27, ?[>>)
+
+    assert TuiInputLoop.handle_tick(%{}, output, state, 80, 24, callbacks) == :continue
+    assert TuiState.take_leftover(state) == <<27, ?[>>
+  end
+
+  test "slash input while forced paused stays in the composer", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    TuiState.put_force_interview_paused(state, true)
+
+    assert TuiInputLoop.handle_events(
+             [%{key: :char, char: "/"}],
+             %{},
+             output,
+             state,
+             80,
+             24,
+             callbacks
+           ) == :continue
+
+    assert TuiState.mode(state) == :normal
+    assert TuiState.buffer(state) == "/"
+    assert_received {:redraw, "/", 80, 24}
+  end
+
+  test "slash enter during an active interview dispatches the command instead of answering", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    TuiState.edit_buffer(state, %{key: :paste, char: "/agents"})
+
+    result = %{
+      pane_snapshot: fn -> %{wonder_tool: detection(), paused: false} end,
+      wonder_answer: fn _payload ->
+        send(self(), :unexpected_answer)
+        {:ok, %{}}
+      end
+    }
+
+    assert TuiInputLoop.handle_events(
+             [%{key: :enter}],
+             result,
+             output,
+             state,
+             80,
+             24,
+             callbacks
+           ) == {:submit, "/agents"}
+
+    assert_received {:handle_enter, "/agents", 80, 24}
+    refute_received :unexpected_answer
+  end
+
+  test "slash input during active interview stays in composer instead of opening palette", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    result = %{pane_snapshot: fn -> %{wonder_tool: detection(), paused: false} end}
+
+    assert TuiInputLoop.handle_events(
+             [%{key: :char, char: "/"}],
+             result,
+             output,
+             state,
+             80,
+             24,
+             callbacks
+           ) == :continue
+
+    assert TuiState.mode(state) == :normal
+    assert TuiState.buffer(state) == "/"
+    refute_received {:redraw, "/", 80, 24}
+  end
+
+  test "tick does not redraw a pending cancel prefix during active interview", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    TuiState.edit_buffer(state, %{key: :paste, char: "/canc"})
+    result = %{pane_snapshot: fn -> %{interview: %{complete: false, status: "opening"}} end}
+
+    assert TuiInputLoop.handle_tick(result, output, state, 80, 24, callbacks) == :continue
+
+    refute_received {:redraw, "/canc", 80, 24}
+  end
+
+  test "tick redraws non-cancel slash input during active interview", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    TuiState.edit_buffer(state, %{key: :paste, char: "/agents"})
+    result = %{pane_snapshot: fn -> %{interview: %{complete: false, status: "opening"}} end}
+
+    assert TuiInputLoop.handle_tick(result, output, state, 80, 24, callbacks) == :continue
+
+    assert_received {:redraw, "/agents", 80, 24}
+  end
+
   defp callbacks(parent) do
     %{
       choose_model: fn _result, _output, _state, columns, rows ->
@@ -102,6 +252,23 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
         :ok
       end,
       test_run?: fn -> true end
+    }
+  end
+
+  defp detection do
+    %{
+      request: %{
+        tool: :wonder_tool,
+        type: :multiple_choice_decision,
+        questions: [
+          %{
+            id: "first",
+            header: "First",
+            question: "Pick one",
+            options: [%{label: "a", description: "a description"}]
+          }
+        ]
+      }
     }
   end
 end
