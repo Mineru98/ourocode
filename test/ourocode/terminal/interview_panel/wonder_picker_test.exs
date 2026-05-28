@@ -50,7 +50,7 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPickerTest do
 
     assert lines == [
              "Review answers before submit",
-             "Enter confirms all selections, Esc returns to main session",
+             "Enter confirms all selections, Esc pauses to discuss",
              "[1/2] Scope",
              "  Broad",
              "[2/2] Checks",
@@ -76,7 +76,7 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPickerTest do
              "Choose one",
              "   [1] Small - one module",
              ">> [2] Broad - whole app",
-             "   [Free answer] type below, then Enter"
+             "   [Custom answer] type any text, then Enter"
            ]
   end
 

@@ -9,24 +9,24 @@ defmodule Ourocode.Terminal.InterviewPanel.Hints do
 
   @spec session_hint(boolean()) :: String.t()
   def session_hint(true),
-    do: "paused   type to talk to main   /answer <answer> submits to interview"
+    do: "paused   /answer <answer> resumes   /cancel stops interview"
 
-  def session_hint(false), do: "running   the main session is handling this   stays until it ends"
+  def session_hint(false), do: "drafting question"
 
   @spec wonder_hint(boolean(), boolean()) :: String.t()
   def wonder_hint(true, _has_detection?),
-    do: "type to talk to main session   answers resume the interview"
+    do: "paused   /answer <text> resumes   /cancel stops interview"
 
-  def wonder_hint(false, true), do: "1-9 select   type free answer   /cancel decline   Esc pause"
-  def wonder_hint(false, false), do: "type your answer + Enter   Esc pause"
+  def wonder_hint(false, true), do: "/cancel stops"
+  def wonder_hint(false, false), do: "plain answer"
 
   @spec wonder_pick_hint(boolean(), non_neg_integer()) :: String.t()
   def wonder_pick_hint(true, _question_count),
-    do: "type to talk to main   /answer <answer> submits to interview"
+    do: "paused   /answer <text> resumes   /cancel stops interview"
 
   def wonder_pick_hint(false, question_count) when question_count > 1,
-    do: "Up/Dn pick   Tab next question   Free answer row   Enter submit all   Esc pause"
+    do: "Tab switches question"
 
   def wonder_pick_hint(false, _question_count),
-    do: "Up/Dn pick   1-9 shortcut   Free answer row   Enter submit   Esc pause"
+    do: ""
 end

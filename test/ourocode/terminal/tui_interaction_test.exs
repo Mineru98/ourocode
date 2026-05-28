@@ -72,6 +72,111 @@ defmodule Ourocode.Terminal.TuiInteractionTest do
     assert captured =~ "-- interview paused"
   end
 
+  test "cancel closes an active wonder checkpoint without slash command dispatch", %{
+    output: output,
+    state: state
+  } do
+    parent = self()
+    IO.write(output, "you> Define the target user\nqueued task task_1\n")
+
+    result =
+      wonder_result(fn _payload -> {:ok, %{}} end)
+      |> Map.put(:wonder_cancel, fn reason ->
+        send(parent, {:cancelled, reason})
+        {:ok, %{cancelled: true}}
+      end)
+
+    assert :handled = TuiInteraction.submit_cancel(result, output, state)
+    assert_received {:cancelled, "cancel"}
+
+    {_input, captured} = StringIO.contents(output)
+    assert captured == ""
+    refute captured =~ "you> /cancel"
+    refute captured =~ "Define the target user"
+    refute captured =~ "queued task"
+
+    assert %{kind: "interview", title: "Interview Stopped", status: "cancelled"} =
+             workspace =
+             TuiState.workspace(state)
+
+    assert get_in(workspace, [:detail, :title]) == "Interview stopped"
+  end
+
+  test "cancel stops the interview when the wonder checkpoint belongs to one", %{
+    output: output,
+    state: state
+  } do
+    parent = self()
+
+    result =
+      wonder_result(fn _payload -> {:ok, %{}} end)
+      |> put_in([:pane_snapshot], fn ->
+        %{wonder_tool: detection(), interview: %{question: "Continue?"}, paused: false}
+      end)
+      |> Map.put(:wonder_cancel, fn reason ->
+        send(parent, {:cancelled, reason})
+        {:ok, %{cancelled: true}}
+      end)
+
+    assert :handled = TuiInteraction.submit_cancel(result, output, state)
+    assert_received {:cancelled, "cancel"}
+    refute_received {:answer, "cancel"}
+    assert TuiState.wonder_nav(state) == nil
+
+    {_input, captured} = StringIO.contents(output)
+    assert captured == ""
+    refute captured =~ "you> /cancel"
+
+    assert get_in(TuiState.workspace(state), [:detail, :fields, :step]) ==
+             "cancel acknowledged"
+  end
+
+  test "cancel uses the dedicated terminal callback for a plain interview", %{
+    output: output,
+    state: state
+  } do
+    parent = self()
+    IO.write(output, "you> Define the target user\nqueued task task_1\n")
+
+    result = %{
+      pane_snapshot: fn -> %{interview: %{question: "Continue?"}, paused: true} end,
+      interview_cancel: fn ->
+        send(parent, :cancelled)
+        {:ok, "cancel"}
+      end
+    }
+
+    assert :handled = TuiInteraction.submit_cancel(result, output, state)
+    assert_received :cancelled
+
+    {_input, captured} = StringIO.contents(output)
+    assert captured == ""
+    refute captured =~ "you> /cancel"
+    refute captured =~ "Define the target user"
+    refute captured =~ "queued task"
+
+    assert get_in(TuiState.workspace(state), [:detail, :fields, :current]) ==
+             "no active question is waiting"
+  end
+
+  test "cancel falls back to terminal answer callback for embedders", %{
+    output: output,
+    state: state
+  } do
+    parent = self()
+
+    result = %{
+      pane_snapshot: fn -> %{interview: %{question: "Continue?"}, paused: true} end,
+      interview_answer: fn answer ->
+        send(parent, {:answer, answer})
+        {:ok, answer}
+      end
+    }
+
+    assert :handled = TuiInteraction.submit_cancel(result, output, state)
+    assert_received {:answer, "cancel"}
+  end
+
   defp wonder_result(answer_fun) do
     %{
       pane_snapshot: fn -> %{wonder_tool: detection(), paused: false} end,

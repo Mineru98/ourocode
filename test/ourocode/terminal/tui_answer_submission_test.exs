@@ -63,6 +63,60 @@ defmodule Ourocode.Terminal.TuiAnswerSubmissionTest do
     assert_received {:payload, %{"freeText" => "custom", "questionId" => "first"}}
   end
 
+  test "submit_enter_answer holds ooo commands during active wonder instead of sending free text",
+       %{
+         output: output,
+         state: state
+       } do
+    parent = self()
+
+    result =
+      wonder_result(fn payload ->
+        send(parent, {:payload, payload})
+        {:ok, %{selected_label: "custom"}}
+      end)
+
+    assert :handled =
+             TuiAnswerSubmission.submit_enter_answer(
+               "ooo pm build onboarding",
+               result,
+               output,
+               state,
+               wonder_context()
+             )
+
+    refute_received {:payload, _payload}
+    {_input, captured} = StringIO.contents(output)
+    assert captured =~ "Command held."
+  end
+
+  test "submit_enter_answer holds ooo commands during active interview instead of answering", %{
+    output: output,
+    state: state
+  } do
+    parent = self()
+
+    result = %{
+      interview_answer: fn answer ->
+        send(parent, {:interview, answer})
+        {:ok, answer}
+      end
+    }
+
+    assert :handled =
+             TuiAnswerSubmission.submit_enter_answer(
+               "ooo pm build onboarding",
+               result,
+               output,
+               state,
+               %{wonder_active?: false, wonder_detection: nil, interview_active?: true}
+             )
+
+    refute_received {:interview, _answer}
+    {_input, captured} = StringIO.contents(output)
+    assert captured =~ "Command held."
+  end
+
   test "submit_free_text sends interview answer", %{output: output, state: state} do
     parent = self()
 

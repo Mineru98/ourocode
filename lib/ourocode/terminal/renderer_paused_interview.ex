@@ -15,14 +15,15 @@ defmodule Ourocode.Terminal.RendererPausedInterview do
   @spec palette(map() | nil, String.t(), map()) :: map() | nil
   def palette(%{entries: entries} = palette, prompt_buffer, opts) do
     if Map.get(opts, :interview_paused, false) do
-      answer_entries =
-        if answer_query?(prompt_buffer),
-          do: [answer_entry()],
-          else: Palette.filter([answer_entry()], prompt_buffer)
-
-      entries = answer_entries ++ Enum.reject(entries, &(&1.slash == "/answer"))
-      index = Palette.clamp(Map.get(opts, :pidx, Map.get(palette, :index, 0)), length(entries))
-      %{palette | entries: entries, index: index}
+      if command_prompt?(prompt_buffer) do
+        nil
+      else
+        controls = [answer_entry(), cancel_entry()]
+        control_entries = Palette.filter(controls, prompt_buffer)
+        entries = control_entries ++ Enum.reject(entries, &(&1.slash in ["/answer", "/cancel"]))
+        index = Palette.clamp(Map.get(opts, :pidx, Map.get(palette, :index, 0)), length(entries))
+        %{palette | entries: entries, index: index}
+      end
     else
       palette
     end
@@ -40,6 +41,24 @@ defmodule Ourocode.Terminal.RendererPausedInterview do
 
   def answer_query?(_prompt_buffer), do: false
 
+  @spec cancel_query?(term()) :: boolean()
+  def cancel_query?(prompt_buffer) when is_binary(prompt_buffer) do
+    prompt_buffer
+    |> String.trim_leading()
+    |> String.downcase()
+    |> then(&(&1 == "/cancel" or String.starts_with?(&1, "/cancel ")))
+  end
+
+  def cancel_query?(_prompt_buffer), do: false
+
+  defp command_prompt?(prompt_buffer) when is_binary(prompt_buffer) do
+    prompt_buffer
+    |> String.trim_leading()
+    |> String.starts_with?("/")
+  end
+
+  defp command_prompt?(_prompt_buffer), do: false
+
   @spec answer_entry() :: map()
   def answer_entry do
     %{
@@ -51,6 +70,20 @@ defmodule Ourocode.Terminal.RendererPausedInterview do
       availability: :ready,
       aliases: [],
       args: [%{name: "answer", required?: true, description: "Interview answer text"}]
+    }
+  end
+
+  @spec cancel_entry() :: map()
+  def cancel_entry do
+    %{
+      slash: "/cancel",
+      name: "cancel",
+      summary: "Stop the paused interview and close the checkpoint.",
+      category: :interaction,
+      source: :runtime,
+      availability: :ready,
+      aliases: [],
+      args: []
     }
   end
 end

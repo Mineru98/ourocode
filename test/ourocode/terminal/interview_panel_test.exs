@@ -37,11 +37,10 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     assert Enum.at(lines, 0) =~ "Question 1/2"
     assert ">> [2] broad - whole app" in lines
 
-    assert hint ==
-             "Up/Dn pick   Tab next question   Free answer row   Enter submit all   Esc pause"
+    assert hint == "Tab switches question"
   end
 
-  test "interview block falls back to the active question when wonder request is incomplete" do
+  test "interview block falls back to a synthesized picker when wonder request is incomplete" do
     result = %{
       wonder_tool: %{request_id: "bad-wt", request: %{"questions" => []}},
       interview: %{
@@ -50,30 +49,81 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
       }
     }
 
-    assert {"INTERVIEW", lines, "type your answer + Enter   Esc pause"} =
+    assert {"INTERVIEW", lines, ""} =
              InterviewPanel.interview_block_lines(result, nil, 0)
 
-    assert {"Which scope should we inspect first?", :warn} in lines
+    assert "Which scope should we inspect first?" in lines
+    assert ">> [1] Clarify the first priority - Choose the highest-impact decision first" in lines
   end
 
   test "interview block renders dialogue and dim working status for plain interview state" do
     result = %{
       interview: %{
         dialogue: [
-          %{role: :mcp, text: "Which workflow matters most?"},
-          %{role: :user, text: "Plugin dispatch"}
+          %{role: :user, text: "Plugin dispatch"},
+          %{role: :mcp, text: "Which workflow matters most?"}
         ],
         router: ["TOOL grep"]
       }
     }
 
-    assert {"INTERVIEW", lines, "type your answer + Enter   Esc pause"} =
+    assert {"INTERVIEW", lines, "plain answer"} =
              InterviewPanel.interview_block_lines(result, nil, 0)
 
-    assert {"MCP   Which workflow matters most?", :warn} in lines
-    assert {"YOU   Plugin dispatch", :strong} in lines
+    assert {"Question  Which workflow matters most?", :warn} in lines
+    assert {"Answer  Plugin dispatch", :strong} in lines
     assert :rule in lines
-    assert {"| main session is checking project context", :dim} in lines
+    assert {"■⬝⬝ main session is checking project context", :dim} in lines
+  end
+
+  test "interview block clears after user-cancelled completion" do
+    result = %{
+      interview: %{
+        complete: :user_done,
+        mcp_activity: ["activity: stale"],
+        question: "Which workflow matters most?",
+        question_options: [
+          %{label: "Plugins", description: "Focus plugin dispatch"},
+          %{label: "Runtime", description: "Focus runtime state"}
+        ],
+        status: "waiting for your answer"
+      }
+    }
+
+    assert InterviewPanel.interview_block_lines(result, nil, 0) == nil
+    assert InterviewPanel.interview_reasoning_lines(result, 0) == []
+    assert InterviewPanel.mcp_activity_lines(result) == []
+  end
+
+  test "interview block strips MCP session preamble from dialogue rows" do
+    result = %{
+      interview: %{
+        dialogue: [
+          %{
+            role: :mcp,
+            text:
+              "MCP Interview started. Session ID: interview20260526153956 What should we validate?"
+          }
+        ]
+      }
+    }
+
+    assert {"INTERVIEW", lines, _hint} = InterviewPanel.interview_block_lines(result, nil, 0)
+
+    assert {"Question  What should we validate?", :warn} in lines
+
+    refute Enum.any?(lines, fn
+             {line, _style} ->
+               line =~ "MCP Interview started" or line =~ "Session ID:" or
+                 line =~ "Session interview"
+
+             line when is_binary(line) ->
+               line =~ "MCP Interview started" or line =~ "Session ID:" or
+                 line =~ "Session interview"
+
+             :rule ->
+               false
+           end)
   end
 
   test "interview block renders stored question options as a picker" do
@@ -88,10 +138,9 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
       }
     }
 
-    assert {"INTERVIEW", lines, "type your answer + Enter   Esc pause"} =
+    assert {"INTERVIEW", lines, ""} =
              InterviewPanel.interview_block_lines(result, nil, 0)
 
-    assert "Interview" in lines
     assert "Which first user outcome matters most?" in lines
     assert ">> [1] Quality - Raise reliability first" in lines
     assert "   [2] Speed - Optimize turnaround first" in lines
@@ -103,6 +152,136 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
            end)
   end
 
+  test "interview block synthesizes a picker as soon as a question is ready" do
+    result = %{
+      interview: %{
+        dialogue: [
+          %{
+            role: :mcp,
+            text:
+              "What outcome should validate plugin install flow produce: a testable requirements seed, or an investigation checklist?"
+          },
+          %{role: :user, text: "validate plugin install flow"}
+        ],
+        question:
+          "What outcome should validate plugin install flow produce: a testable requirements seed, or an investigation checklist?",
+        status: "waiting for your answer",
+        router: ["PATH"]
+      }
+    }
+
+    assert {"INTERVIEW", lines, ""} =
+             InterviewPanel.interview_block_lines(result, nil, 12)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "What outcome should validate plugin install flow produce"
+    assert text =~ ">> [1] a testable requirements seed"
+    assert text =~ "   [2] an investigation checklist"
+    refute text =~ "Answer  validate plugin install flow"
+    refute text =~ "Question  What outcome"
+    refute text =~ "preparing interview question"
+  end
+
+  test "interview block hides stale options after the current question is answered" do
+    result = %{
+      interview: %{
+        dialogue: [
+          %{role: :user, text: "End-to-end install succeeds"},
+          %{role: :mcp, text: "Which proof matters most?"},
+          %{role: :user, text: "validate plugin install flow"}
+        ],
+        question: "Which proof matters most?",
+        question_options: [
+          %{label: "Install success", description: "Run a real plugin install"},
+          %{label: "Failure diagnostics", description: "Check bad plugin output"}
+        ],
+        router: []
+      }
+    }
+
+    assert {"INTERVIEW", lines, "plain answer"} =
+             InterviewPanel.interview_block_lines(result, nil, 0)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "Question  Which proof matters most?"
+    assert text =~ "Answer  End-to-end install succeeds"
+    refute text =~ ">> [1] Install success"
+    refute text =~ "[Free answer]"
+  end
+
+  test "answered waiting state keeps context without rendering stale choices" do
+    result = %{
+      interview: %{
+        waiting: true,
+        status: "preparing next interview question",
+        question: "",
+        last_answered_question: "Which proof matters most?",
+        last_answer: "Run the verifier",
+        last_question_options: [
+          %{label: "Health checks", description: "Run the local checks"}
+        ],
+        waiting_started_monotonic_ms: System.monotonic_time(:millisecond) - 3_000
+      }
+    }
+
+    assert {"INTERVIEW", lines, "plain answer"} =
+             InterviewPanel.interview_block_lines(result, nil, 2)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "Round accepted"
+    assert text =~ "Question  Which proof matters most?"
+    assert text =~ "Answer    Run the verifier"
+    assert text =~ "Next      answer sent; generating choices"
+    assert text =~ "building next answer choices"
+    assert text =~ "No input needed; choices will appear automatically"
+    refute text =~ ">> [1] Health checks"
+    refute text =~ "[Custom answer]"
+  end
+
+  test "answered waiting state distinguishes opening the interview session" do
+    result = %{
+      interview: %{
+        waiting: true,
+        status: "opening interview session to send answer",
+        question: "",
+        last_answered_question: "What outcome should this PM interview produce?",
+        last_answer: "Define the target user",
+        waiting_started_monotonic_ms: System.monotonic_time(:millisecond) - 1_000
+      }
+    }
+
+    assert {"INTERVIEW", lines, _hint} = InterviewPanel.interview_block_lines(result, nil, 1)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "Next      opening interview session"
+    assert text =~ "opening the interview session - choices will appear here"
+    refute text =~ "building next answer choices"
+  end
+
   test "interview block fails closed to the current question when dialogue is malformed" do
     result = %{
       interview: %{
@@ -112,10 +291,11 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
       }
     }
 
-    assert {"INTERVIEW", lines, "type your answer + Enter   Esc pause"} =
+    assert {"INTERVIEW", lines, ""} =
              InterviewPanel.interview_block_lines(result, nil, 0)
 
-    assert {"Which first user outcome should this interview clarify?", :warn} in lines
+    assert "Which first user outcome should this interview clarify?" in lines
+    assert ">> [1] Clarify the first priority - Choose the highest-impact decision first" in lines
   end
 
   test "interview block renders sticky live session hints while no question is pending" do
@@ -127,14 +307,143 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     assert {"INTERVIEW", ["ooo interview plugin dispatch", {activity, :dim}], hint} =
              InterviewPanel.interview_block_lines(running, nil, 1)
 
-    assert activity =~ "/ thinking"
-    assert hint == "running   the main session is handling this   stays until it ends"
+    assert activity =~ "■■⬝ building the first question"
+    assert hint == "drafting question"
 
     paused = %{running | paused: true}
 
     assert {"INTERVIEW (paused)", ["ooo interview plugin dispatch"], paused_hint} =
              InterviewPanel.interview_block_lines(paused, nil, 1)
 
-    assert paused_hint == "paused   type to talk to main   /answer <answer> submits to interview"
+    assert paused_hint == "paused   /answer <answer> resumes   /cancel stops interview"
+  end
+
+  test "interview block does not synthesize generic options before a question exists" do
+    result = %{
+      interview: %{
+        dialogue: [%{role: :user, text: "ooo interview validate plugin install flow"}],
+        question: "",
+        status: "waiting for MCP interview question",
+        waiting: true
+      }
+    }
+
+    assert {"INTERVIEW", lines, "plain answer"} =
+             InterviewPanel.interview_block_lines(result, nil, 24)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "Answer  ooo interview validate plugin install flow"
+    assert text =~ "■⬝⬝ building the first question"
+    refute text =~ "Answer in my own words"
+    refute text =~ "[Free answer]"
+  end
+
+  test "delayed interview preparation shows explicit waiting actions without fake options" do
+    result = %{
+      interview: %{
+        dialogue: [%{role: :user, text: "ooo interview validate plugin install flow"}],
+        question: "",
+        status: "waiting for MCP interview question",
+        waiting: true,
+        waiting_started_monotonic_ms: System.monotonic_time(:millisecond) - 7_000
+      }
+    }
+
+    assert {"INTERVIEW", lines, "plain answer"} =
+             InterviewPanel.interview_block_lines(result, nil, 24)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "No input needed; choices will appear automatically"
+    assert text =~ "Esc pauses so you can add context"
+    assert text =~ "/cancel stops this interview"
+    refute text =~ "[1]"
+    refute text =~ "[Free answer]"
+  end
+
+  test "long delayed interview preparation shows retry guidance without implying Enter helps" do
+    result = %{
+      interview: %{
+        dialogue: [%{role: :user, text: "ooo pm plan plugin setup"}],
+        question: "",
+        status: "waiting for MCP follow-up question",
+        waiting: true,
+        waiting_started_monotonic_ms: System.monotonic_time(:millisecond) - 16_000
+      }
+    }
+
+    assert {"INTERVIEW", lines, "plain answer"} =
+             InterviewPanel.interview_block_lines(result, nil, 60)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "still building choices"
+    assert text =~ "No input needed; choices will appear automatically"
+    assert text =~ "/cancel stops; submit the same command to retry"
+    refute text =~ "Enter waits for choices"
+  end
+
+  test "server error state does not render stale working guidance" do
+    result = %{
+      interview: %{
+        dialogue: [%{role: :user, text: "ooo interview build slides"}],
+        question: "",
+        status:
+          "MCP question generator unavailable: Question generation failed: Error loading config.toml",
+        waiting: false,
+        resumable: true,
+        session_id: "interview-1"
+      }
+    }
+
+    assert {"INTERVIEW", lines, _hint} = InterviewPanel.interview_block_lines(result, nil, 80)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "MCP question generator unavailable"
+    assert text =~ "Session  interview-1 resume available"
+    refute text =~ "still building choices"
+    refute text =~ "working, not stuck"
+    refute text =~ "No input needed; choices will appear automatically"
+  end
+
+  test "interview block does not show preparation status once a question is ready" do
+    result = %{
+      pane_snapshot: fn ->
+        %{
+          interview: %{
+            question: "Which setup step should the interview clarify?",
+            question_options: [
+              %{label: "Setup docs", description: "Clarify first-run setup"}
+            ],
+            router: ["PATH"]
+          },
+          paused: false
+        }
+      end
+    }
+
+    assert InterviewPanel.interview_working_lines(result, 0) == []
   end
 end

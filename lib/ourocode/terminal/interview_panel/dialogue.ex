@@ -1,6 +1,7 @@
 defmodule Ourocode.Terminal.InterviewPanel.Dialogue do
   @moduledoc false
 
+  alias Ourocode.Runtime.InterviewResponse
   alias Ourocode.Terminal.InterviewPanel.Text
 
   @dialogue_tail 6
@@ -33,27 +34,27 @@ defmodule Ourocode.Terminal.InterviewPanel.Dialogue do
   defp maybe_drop_trailing_mcp(turns, _drop?), do: turns
 
   defp internal_turn?(%{role: :main, text: text}) when is_binary(text),
-    do: leaked_router_prompt?(text)
+    do: leaked_router_prompt?(text) or String.starts_with?(String.trim(text), "→ asking you:")
 
   defp internal_turn?(_turn), do: false
 
   defp row(%{role: role, text: text}) do
     {label, style} =
       case role do
-        :mcp -> {"MCP ", :warn}
+        :mcp -> {"Question", :warn}
         :main -> {"MAIN", :ok}
-        :user -> {"YOU ", :strong}
+        :user -> {"Answer", :strong}
         _other -> {"TURN", :dim}
       end
 
-    {label <> "  " <> Text.flatten_line(text), style}
+    {label <> "  " <> (text |> InterviewResponse.clean_markdown() |> Text.flatten_line()), style}
   end
 
   defp leaked_router_prompt?(text) when is_binary(text) do
     flat = String.replace(text, ~r/\s+/, " ")
 
     String.contains?(flat, [
-      "You are the answerer/router half",
+      "Answer are the answerer/router half",
       "Routing rules (from the interview SKILL)",
       "Tool protocol",
       "Output exactly one directive as the first line",

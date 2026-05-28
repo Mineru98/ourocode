@@ -12,9 +12,9 @@ defmodule Ourocode.Terminal.InterviewPanel.DialogueTest do
     }
 
     assert Dialogue.rows(state, false) == [
-             {"YOU   First answer", :strong},
+             {"Answer  First answer", :strong},
              :rule,
-             {"MCP   Second question", :warn}
+             {"Question  Second question", :warn}
            ]
   end
 
@@ -26,18 +26,18 @@ defmodule Ourocode.Terminal.InterviewPanel.DialogueTest do
       ]
     }
 
-    assert Dialogue.rows(state, true) == [{"YOU   Known answer", :strong}]
+    assert Dialogue.rows(state, true) == [{"Answer  Known answer", :strong}]
   end
 
   test "filters leaked internal router prompts from main dialogue" do
     state = %{
       dialogue: [
         %{role: :user, text: "Visible"},
-        %{role: :main, text: "You are the answerer/router half\nTool protocol"}
+        %{role: :main, text: "Answer are the answerer/router half\nTool protocol"}
       ]
     }
 
-    assert Dialogue.rows(state, false) == [{"YOU   Visible", :strong}]
+    assert Dialogue.rows(state, false) == [{"Answer  Visible", :strong}]
   end
 
   test "keeps only the most recent dialogue turns from newest-first state" do
@@ -49,17 +49,17 @@ defmodule Ourocode.Terminal.InterviewPanel.DialogueTest do
     }
 
     assert Dialogue.rows(state, false) == [
-             {"YOU   Turn 6", :strong},
+             {"Answer  Turn 6", :strong},
              :rule,
-             {"YOU   Turn 5", :strong},
+             {"Answer  Turn 5", :strong},
              :rule,
-             {"YOU   Turn 4", :strong},
+             {"Answer  Turn 4", :strong},
              :rule,
-             {"YOU   Turn 3", :strong},
+             {"Answer  Turn 3", :strong},
              :rule,
-             {"YOU   Turn 2", :strong},
+             {"Answer  Turn 2", :strong},
              :rule,
-             {"YOU   Turn 1", :strong}
+             {"Answer  Turn 1", :strong}
            ]
   end
 end

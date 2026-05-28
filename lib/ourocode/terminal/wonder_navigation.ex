@@ -18,12 +18,12 @@ defmodule Ourocode.Terminal.WonderNavigation do
       multi_select?(active_question(detection, nav))
   end
 
-  def nav_event?(%{key: :char, char: c}, buffer, detection, nav) when is_binary(c) do
-    buffer == "" and c =~ ~r/^[1-9]$/ and not active_free_answer?(detection, nav)
-  end
-
   def nav_event?(%{key: :char, char: c}, buffer, detection, nav) when c in ["h", "j", "k", "l"] do
     buffer == "" and not active_free_answer?(detection, nav)
+  end
+
+  def nav_event?(%{key: :char, char: c}, buffer, detection, nav) when is_binary(c) do
+    buffer == "" and c =~ ~r/^[1-9]$/ and not active_free_answer?(detection, nav)
   end
 
   def nav_event?(_event, _buffer, _detection, _nav), do: false

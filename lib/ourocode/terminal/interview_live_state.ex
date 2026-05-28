@@ -27,7 +27,7 @@ defmodule Ourocode.Terminal.InterviewLiveState do
   @spec interview_session(map()) :: map() | nil
   def interview_session(result) do
     case field(result(result), :interview_session) do
-      %{} = session -> normalize_known_map(session, [:label])
+      %{} = session -> normalize_known_map(session, [:label, :parent_call_id, :round, :status])
       _other -> nil
     end
   end
@@ -53,7 +53,8 @@ defmodule Ourocode.Terminal.InterviewLiveState do
       :seed_ready,
       :session_id,
       :status,
-      :waiting
+      :waiting,
+      :waiting_started_monotonic_ms
     ])
     |> normalize_dialogue()
     |> normalize_question_options()
@@ -100,10 +101,26 @@ defmodule Ourocode.Terminal.InterviewLiveState do
   end
 
   defp normalize_wonder_request(%{request: request} = detection) when is_map(request) do
-    Map.put(detection, :request, normalize_known_map(request, [:questions]))
+    questions =
+      request
+      |> normalize_known_map([:questions])
+      |> Map.get(:questions, [])
+
+    request =
+      request
+      |> normalize_known_map([:questions])
+      |> Map.put(:questions, Enum.map(questions, &normalize_question/1))
+
+    Map.put(detection, :request, request)
   end
 
   defp normalize_wonder_request(detection), do: detection
+
+  defp normalize_question(question) when is_map(question) do
+    normalize_known_map(question, [:id, :header, :question, :options, :round])
+  end
+
+  defp normalize_question(other), do: other
 
   defp normalize_known_map(map, keys) when is_map(map) do
     Enum.reduce(keys, map, fn key, acc ->

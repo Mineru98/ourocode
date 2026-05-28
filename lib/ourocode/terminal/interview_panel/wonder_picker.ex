@@ -107,7 +107,7 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
 
     [
       "Review answers before submit",
-      "Enter confirms all selections, Esc returns to main session"
+      "Enter confirms all selections, Esc pauses to discuss"
       | review_rows
     ]
   end
@@ -134,7 +134,7 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
     |> Enum.at(index)
     |> case do
       %{} = opt -> Text.md_text(field(opt, :label, "Option #{index + 1}"))
-      _none -> "Free answer"
+      _none -> "Custom answer"
     end
   end
 
@@ -149,9 +149,23 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
       end
 
     header =
-      if n > 1,
-        do: "Question #{qi + 1}/#{n}#{progress}  ·  #{Text.md_text(field(q, :header, ""))}",
-        else: Text.md_text(field(q, :header, ""))
+      cond do
+        round = round_number(q) ->
+          "Round #{round}  ·  #{Text.md_text(field(q, :header, "Interview"))}"
+
+        n > 1 ->
+          "Question #{qi + 1}/#{n}#{progress}  ·  #{Text.md_text(field(q, :header, ""))}"
+
+        true ->
+          Text.md_text(field(q, :header, ""))
+      end
+
+    header_lines =
+      case String.trim(header) do
+        "" -> []
+        "Interview" when n == 1 -> []
+        value -> [value]
+      end
 
     opt_lines =
       q
@@ -162,24 +176,44 @@ defmodule Ourocode.Terminal.InterviewPanel.WonderPicker do
         label = Text.md_text(field(opt, :label, ""))
         desc = Text.md_text(field(opt, :description, ""))
 
+        detail =
+          if desc == "" or desc == label,
+            do: label,
+            else: label <> " - " <> desc
+
         marker =
           if multi_select?(q),
             do: "#{if(MapSet.member?(multi_picks, oi), do: "[x]", else: "[ ]")} [#{oi + 1}]",
             else: "[#{oi + 1}]"
 
-        "#{row_cursor}#{row_cursor} #{marker} #{label} - #{desc}"
+        "#{row_cursor}#{row_cursor} #{marker} #{detail}"
       end)
 
     free_row_cursor = if cursor == length(opt_lines), do: ">", else: " "
-    free_row = "#{free_row_cursor}#{free_row_cursor} [Free answer] type below, then Enter"
+    free_row = "#{free_row_cursor}#{free_row_cursor} [Custom answer] type any text, then Enter"
 
-    [header, Text.md_text(field(q, :question, "")) | opt_lines ++ [free_row]]
+    header_lines ++ [Text.md_text(field(q, :question, "")) | opt_lines ++ [free_row]]
   end
 
   defp req_id(detection) do
     case field(detection, :request_id, nil) do
       id when is_binary(id) and id != "" -> id
       _none -> "wt-" <> Integer.to_string(:erlang.phash2(questions(detection)))
+    end
+  end
+
+  defp round_number(q) do
+    case field(q, :round, nil) do
+      round when is_integer(round) and round > 0 -> round
+      round when is_binary(round) -> parse_positive_integer(round)
+      _none -> nil
+    end
+  end
+
+  defp parse_positive_integer(value) do
+    case Integer.parse(value) do
+      {round, ""} when round > 0 -> round
+      _other -> nil
     end
   end
 

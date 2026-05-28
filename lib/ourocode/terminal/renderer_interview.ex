@@ -29,11 +29,12 @@ defmodule Ourocode.Terminal.RendererInterview do
 
     input =
       case String.trim(prompt_buffer) do
-        "" -> "Free answer: type here, then Enter"
-        text -> "Free answer: " <> text
+        "" -> ""
+        "/" <> _rest = text -> "Command: " <> text
+        text -> "Custom answer: " <> text
       end
 
-    hint = "j/k or Up/Dn select   h/l or Left/Right question   Esc main session   " <> hint
+    hint = responsive_key_hint(inner_w, hint)
 
     screen =
       screen
@@ -76,7 +77,7 @@ defmodule Ourocode.Terminal.RendererInterview do
 
     screen =
       screen
-      |> Screen.put_text(@left, top, "|", :accent)
+      |> Screen.put_text(@left, top, "│", :accent)
       |> Screen.put_text(@body, top, clip(marker, inner), :brand)
 
     screen =
@@ -84,7 +85,7 @@ defmodule Ourocode.Terminal.RendererInterview do
       |> Enum.with_index(1)
       |> Enum.reduce(screen, fn {{text, style}, i}, acc ->
         acc
-        |> Screen.put_text(@left, top + i, "|", :accent)
+        |> Screen.put_text(@left, top + i, "│", :accent)
         |> Screen.put_text(@body, top + i, clip(text, inner), style)
       end)
 
@@ -92,7 +93,7 @@ defmodule Ourocode.Terminal.RendererInterview do
 
     screen =
       screen
-      |> Screen.put_text(@left, hint_row, "|", :accent)
+      |> Screen.put_text(@left, hint_row, "│", :accent)
       |> Screen.put_text(@body, hint_row, clip(hint, inner), :muted)
 
     {screen, 1 + length(rows) + 1}
@@ -102,15 +103,17 @@ defmodule Ourocode.Terminal.RendererInterview do
     wrap_styled(text, focus_style(style), inner)
   end
 
-  defp wrap_focus_line(:rule, inner) do
-    [{String.duplicate("-", inner), :p_muted}]
+  defp wrap_focus_line(:rule, _inner) do
+    [{"", :p_muted}]
   end
 
   defp wrap_focus_line(line, inner) when is_binary(line) do
+    line = decorate_picker_line(line)
+
     style =
       cond do
-        String.starts_with?(line, ">> ") -> :p_accent
-        String.starts_with?(line, "   [") -> :p_dim
+        String.starts_with?(line, "● ") -> :p_accent
+        String.starts_with?(line, "○ ") -> :p_dim
         true -> :p_title
       end
 
@@ -131,28 +134,69 @@ defmodule Ourocode.Terminal.RendererInterview do
     wrap_styled(text, style, inner)
   end
 
-  defp wrap_logical_line(:rule, inner) do
-    [{String.duplicate("─", inner), :muted}]
+  defp wrap_logical_line(:rule, _inner) do
+    [{"", :muted}]
   end
 
   defp wrap_logical_line(line, inner) when is_binary(line) do
-    style = if String.starts_with?(line, ">> "), do: :accent, else: :strong
+    line = decorate_picker_line(line)
+    style = if String.starts_with?(line, "● "), do: :accent, else: :strong
     wrap_styled(line, style, inner)
   end
 
+  defp decorate_picker_line(">> " <> rest), do: "● >> " <> rest
+  defp decorate_picker_line("   [" <> rest), do: "○ [" <> rest
+  defp decorate_picker_line(line), do: line
+
   defp wrap_styled(text, style, inner) do
+    continuation = "  "
+    width = max(inner - Screen.text_width(continuation), 1)
+
     text
-    |> wrap_text(inner)
+    |> wrap_text(width)
     |> Enum.with_index()
     |> Enum.map(fn
       {seg, 0} -> {seg, style}
-      {seg, _n} -> {"  " <> seg, style}
+      {seg, _n} -> {continuation <> seg, style}
     end)
   end
 
   @doc false
   @spec wrap_text(String.t(), pos_integer()) :: [String.t()]
   def wrap_text(text, width), do: TextWrap.wrap(text, width)
+
+  defp responsive_key_hint(inner, hint) when inner < 62 do
+    base = "Enter confirm"
+    hint = secondary_hint(hint)
+
+    if hint == "" do
+      base
+    else
+      base <> "  " <> hint
+    end
+  end
+
+  defp responsive_key_hint(_inner, hint) do
+    base = "Enter confirm"
+    hint = secondary_hint(hint)
+
+    if hint == "" do
+      base
+    else
+      base <> "   " <> hint
+    end
+  end
+
+  defp secondary_hint(hint) do
+    hint = String.downcase(String.trim(to_string(hint)))
+
+    cond do
+      hint == "" -> ""
+      String.contains?(hint, "tab") -> "Tab switches question"
+      String.contains?(hint, "cancel") -> "/cancel stops"
+      true -> ""
+    end
+  end
 
   defp clip(text, max_width), do: Screen.truncate(text, max_width)
 end

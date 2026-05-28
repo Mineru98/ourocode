@@ -1,18 +1,19 @@
 defmodule Ourocode.Terminal.InterviewPanel.Status do
   @moduledoc false
 
-  alias Ourocode.Terminal.InterviewPanel.Text
-
-  @spin ["|", "/", "-", "\\"]
+  alias Ourocode.Terminal.{InterviewPanel.Text, PromptActivityIndicator}
 
   @spec working_line(integer(), term()) :: String.t()
-  def working_line(tick, trace) do
-    phase =
+  def working_line(tick, trace), do: working_line(tick, trace, nil)
+
+  @spec working_line(integer(), term(), non_neg_integer() | nil) :: String.t()
+  def working_line(tick, trace, elapsed_seconds) do
+    step =
       if is_binary(trace) and trace != "",
         do: router_trace_label(trace),
-        else: "thinking — the main session is handling this"
+        else: waiting_label(elapsed_seconds)
 
-    spin(tick) <> " " <> phase
+    spin(tick) <> " " <> step
   end
 
   @spec reasoning_lines(map(), integer() | nil, boolean()) :: [String.t()]
@@ -40,8 +41,11 @@ defmodule Ourocode.Terminal.InterviewPanel.Status do
   def mcp_activity_lines(_lines), do: []
 
   @spec spin(integer() | term()) :: String.t()
-  def spin(tick) when is_integer(tick), do: Enum.at(@spin, rem(tick, length(@spin)))
-  def spin(_tick), do: "·  "
+  def spin(tick) when is_integer(tick) do
+    PromptActivityIndicator.frame(max(tick, 0))
+  end
+
+  def spin(_tick), do: PromptActivityIndicator.frame(0)
 
   defp router_trace_label(trace) do
     clean = Text.flatten_line(trace)
@@ -49,7 +53,7 @@ defmodule Ourocode.Terminal.InterviewPanel.Status do
 
     cond do
       String.starts_with?(upcased, "ASK_USER") ->
-        "question ready — choose or type an answer in the interview block"
+        "question ready - choose or type an answer in the interview block"
 
       answer = Regex.run(~r/^ANSWER(?:\s+\[[^\]]+\])?:\s*(.+)$/i, clean) ->
         "main session answered: " <> Enum.at(answer, 1)
@@ -68,31 +72,53 @@ defmodule Ourocode.Terminal.InterviewPanel.Status do
     end
   end
 
-  defp status_line(_iv, _tick, true), do: "phase paused - discussing with main session"
+  defp status_line(_iv, _tick, true), do: "step paused - discussing with main session"
 
   defp status_line(%{waiting: true, status: s}, tick, false) when is_binary(s) and s != "" do
     label =
       case String.downcase(s) do
         "waiting for mcp interview question" ->
-          "phase received - MCP is preparing the interview question"
+          "step received - preparing the interview question"
 
         "waiting for mcp follow-up question" ->
-          "phase routing - MCP is preparing the next question"
+          "step routing - preparing the next question"
+
+        "preparing next interview question" ->
+          "step routing - preparing the next question"
+
+        "opening interview session to send answer" ->
+          "step syncing - opening interview session"
+
+        "answer sent - generating next question" ->
+          "step routing - answer sent, generating choices"
 
         "waiting for your answer" ->
-          "phase waiting - waiting for your answer"
+          "step waiting - waiting for your answer"
 
         _other ->
           s
       end
 
-    if is_integer(tick), do: spin(tick) <> " " <> label, else: label
+    if waiting_for_user_status?(s) do
+      label
+    else
+      if is_integer(tick), do: spin(tick) <> " " <> label, else: label
+    end
   end
 
   defp status_line(%{status: s}, _tick, _paused) when is_binary(s) and s != "",
-    do: "phase active - " <> s
+    do: "step active - " <> s
 
   defp status_line(_iv, _tick, _paused), do: nil
+
+  defp waiting_label(elapsed_seconds) when is_integer(elapsed_seconds) and elapsed_seconds >= 15,
+    do: "still building choices (~#{elapsed_seconds}s) - working, not stuck; Esc adds context"
+
+  defp waiting_label(elapsed_seconds) when is_integer(elapsed_seconds) and elapsed_seconds >= 6,
+    do: "building answer choices (~#{elapsed_seconds}s) - no input needed; Esc pauses"
+
+  defp waiting_label(_elapsed_seconds),
+    do: "building the first question - choices will appear here"
 
   defp mcp_reasoning_lines(%{mcp_reasoning: lines}) when is_list(lines) do
     lines
@@ -141,6 +167,11 @@ defmodule Ourocode.Terminal.InterviewPanel.Status do
     do: "interview complete: #{reason}"
 
   defp complete_line(_iv), do: nil
+
+  defp waiting_for_user_status?(status) when is_binary(status),
+    do: String.downcase(status) == "waiting for your answer"
+
+  defp waiting_for_user_status?(_status), do: false
 
   defp activity_display_line(line) do
     line = Text.plain_line(line)

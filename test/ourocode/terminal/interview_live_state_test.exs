@@ -36,14 +36,14 @@ defmodule Ourocode.Terminal.InterviewLiveStateTest do
           "interview" => %{
             "dialogue" => [
               %{"role" => "user", "text" => "progress visibility"},
-              %{"role" => "mcp", "text" => "Which phase is unclear?"}
+              %{"role" => "mcp", "text" => "Which step is unclear?"}
             ],
-            "question" => "Which phase is unclear?",
+            "question" => "Which step is unclear?",
             "question_options" => [
               %{"label" => "Phase names", "description" => "Clarify current labels"}
             ],
             "status" => "waiting for your answer",
-            "mcp_reasoning" => ["phase: question"]
+            "mcp_reasoning" => ["step: question"]
           },
           "wonder_tool" => %{
             "request_id" => "wt-1",
@@ -58,14 +58,14 @@ defmodule Ourocode.Terminal.InterviewLiveStateTest do
     assert InterviewLiveState.interview(result) == %{
              dialogue: [
                %{role: :user, text: "progress visibility"},
-               %{role: :mcp, text: "Which phase is unclear?"}
+               %{role: :mcp, text: "Which step is unclear?"}
              ],
-             question: "Which phase is unclear?",
+             question: "Which step is unclear?",
              question_options: [
                %{label: "Phase names", description: "Clarify current labels"}
              ],
              status: "waiting for your answer",
-             mcp_reasoning: ["phase: question"]
+             mcp_reasoning: ["step: question"]
            }
 
     assert InterviewLiveState.wonder_tool(result).request_id == "wt-1"

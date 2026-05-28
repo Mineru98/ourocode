@@ -35,7 +35,7 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
     assert Enum.at(lines, 1) == "Which transport should the interview prioritize?"
     assert Enum.at(lines, 2) == ">> [1] stdio - local pipe"
     assert Enum.at(lines, 3) == "   [2] http - remote stream"
-    assert Enum.at(lines, 4) == "   [Free answer] type below, then Enter"
+    assert Enum.at(lines, 4) == "   [Custom answer] type any text, then Enter"
   end
 
   test "string-keyed detection requests render the same picker" do
@@ -69,19 +69,18 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
         %{
           id: "ux",
           header: "**Interview**",
-          question: "현재 UX에서 가장 **답답하거나 거슬리는** 순간이 어떤 건가요?",
+          question: "Which **UX moment** feels most confusing?",
           options: [
-            opt("**Interview flow**", "질문 상태가 `어디서` 일어나는지 추적하기 어렵다"),
-            opt("TUI", "시각적으로 안 맞는다")
+            opt("**Interview flow**", "the `question state` is hard to track"),
+            opt("TUI", "the screen hierarchy feels unclear")
           ]
         }
       ])
 
     lines = Tui.wonder_picker_lines(det, %{qidx: 0, picks: %{0 => 0}})
 
-    assert Enum.at(lines, 0) == "Interview"
-    assert Enum.at(lines, 1) == "현재 UX에서 가장 답답하거나 거슬리는 순간이 어떤 건가요?"
-    assert Enum.at(lines, 2) == ">> [1] Interview flow - 질문 상태가 어디서 일어나는지 추적하기 어렵다"
+    assert Enum.at(lines, 0) == "Which UX moment feels most confusing?"
+    assert Enum.at(lines, 1) == ">> [1] Interview flow - the question state is hard to track"
     refute Enum.join(lines, "\n") =~ "**"
     refute Enum.join(lines, "\n") =~ "`"
   end
@@ -92,18 +91,18 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
         %{
           id: "ux",
           header: "Interview",
-          question: "어떤 지점이 답답한가요? 🧭",
+          question: "Which point feels confusing? 🧭",
           options: [
-            opt("인터뷰 플로우 🧭", "질문 답변 흐름이 끊긴다"),
-            opt("정보 가시성 �", "화면에서 상태를 찾기 어렵다")
+            opt("Interview flow 🧭", "the question and answer flow breaks"),
+            opt("State visibility �", "screen status is hard to find")
           ]
         }
       ])
 
     text = Tui.wonder_picker_lines(det, %{qidx: 0, picks: %{0 => 1}}) |> Enum.join("\n")
 
-    assert text =~ "인터뷰 플로우 - 질문 답변 흐름이 끊긴다"
-    assert text =~ ">> [2] 정보 가시성 - 화면에서 상태를 찾기 어렵다"
+    assert text =~ "Interview flow - the question and answer flow breaks"
+    assert text =~ ">> [2] State visibility - screen status is hard to find"
     refute text =~ "🧭"
     refute text =~ "�"
   end
@@ -128,7 +127,7 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
     assert "   [1] narrow - one feature" in lines
     assert "   [2] mid - a module" in lines
     assert ">> [3] broad - whole app" in lines
-    assert "   [Free answer] type below, then Enter" in lines
+    assert "   [Custom answer] type any text, then Enter" in lines
   end
 
   test "free answer is a selectable row after the concrete options" do
@@ -146,7 +145,7 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
 
     assert "   [1] narrow - one feature" in lines
     assert "   [2] broad - whole app" in lines
-    assert ">> [Free answer] type below, then Enter" in lines
+    assert ">> [Custom answer] type any text, then Enter" in lines
   end
 
   test "up/down navigation can leave the free answer row" do
@@ -166,7 +165,7 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
     assert ">> [2] broad - whole app" in Tui.wonder_picker_lines(det, nav)
 
     nav = Tui.wonder_nav_after(det, nav, %{key: :down})
-    assert ">> [Free answer] type below, then Enter" in Tui.wonder_picker_lines(det, nav)
+    assert ">> [Custom answer] type any text, then Enter" in Tui.wonder_picker_lines(det, nav)
   end
 
   test "single-select highlight follows picks even when multi-select cursors exist" do
@@ -268,7 +267,7 @@ defmodule Ourocode.Terminal.TuiWonderPickerTest do
     lines = Tui.wonder_picker_lines(det, %{qidx: 1, picks: %{0 => 0, 1 => 1}, review?: true})
 
     assert Enum.at(lines, 0) == "Review answers before submit"
-    assert Enum.at(lines, 1) == "Enter confirms all selections, Esc returns to main session"
+    assert Enum.at(lines, 1) == "Enter confirms all selections, Esc pauses to discuss"
     assert "[1/2] Transport" in lines
     assert "  stdio" in lines
     assert "[2/2] Scope" in lines

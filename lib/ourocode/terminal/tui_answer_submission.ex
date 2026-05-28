@@ -28,17 +28,26 @@ defmodule Ourocode.Terminal.TuiAnswerSubmission do
 
     cond do
       answer != "" and Map.get(context, :wonder_active?) and cancel_answer?(answer) ->
-        TuiState.push_notification(state, "phase submitting - cancelling checkpoint")
+        TuiState.push_notification(state, "step submitting - cancelling checkpoint")
         submit_cancel(answer, result, output, state)
         :handled
 
+      answer != "" and command_like_answer?(answer) and active_interview_context?(context) ->
+        TuiState.push_notification(
+          state,
+          "command held - pause or cancel before starting new work"
+        )
+
+        log(output, "Command held. Press Esc to discuss, or /cancel to stop this interview.")
+        :handled
+
       answer != "" and Map.get(context, :wonder_active?) ->
-        TuiState.push_notification(state, "phase submitting - sending free answer")
+        TuiState.push_notification(state, "step submitting - sending free answer")
         submit_wonder_free_text(answer, result, output, state, context)
         :handled
 
       answer != "" and Map.get(context, :interview_active?) ->
-        TuiState.push_notification(state, "phase submitting - sending interview answer")
+        TuiState.push_notification(state, "step submitting - sending interview answer")
         submit_interview_answer(answer, result, output, state)
         :handled
 
@@ -50,12 +59,26 @@ defmodule Ourocode.Terminal.TuiAnswerSubmission do
     end
   end
 
+  defp active_interview_context?(context) do
+    Map.get(context, :wonder_active?) or Map.get(context, :interview_active?)
+  end
+
+  defp command_like_answer?(answer) when is_binary(answer) do
+    answer
+    |> String.trim_leading()
+    |> String.downcase()
+    |> then(fn text ->
+      text == "ooo" or String.starts_with?(text, "ooo ") or
+        text == "ouroboros" or String.starts_with?(text, "ouroboros ")
+    end)
+  end
+
   defp submit_cancel(answer, result, output, state) do
     cancel = Map.get(result, :wonder_cancel)
 
     case cancel && cancel.(answer) do
       {:ok, _cancelled} ->
-        TuiState.push_notification(state, "phase accepted - checkpoint cancelled")
+        TuiState.push_notification(state, "step accepted - checkpoint cancelled")
         log(output, "you> #{answer}")
 
       _other ->
@@ -69,7 +92,7 @@ defmodule Ourocode.Terminal.TuiAnswerSubmission do
     case send && send.(answer) do
       {:ok, _text} ->
         if is_pid(state),
-          do: TuiState.push_notification(state, "phase accepted - answer captured")
+          do: TuiState.push_notification(state, "step accepted - answer captured")
 
         log(output, "you> #{answer}")
 
@@ -91,7 +114,7 @@ defmodule Ourocode.Terminal.TuiAnswerSubmission do
 
     case submit && submit.(payload) do
       {:ok, decision} ->
-        TuiState.push_notification(state, "phase accepted - answer captured")
+        TuiState.push_notification(state, "step accepted - answer captured")
         log(output, "you> #{Map.get(decision, :selected_label, answer)}")
 
       _other ->

@@ -10,30 +10,30 @@ defmodule Ourocode.Terminal.InterviewPanel.HintsTest do
 
   test "session hint reflects whether the interview is paused" do
     assert Hints.session_hint(false) ==
-             "running   the main session is handling this   stays until it ends"
+             "drafting question"
 
     assert Hints.session_hint(true) ==
-             "paused   type to talk to main   /answer <answer> submits to interview"
+             "paused   /answer <answer> resumes   /cancel stops interview"
   end
 
   test "wonder hint separates paused, picker, and plain interview states" do
     assert Hints.wonder_hint(true, false) ==
-             "type to talk to main session   answers resume the interview"
+             "paused   /answer <text> resumes   /cancel stops interview"
 
     assert Hints.wonder_hint(false, true) ==
-             "1-9 select   type free answer   /cancel decline   Esc pause"
+             "/cancel stops"
 
-    assert Hints.wonder_hint(false, false) == "type your answer + Enter   Esc pause"
+    assert Hints.wonder_hint(false, false) == "plain answer"
   end
 
   test "wonder picker hint reflects pause state and question count" do
     assert Hints.wonder_pick_hint(true, 2) ==
-             "type to talk to main   /answer <answer> submits to interview"
+             "paused   /answer <text> resumes   /cancel stops interview"
 
     assert Hints.wonder_pick_hint(false, 2) ==
-             "Up/Dn pick   Tab next question   Free answer row   Enter submit all   Esc pause"
+             "Tab switches question"
 
     assert Hints.wonder_pick_hint(false, 1) ==
-             "Up/Dn pick   1-9 shortcut   Free answer row   Enter submit   Esc pause"
+             ""
   end
 end

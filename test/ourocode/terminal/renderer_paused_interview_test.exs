@@ -3,7 +3,7 @@ defmodule Ourocode.Terminal.RendererPausedInterviewTest do
 
   alias Ourocode.Terminal.RendererPausedInterview
 
-  test "adds answer entry to paused interview palette" do
+  test "hides slash palette while a paused interview command is being typed" do
     palette = %{
       entries: [
         %{slash: "/help", summary: "Help"},
@@ -18,15 +18,40 @@ defmodule Ourocode.Terminal.RendererPausedInterviewTest do
         pidx: 4
       })
 
-    assert [%{slash: "/answer", summary: summary}, %{slash: "/help"}] = updated.entries
-    assert summary =~ "submits to the interview"
-    assert updated.index == 0
+    assert updated == nil
+  end
+
+  test "hides cancel palette while a paused interview command is being typed" do
+    palette = %{entries: [], index: 0}
+
+    updated =
+      RendererPausedInterview.palette(palette, "/canc", %{
+        interview_paused: true,
+        pidx: 0
+      })
+
+    assert updated == nil
+  end
+
+  test "hides palette when paused control text is ready to submit" do
+    palette = %{entries: [%{slash: "/help", summary: "Help"}], index: 0}
+
+    assert RendererPausedInterview.palette(palette, "/cancel", %{interview_paused: true}) == nil
+
+    assert RendererPausedInterview.palette(palette, "/answer ship it", %{interview_paused: true}) ==
+             nil
   end
 
   test "recognizes direct answer query while paused" do
     assert RendererPausedInterview.answer_query?("/answer")
     assert RendererPausedInterview.answer_query?("  /answer proceed")
     refute RendererPausedInterview.answer_query?("/answers")
+  end
+
+  test "recognizes cancel query while paused" do
+    assert RendererPausedInterview.cancel_query?("/cancel")
+    assert RendererPausedInterview.cancel_query?("  /cancel now")
+    refute RendererPausedInterview.cancel_query?("/cancelled")
   end
 
   test "leaves palette unchanged outside paused interview mode" do
