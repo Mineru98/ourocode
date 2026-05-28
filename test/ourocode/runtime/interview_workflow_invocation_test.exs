@@ -6,7 +6,7 @@ defmodule Ourocode.Runtime.InterviewWorkflowInvocationTest do
   alias Ourocode.TaskRequest
 
   test "builds the initial streamable HTTP MCP interview payload with preserved prompt text" do
-    prompt = "ooo interview로 ourocode의 MCP streamable UI 요구사항을 정리해줘."
+    prompt = "ooo interview define ourocode MCP streamable UI requirements."
     task_request = parse_interview_prompt!(prompt)
 
     assert {:ok, payload} =
@@ -31,7 +31,7 @@ defmodule Ourocode.Runtime.InterviewWorkflowInvocationTest do
 
   test "dispatch invocation receives the task request and passes the payload to the configured MCP invoker" do
     parent = self()
-    prompt = "ooo interview로 streamable HTTP child panes 요구사항을 인터뷰로 정리해줘."
+    prompt = "ooo interview define streamable HTTP child pane requirements."
     task_request = parse_interview_prompt!(prompt)
 
     invoker = fn payload, transport_options ->

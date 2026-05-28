@@ -32,6 +32,7 @@ defmodule Ourocode.Runtime.RouteTermsTest do
 
   test "detects ouroboros workflow terms and adapter routes" do
     assert RouteTerms.ouroboros_workflow?(["please", "ouroboros:evolve"])
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "pm", "build", "onboarding"]) == :interview
     assert RouteTerms.ouroboros_adapter_route(["ooo", "run", "seed_path=seed.md"]) == :run
     assert RouteTerms.ouroboros_adapter_route(["ouroboros", "execute", "seed.md"]) == :run
     assert RouteTerms.ouroboros_adapter_route(["please", "ralph"]) == :ralph

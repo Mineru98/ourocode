@@ -14,6 +14,7 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
   alias Ourocode.Runtime.Application
   alias Ourocode.Runtime.LoopBindings
   alias Ourocode.TaskRequest
+  alias Ourocode.WonderTool.InteractionDetector
 
   setup do
     {:ok, runtime} =
@@ -201,6 +202,132 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
            end)
 
     assert {:error, :no_active_wonder} = LoopBindings.cancel_wonder(agent, "decline")
+  end
+
+  test "cancelling an interview wonder checkpoint completes the visible interview", %{
+    runtime: runtime
+  } do
+    {:ok, agent, _options} = LoopBindings.attach(%{status: :healthy, runtime: runtime})
+    parent = self()
+
+    wonder_payload = %{
+      "tool" => "wonderTool",
+      "request_id" => "wt-cancel-interview",
+      "parent_call_id" => "parent-wt-cancel-interview",
+      "questions" => [
+        %{
+          "id" => "direction",
+          "header" => "Direction",
+          "question" => "Which direction should we take?",
+          "options" => [
+            %{"label" => "Stop", "description" => "cancel it"},
+            %{"label" => "Continue", "description" => "keep going"}
+          ]
+        }
+      ]
+    }
+
+    assert {:ok, detection} = InteractionDetector.detect(wonder_payload)
+
+    Agent.update(agent, fn state ->
+      %{
+        state
+        | interview: %{
+            parent_call_id: "parent-wt-cancel-interview",
+            question: "Which direction should we take?",
+            status: "waiting for your answer",
+            waiting: false
+          },
+          interview_waiter: parent,
+          wonder: detection
+      }
+    end)
+
+    assert {:ok, _cancelled} = LoopBindings.cancel_wonder(agent, "cancel")
+    assert_receive {:interview_answer, "cancel"}
+
+    snap = LoopBindings.pane_snapshot(agent)
+    assert snap.wonder_tool == nil
+    assert snap.paused == false
+    assert snap.interview.complete == :user_done
+    assert snap.interview.waiting == false
+  end
+
+  test "cancel_interview immediately completes a waiting interview", %{runtime: runtime} do
+    {:ok, agent, _options} = LoopBindings.attach(%{status: :healthy, runtime: runtime})
+    parent = self()
+
+    Agent.update(agent, fn state ->
+      %{
+        state
+        | interview: %{
+            parent_call_id: "parent-cancel-interview",
+            question: "Continue?",
+            status: "waiting for your answer",
+            waiting: true
+          },
+          interview_waiter: parent,
+          paused: true
+      }
+    end)
+
+    assert {:ok, "cancel"} = LoopBindings.cancel_interview(agent)
+    assert_receive {:interview_answer, "cancel"}
+
+    snap = LoopBindings.pane_snapshot(agent)
+    assert snap.wonder_tool == nil
+    assert snap.paused == false
+    assert snap.interview.complete == :user_done
+    assert snap.interview.waiting == false
+  end
+
+  test "cancel_interview prevents an in-flight round result from reviving the picker" do
+    {:ok, agent} = LoopBindings.start_link()
+    parent = self()
+
+    pcf = fn payload ->
+      send(parent, {:pcf_started, payload})
+
+      receive do
+        :release_round ->
+          parent_result(%{
+            "result" => %{
+              "content" => [
+                %{"type" => "text", "text" => "(ambiguity: 0.80) Which signal proves success?"}
+              ],
+              "meta" => %{"session_id" => "iv-cancel-race"}
+            }
+          })
+      after
+        1_000 ->
+          flunk("round release not received")
+      end
+    end
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-cancel-race",
+          initial_payload: %{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}},
+          parent_call_fun: pcf,
+          model: scripted_model(["ASK_USER Should not appear?"]),
+          project_dir: File.cwd!()
+        )
+
+        send(parent, :loop_done)
+      end)
+
+    assert_receive {:pcf_started, _payload}, 1_000
+
+    assert {:ok, "cancel"} = LoopBindings.cancel_interview(agent)
+    send(loop, :release_round)
+    assert_receive :loop_done, 1_000
+
+    snap = LoopBindings.pane_snapshot(agent)
+    assert snap.wonder_tool == nil
+    assert snap.interview.complete == :user_done
+    assert snap.interview.waiting == false
+    refute snap.interview.question =~ "signal proves success"
   end
 
   test "active wonderTool state survives unrelated runtime reload focus and pane events", %{
@@ -771,6 +898,154 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert_receive :waiting_loop_done, 1_000
   end
 
+  test "pm interview shows an immediate local picker while the first MCP question is loading" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    pcf = fn payload ->
+      send(test_pid, {:pcf_waiting, payload})
+
+      receive do
+        :release_pcf ->
+          {:ok,
+           parent_result(%{
+             "result" => %{
+               "content" => [
+                 %{"type" => "text", "text" => "(ambiguity: 0.80) What outcome should we define?"}
+               ],
+               "meta" => %{"session_id" => "iv-fast-1"}
+             }
+           })}
+      end
+    end
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-fast-picker",
+          initial_payload: %{
+            "params" => %{
+              "name" => "ouroboros_interview",
+              "arguments" => %{"initial_context" => "ooo pm build onboarding"}
+            }
+          },
+          parent_call_fun: pcf,
+          model: scripted_model([]),
+          project_dir: File.cwd!()
+        )
+
+        send(test_pid, :fast_picker_loop_done)
+      end)
+
+    assert_receive {:pcf_waiting, _initial}, 1_000
+
+    wait_for(fn ->
+      snap = LoopBindings.pane_snapshot(agent)
+      snap.wonder_tool && snap.interview && snap.interview.status == "waiting for your answer"
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+    assert snap.interview.question =~ "What outcome should this PM interview produce"
+
+    assert Enum.map(snap.interview.question_options, & &1["label"]) == [
+             "Define the target user",
+             "Define the activation outcome",
+             "Audit the existing flow"
+           ]
+
+    assert {:ok, _cancelled} = LoopBindings.cancel_wonder(agent, "cancel")
+    assert_receive :fast_picker_loop_done, 1_000
+    assert Process.alive?(loop) == false
+  end
+
+  test "pm interview followup waits for the user instead of auto-routing another answer" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    initial_response =
+      parent_result(%{
+        "result" => %{
+          "content" => [
+            %{"type" => "text", "text" => "(ambiguity: 0.80) What outcome should we define?"}
+          ],
+          "meta" => %{"session_id" => "iv-fast-user-routed"}
+        }
+      })
+
+    followup_response =
+      parent_result(%{
+        "result" => %{
+          "content" => [
+            %{
+              "type" => "text",
+              "text" =>
+                "(ambiguity: 0.70) Which user segment should this onboarding primarily serve?"
+            }
+          ],
+          "meta" => %{"session_id" => "iv-fast-user-routed"}
+        }
+      })
+
+    pcf = fn payload ->
+      send(test_pid, {:pcf_waiting, self(), payload})
+
+      receive do
+        {:release_pcf, response} -> {:ok, response}
+      end
+    end
+
+    model = scripted_model(["ANSWER [from-code] experienced developers"])
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-fast-user-routed",
+          initial_payload: %{
+            "params" => %{
+              "name" => "ouroboros_interview",
+              "arguments" => %{"initial_context" => "ooo pm build onboarding"}
+            }
+          },
+          parent_call_fun: pcf,
+          model: model,
+          project_dir: File.cwd!()
+        )
+
+        send(test_pid, :fast_user_routed_loop_done)
+      end)
+
+    assert_receive {:pcf_waiting, initial_pcf_pid, _initial}, 1_000
+
+    wait_for(fn ->
+      snap = LoopBindings.pane_snapshot(agent)
+      snap.interview && snap.interview.question =~ "What outcome should this PM interview produce"
+    end)
+
+    assert {:ok, _decision} = LoopBindings.answer_wonder(agent, 1)
+    send(initial_pcf_pid, {:release_pcf, initial_response})
+
+    assert_receive {:pcf_waiting, followup_pcf_pid, followup_payload}, 1_000
+    assert followup_payload["params"]["arguments"]["answer"] =~ "Define the target user"
+
+    snap = LoopBindings.pane_snapshot(agent)
+    refute snap.interview.question =~ "What outcome should we define?"
+    assert snap.interview.status == "preparing next interview question"
+    assert snap.interview.last_answer =~ "Define the target user"
+
+    send(followup_pcf_pid, {:release_pcf, followup_response})
+
+    wait_for(fn ->
+      iv = LoopBindings.pane_snapshot(agent).interview
+      (iv && iv.question =~ "Which user segment") and iv.status == "waiting for your answer"
+    end)
+
+    refute_receive {:pcf_waiting, _pid, _unexpected_auto_followup}, 200
+
+    assert {:ok, _cancelled} = LoopBindings.cancel_wonder(agent, "cancel")
+    assert_receive :fast_user_routed_loop_done, 1_000
+    assert Process.alive?(loop) == false
+  end
+
   test "interview session loop: ASK_USER routes to answer_interview handoff" do
     {:ok, agent} = LoopBindings.start_link()
     test_pid = self()
@@ -887,11 +1162,11 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert Enum.any?(snap.interview.router, &String.contains?(&1, "router timeout"))
 
     assert {:ok, decision} = LoopBindings.answer_wonder(agent, 1)
-    assert decision.selected_label == "Narrow the scope"
+    assert decision.selected_label == "Clarify the first priority"
 
     assert_receive {:followup, followup}, 1_000
     assert followup["params"]["arguments"]["session_id"] == "iv-timeout-1"
-    assert followup["params"]["arguments"]["answer"] =~ "[from-user] Narrow the scope"
+    assert followup["params"]["arguments"]["answer"] =~ "[from-user] Clarify the first priority"
 
     refute_receive :loop_done, 50
     assert Process.alive?(loop)
@@ -949,7 +1224,7 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     Process.exit(loop, :kill)
   end
 
-  test "interview fallback wonderTool handles Korean candidate axes before a trailing question mark" do
+  test "interview fallback wonderTool handles candidate axes before a trailing question mark" do
     {:ok, agent} = LoopBindings.start_link()
     test_pid = self()
 
@@ -963,7 +1238,7 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
              %{
                "type" => "text",
                "text" =>
-                 "개선하고 싶은 대상은 무엇인가요? CLI 사용 흐름, 에러 메시지/피드백, 설정/온보딩, 결과물 표시, 아니면 다른 작업 흐름인가요?"
+                 "What should improve? CLI flow, error messages, setup onboarding, result display, or another workflow?"
              }
            ],
            "meta" => %{"session_id" => "iv-ko-candidates-1"}
@@ -993,7 +1268,7 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     [%{options: options}] = LoopBindings.pane_snapshot(agent).wonder_tool.request.questions
     labels = Enum.map(options, & &1.label)
 
-    assert labels == ["CLI 사용 흐름", "에러 메시지/피드백", "설정/온보딩", "결과물 표시"]
+    assert labels == ["CLI flow", "error messages", "setup onboarding", "result display"]
 
     Process.exit(loop, :kill)
   end

@@ -32,7 +32,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   }
 
   @max_interview_rounds 24
-  @router_decision_timeout_ms 15_000
+  @router_decision_timeout_ms 3_000
   @activity_keep 24
 
   @type t :: pid()
@@ -137,6 +137,17 @@ defmodule Ourocode.Runtime.LoopBindings do
   @spec answer_interview(pid(), String.t()) :: {:ok, String.t()} | {:error, :no_active_interview}
   def answer_interview(agent, text) when is_pid(agent) and is_binary(text) do
     LoopBindingAnswers.answer_interview(agent, text, &enqueue/2)
+  end
+
+  @doc """
+  Stops the active interview immediately.
+
+  This is separate from sending the text answer "cancel": the UI needs a real
+  terminal state so stale wait spinners cannot reopen after the user cancels.
+  """
+  @spec cancel_interview(pid()) :: {:ok, String.t()} | {:error, :no_active_interview}
+  def cancel_interview(agent) when is_pid(agent) do
+    LoopBindingAnswers.cancel_interview(agent, &enqueue/2)
   end
 
   @doc """

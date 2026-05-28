@@ -28,9 +28,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiterTest do
     assert updated.interview.status == "waiting for your answer"
 
     assert Enum.map(updated.interview.question_options, & &1["label"]) == [
-             "Narrow the scope",
-             "Broaden the scope",
-             "Prioritize release readiness"
+             "Define the desired outcome",
+             "Clarify the target user"
            ]
 
     refute Map.has_key?(updated.interview, :answered)
@@ -52,6 +51,30 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiterTest do
       )
 
     assert Enum.map(updated.interview.question_options, & &1["label"]) == ["Quality", "Speed"]
+  end
+
+  test "wait_state strips interview session preamble from displayed prompts" do
+    updated =
+      LoopBindingInterviewAwaiter.wait_state(
+        %{interview: %{}},
+        "parent-1",
+        "MCP Interview started. Session ID: interview20260526153823 What should we validate?",
+        self()
+      )
+
+    assert updated.interview.question == "What should we validate?"
+  end
+
+  test "wait_state strips bare session preamble from displayed prompts" do
+    updated =
+      LoopBindingInterviewAwaiter.wait_state(
+        %{interview: %{}},
+        "parent-1",
+        "Session interview20260526154116 Which target should we validate?",
+        self()
+      )
+
+    assert updated.interview.question == "Which target should we validate?"
   end
 
   test "wait_state uses a new parent call id when provided" do

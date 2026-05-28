@@ -122,6 +122,7 @@ defmodule Ourocode.Runtime.InterviewResponse do
   @spec clean_markdown(term()) :: String.t()
   def clean_markdown(text) when is_binary(text) do
     text
+    |> strip_interview_preamble()
     |> String.replace(~r/(\*\*|__)(.*?)\1/s, "\\2")
     |> String.replace(~r/`([^`]+)`/, "\\1")
     |> String.replace(~r/^\s{0,3}\#{1,6}\s+/m, "")
@@ -132,8 +133,9 @@ defmodule Ourocode.Runtime.InterviewResponse do
 
   defp strip_interview_preamble(text) when is_binary(text) do
     text
-    |> String.replace(~r/\A\s*Interview started\.\s*Session ID:\s*\S+\s*/i, "")
+    |> String.replace(~r/\A\s*(?:MCP\s+)?Interview started\.\s*Session ID:\s*\S+\s*/i, "")
     |> String.replace(~r/\A\s*Session ID:\s*\S+\s*/i, "")
+    |> String.replace(~r/\A\s*Session\s+[A-Za-z][\w\-\.]+\s*/i, "")
     |> String.trim()
   end
 

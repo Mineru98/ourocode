@@ -22,8 +22,17 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfig do
           :router_decision_timeout_ms,
           Keyword.fetch!(defaults, :router_decision_timeout_ms)
         ),
+      user_routed?: user_routed?(Keyword.fetch!(opts, :initial_payload)),
       streak: 0,
       session_id: nil
     }
+  end
+
+  defp user_routed?(payload) when is_map(payload) do
+    payload
+    |> Ourocode.Runtime.LoopBindingInterviewText.initial_context_from_payload()
+    |> String.trim()
+    |> String.downcase()
+    |> String.starts_with?("ooo pm")
   end
 end

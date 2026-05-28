@@ -23,6 +23,7 @@ defmodule Ourocode.Runtime.InterviewWonderPrompt do
           %{
             "id" => "interview",
             "header" => "Interview",
+            "round" => round,
             "question" => InterviewResponse.clean_markdown(prompt),
             "options" => options(options, prompt)
           }

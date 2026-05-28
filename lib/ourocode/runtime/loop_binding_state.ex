@@ -16,6 +16,8 @@ defmodule Ourocode.Runtime.LoopBindingState do
       interview: nil,
       interview_session: nil,
       interview_waiter: nil,
+      pending_interview_answer: nil,
+      cancelled_interviews: MapSet.new(),
       mcp_daemon: nil,
       mcp_llm_backend: nil,
       workflow: %{},

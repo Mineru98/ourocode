@@ -34,6 +34,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfigTest do
              max_rounds: 3,
              router_decision_timeout_ms: 250,
              streak: 0,
+             user_routed?: false,
              session_id: nil
            }
   end

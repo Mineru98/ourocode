@@ -77,7 +77,13 @@ defmodule Ourocode.Runtime.InterviewStateTest do
   end
 
   test "detect folds ambiguity-prefixed interview events into state" do
-    state = %{interview: %{answered: "old"}, paused: true}
+    state = %{
+      interview: %{
+        answered: "old",
+        question_options: [%{"label" => "Stale choice", "description" => "from old question"}]
+      },
+      paused: true
+    }
 
     event = %{
       parent_call_id: "parent-1",
@@ -98,6 +104,7 @@ defmodule Ourocode.Runtime.InterviewStateTest do
     assert state.interview.milestone == "scope"
     assert state.interview.seed_ready == false
     refute Map.has_key?(state.interview, :answered)
+    refute Map.has_key?(state.interview, :question_options)
   end
 
   test "detect merges meta-only interview updates into an active interview" do

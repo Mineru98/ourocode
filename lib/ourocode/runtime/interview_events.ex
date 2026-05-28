@@ -91,9 +91,21 @@ defmodule Ourocode.Runtime.InterviewEvents do
 
   @spec answer_state(map(), map(), String.t()) :: map()
   def answer_state(state, interview, text) do
+    interview =
+      interview
+      |> Map.put(:answered, text)
+      |> Map.put(:last_answer, text)
+      |> maybe_put_last_question()
+      |> maybe_put_last_question_options()
+      |> Map.put(:status, "answer accepted - preparing next question")
+      |> Map.put(:waiting, true)
+      |> Map.put(:waiting_started_monotonic_ms, System.monotonic_time(:millisecond))
+      |> Map.put(:question, "")
+      |> Map.delete(:question_options)
+
     %{
       state
-      | interview: Map.put(interview, :answered, text),
+      | interview: interview,
         interview_waiter: nil,
         paused: false
     }
@@ -104,13 +116,21 @@ defmodule Ourocode.Runtime.InterviewEvents do
     interview =
       (state.interview || %{})
       |> Map.put(:status, server_error_status(message))
+      |> Map.put(:waiting, false)
       |> Map.put(:resumable, not is_nil(session_id))
       |> Map.delete(:answered)
+      |> Map.delete(:question_options)
       |> then(fn interview ->
         if is_nil(session_id), do: interview, else: Map.put(interview, :session_id, session_id)
       end)
 
-    %{state | interview: interview, interview_waiter: nil}
+    Map.merge(state, %{
+      interview: interview,
+      interview_waiter: nil,
+      pending_interview_answer: nil,
+      paused: false,
+      wonder: nil
+    })
   end
 
   @spec complete_state(map(), atom()) :: map()
@@ -124,10 +144,62 @@ defmodule Ourocode.Runtime.InterviewEvents do
     %{state | interview: interview, interview_session: nil, interview_waiter: nil}
   end
 
+  @spec failure_state(map(), term()) :: map()
+  def failure_state(state, reason) do
+    interview =
+      (state.interview || %{})
+      |> Map.put(:status, failure_status(reason))
+      |> Map.put(:waiting, false)
+      |> Map.delete(:answered)
+      |> Map.delete(:question_options)
+
+    Map.merge(state, %{
+      interview: interview,
+      interview_session: nil,
+      interview_waiter: nil,
+      pending_interview_answer: nil,
+      paused: false,
+      wonder: nil
+    })
+  end
+
   @spec server_error_status(String.t()) :: String.t()
   def server_error_status(message), do: "MCP question generator unavailable: " <> message
 
   @spec resume_hint(String.t() | nil) :: String.t()
   def resume_hint(nil), do: ""
   def resume_hint(session_id), do: "  (session=#{session_id}, resume available)"
+
+  defp failure_status(:interview_initial_question_timeout),
+    do: "interview session did not open; submit the same command to retry"
+
+  defp failure_status({:transport_failed, :interview_initial_question_timeout}),
+    do: failure_status(:interview_initial_question_timeout)
+
+  defp failure_status({:transport_failed, _reason}),
+    do: "interview transport failed; submit the same command to retry"
+
+  defp failure_status({:mcp_question_generator_unavailable, message, _session_id}),
+    do: server_error_status(message)
+
+  defp failure_status(:interview_session_id_missing),
+    do: "interview session id missing; submit the same command to retry"
+
+  defp failure_status(_reason),
+    do: "interview failed; submit the same command to retry"
+
+  defp maybe_put_last_question(%{question: question} = interview)
+       when is_binary(question) do
+    question = String.trim(question)
+    if question == "", do: interview, else: Map.put(interview, :last_answered_question, question)
+  end
+
+  defp maybe_put_last_question(interview), do: interview
+
+  defp maybe_put_last_question_options(
+         %{question_options: [_first | _rest] = options} = interview
+       ),
+       do: Map.put(interview, :last_question_options, options)
+
+  defp maybe_put_last_question_options(interview), do: interview
 end

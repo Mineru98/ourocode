@@ -55,7 +55,7 @@ defmodule Ourocode.Runtime.RouteTerms do
           :interview | :seed | :evolve | :ralph | :run | :workflow
   def ouroboros_adapter_route(tokens) when is_list(tokens) do
     cond do
-      Enum.any?(tokens, &(&1 in ["interview", "ouroboros:interview"])) ->
+      Enum.any?(tokens, &(&1 in ["interview", "pm", "ouroboros:interview", "ouroboros:pm"])) ->
         :interview
 
       Enum.any?(tokens, &(&1 in ["seed", "ouroboros:seed"])) ->

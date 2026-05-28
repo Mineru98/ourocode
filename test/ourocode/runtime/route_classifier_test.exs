@@ -39,6 +39,9 @@ defmodule Ourocode.Runtime.RouteClassifierTest do
              reason: :explicit_ouroboros_shortcut,
              adapter_route: :run
            }
+
+    assert %{adapter_route: :interview} =
+             RouteClassifier.routing_decision("ooo pm build onboarding")
   end
 
   test "classifies natural Ouroboros workflow terms" do

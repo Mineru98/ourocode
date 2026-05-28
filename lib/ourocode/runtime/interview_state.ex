@@ -19,7 +19,7 @@ defmodule Ourocode.Runtime.InterviewState do
       |> maybe_put(:session_id, session_id)
       |> maybe_put(:milestone, InterviewResponse.meta_value(meta, "milestone"))
       |> maybe_put(:seed_ready, InterviewResponse.meta_value(meta, "seed_ready"))
-      |> Map.delete(:answered)
+      |> reset_question_state()
 
     state
     |> Map.put(:interview, interview)
@@ -75,7 +75,7 @@ defmodule Ourocode.Runtime.InterviewState do
             waiting: false
           })
           |> merge_meta(meta)
-          |> Map.delete(:answered)
+          |> reset_question_state()
 
         state
         |> Map.put(:interview, interview)
@@ -142,4 +142,10 @@ defmodule Ourocode.Runtime.InterviewState do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, []), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp reset_question_state(interview) do
+    interview
+    |> Map.delete(:answered)
+    |> Map.delete(:question_options)
+  end
 end

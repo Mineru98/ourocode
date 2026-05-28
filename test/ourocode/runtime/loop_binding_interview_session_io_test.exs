@@ -62,8 +62,17 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIOTest do
              state.interview.dialogue
   end
 
-  test "enqueue_failure emits failure event without mutating state", %{agent: agent} do
+  test "enqueue_failure emits failure event and clears waiting state", %{agent: agent} do
     callbacks = %{enqueue: fn _agent, event -> send(self(), {:enqueued, event}) end}
+
+    Agent.update(agent, fn state ->
+      %{
+        state
+        | interview: Map.merge(state.interview, %{waiting: true}),
+          interview_session: %{id: "session-1"},
+          interview_waiter: self()
+      }
+    end)
 
     assert :ok =
              LoopBindingInterviewSessionIO.enqueue_failure(
@@ -80,10 +89,19 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIOTest do
                       payload: %{reason: "{:router_failed, :timeout}"}
                     }}
 
-    assert Agent.get(agent, & &1) == %{
-             interview: %{dialogue: []},
-             interview_session: nil,
-             interview_waiter: nil
-           }
+    state = Agent.get(agent, & &1)
+
+    assert state.interview.status ==
+             "interview failed; submit the same command to retry"
+
+    assert state.interview.waiting == false
+    assert state.interview_session == nil
+    assert state.interview_waiter == nil
+
+    assert [
+             %{role: :mcp, text: "interview failed; submit the same command to retry"}
+             | _
+           ] =
+             state.interview.dialogue
   end
 end

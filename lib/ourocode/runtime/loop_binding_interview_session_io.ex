@@ -52,6 +52,17 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIO do
   @spec enqueue_failure(pid(), String.t(), term(), map()) :: :ok
   def enqueue_failure(agent, parent_call_id, reason, callbacks) do
     enqueue(agent, InterviewEvents.failure(parent_call_id, reason), callbacks)
+
+    Agent.update(agent, fn state ->
+      InterviewEvents.failure_state(state, reason)
+    end)
+
+    push_dialogue(
+      agent,
+      :mcp,
+      get_in(Agent.get(agent, & &1), [:interview, :status]) || "interview failed"
+    )
+
     :ok
   end
 
