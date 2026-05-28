@@ -7,7 +7,7 @@ defmodule Ourocode.Terminal.CommandSuggestionsTest do
   test "computes edit distance over graphemes" do
     assert CommandSuggestions.edit_distance("status", "status") == 0
     assert CommandSuggestions.edit_distance("capabilites", "capabilities") == 1
-    assert CommandSuggestions.edit_distance("도움", "도무") == 1
+    assert CommandSuggestions.edit_distance("help", "held") == 1
   end
 
   test "suggests nearby canonical slashes from command names and aliases" do

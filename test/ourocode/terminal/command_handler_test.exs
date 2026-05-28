@@ -17,12 +17,16 @@ defmodule Ourocode.Terminal.CommandHandlerTest do
     assert count > 0
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "commands:"
-    assert text =~ "/help [builtin/discovery]"
-    assert text =~ "/capabilities"
+    assert text =~ "help"
+    assert text =~ "/help"
+    assert text =~ "/config"
+    assert text =~ "/theme"
+    assert text =~ "/verify"
+    refute text =~ "[builtin/discovery]"
+    refute text =~ "/wonder-tool"
   end
 
-  test "handle renders status with footer, plugin status, and sessions" do
+  test "handle renders product status and sessions" do
     {:ok, output} = StringIO.open("")
 
     state =
@@ -51,10 +55,27 @@ defmodule Ourocode.Terminal.CommandHandlerTest do
              CommandHandler.handle(CommandInput.command_event("/status"), state)
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "+-- State"
-    assert text =~ "+-- Plugin Status"
-    assert text =~ "sessions:"
-    assert text =~ "child-session:alpha session=child-alpha"
+    assert text =~ "status"
+    assert text =~ "tools 0 connected"
+    refute text =~ "surface="
+    refute text =~ "transports="
+    assert text =~ "sessions: 1 active"
+    assert text =~ "child-session:alpha"
+    assert text =~ "target child-alpha"
+  end
+
+  test "handle renders children empty state" do
+    {:ok, output} = StringIO.open("")
+
+    assert {:ok, %{count: 0}} =
+             CommandHandler.handle(CommandInput.command_event("/children"), state(output))
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "sessions: 0 active"
+    assert text =~ "no delegated work yet"
+    assert text =~ "start with ooo pm <goal>"
+    assert text =~ "ooo interview <goal>"
+    assert text =~ "ooo auto <goal>"
   end
 
   test "handle returns typo suggestions for unknown commands" do
@@ -98,8 +119,10 @@ defmodule Ourocode.Terminal.CommandHandlerTest do
              CommandHandler.handle(CommandInput.command_event("/resume session-alpha"), state)
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "resume: journaled sessions"
-    assert text =~ "session-alpha events=1"
+    assert text =~ "resume workspace"
+    assert text =~ "latest Saved session"
+    assert text =~ "record 1"
+    assert text =~ "state 1 replay event"
     assert text =~ "resumed session-alpha: 1 events replayed"
   end
 

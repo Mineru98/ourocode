@@ -23,10 +23,14 @@ defmodule Ourocode.Terminal.CommandPreflightCommandsTest do
 
     assert text =~ "preflight: ready"
     assert text =~ "command: /superpowers-tdd"
-    assert text =~ "plugin: superpowers"
-    assert text =~ "trust: trusted"
-    assert text =~ "execution: none"
-    assert text =~ "risk: official"
+    assert text =~ "action: test driven development"
+    assert text =~ "status: ready; trusted plugin"
+    assert text =~ "execution: preview only"
+    assert text =~ "ready: Enter runs the reviewed command"
+    refute text =~ "plugin_path"
+    refute text =~ "plugin_id"
+    refute text =~ "risk:"
+    refute text =~ "source:"
   end
 
   test "renders missing preflight for non command-shaped input" do
@@ -46,6 +50,26 @@ defmodule Ourocode.Terminal.CommandPreflightCommandsTest do
     assert text =~ "reason: not_command_shaped"
   end
 
+  test "renders auto workflow preflight as approval gated" do
+    {:ok, output} = StringIO.open("")
+
+    assert {:ok, %{preflight: %{status: :ready}}} =
+             CommandPreflightCommands.render(
+               :show_preflight,
+               %{args: ["ooo", "auto", "improve", "startup"]},
+               %{output: output},
+               registry_with_ouroboros_plugin()
+             )
+
+    {_input, text} = StringIO.contents(output)
+
+    assert text =~ "preflight: ready"
+    assert text =~ "command: ooo auto improve startup"
+    assert text =~ "action: start guided work"
+    assert text =~ "execution: approval-gated workflow; no files change during preflight"
+    refute text =~ "execution: preview only"
+  end
+
   defp registry_with_plugin do
     {:ok, registry} = Registry.load_builtin()
 
@@ -60,6 +84,28 @@ defmodule Ourocode.Terminal.CommandPreflightCommandsTest do
         },
         :command,
         "plugin:official:superpowers",
+        :official_ouroboros
+      )
+
+    {:ok, registry} = Registry.merge_normalized_entries(registry, [entry])
+    registry
+  end
+
+  defp registry_with_ouroboros_plugin do
+    {:ok, registry} = Registry.load_builtin()
+
+    entry =
+      PluginSurfaceEntry.build!(
+        ouroboros_plugin_entry(),
+        %{
+          "name" => "ooo",
+          "slash" => "/ooo",
+          "aliases" => ["/ouroboros"],
+          "description" => "Run the official Ouroboros workflow surface.",
+          "action" => "workflow"
+        },
+        :command,
+        "plugin:official:ouroboros",
         :official_ouroboros
       )
 
@@ -86,5 +132,9 @@ defmodule Ourocode.Terminal.CommandPreflightCommandsTest do
       metadata: %{},
       config: %{}
     }
+  end
+
+  defp ouroboros_plugin_entry do
+    %{plugin_entry() | id: "ouroboros-plugin", source: "official"}
   end
 end

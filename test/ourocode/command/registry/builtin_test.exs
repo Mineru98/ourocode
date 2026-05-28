@@ -12,6 +12,8 @@ defmodule Ourocode.Command.Registry.BuiltinTest do
              "/skills",
              "/capabilities",
              "/preflight",
+             "/verify",
+             "/approve",
              "/clear",
              "/resume",
              "/exit",
@@ -19,27 +21,28 @@ defmodule Ourocode.Command.Registry.BuiltinTest do
              "/status",
              "/pane",
              "/children",
+             "/agents",
              "/queue",
              "/hooks",
              "/wonder",
              "/plugins",
              "/mcp",
+             "/mcps",
+             "/sandbox",
              "/sessions",
              "/config",
              "/model",
+             "/theme",
              "/login",
              "/logout",
              "/reload",
-             "/replay"
+             "/replay",
+             "/cancel"
            ]
 
     assert Enum.all?(entries, &(&1.source == :builtin))
 
-    assert Enum.map(Enum.filter(entries, &(&1.availability == :stub)), & &1.slash) == [
-             "/mcp",
-             "/sessions",
-             "/config"
-           ]
+    assert Enum.map(Enum.filter(entries, &(&1.availability == :stub)), & &1.slash) == []
 
     assert Enum.all?(entries, fn entry ->
              entry.source == :builtin and
@@ -60,10 +63,17 @@ defmodule Ourocode.Command.Registry.BuiltinTest do
              "/quit",
              "/status",
              "/preflight",
+             "/verify",
+             "/approve",
              "/plugins",
              "/mcp",
+             "/mcps",
+             "/sandbox",
+             "/agents",
              "/sessions",
-             "/config"
+             "/config",
+             "/theme",
+             "/cancel"
            ]) == %{
              "/clear" => {:available, :clear_screen},
              "/resume" => {:available, :resume_session},
@@ -71,18 +81,28 @@ defmodule Ourocode.Command.Registry.BuiltinTest do
              "/quit" => {:available, :exit},
              "/status" => {:available, :show_status},
              "/preflight" => {:available, :show_preflight},
+             "/verify" => {:available, :show_verify},
+             "/approve" => {:available, :approve_workflow},
              "/plugins" => {:available, :show_plugins},
-             "/mcp" => {:stub, :show_mcp},
-             "/sessions" => {:stub, :show_sessions},
-             "/config" => {:stub, :show_config}
+             "/mcp" => {:available, :show_mcp},
+             "/mcps" => {:available, :show_mcps},
+             "/sandbox" => {:available, :show_sandbox},
+             "/agents" => {:available, :show_agents},
+             "/sessions" => {:available, :show_sessions},
+             "/config" => {:available, :show_config},
+             "/theme" => {:available, :set_theme},
+             "/cancel" => {:available, :cancel_focused_child}
            }
 
     pane = Enum.find(entries, &(&1.slash == "/pane"))
+    preflight = Enum.find(entries, &(&1.slash == "/preflight"))
 
     assert pane.category == :steering
+    assert preflight.aliases == []
+    assert preflight.summary == "Preview what a command would do before executing it."
 
     assert pane.args == [
-             %{name: "pane_id", required?: true, description: "Pane id or child session id"}
+             %{name: "pane_id", required?: true, description: "Pane or work item id"}
            ]
   end
 
@@ -102,7 +122,7 @@ defmodule Ourocode.Command.Registry.BuiltinTest do
              %{
                name: "reason",
                required?: false,
-               description: "Optional cancellation reason sent to the child session"
+               description: "Optional cancellation reason sent to the task"
              }
            ]
   end

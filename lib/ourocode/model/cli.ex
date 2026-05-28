@@ -17,7 +17,10 @@ defmodule Ourocode.Model.Cli do
   @doc "Non-interactive argv for a one-shot prompt, per CLI."
   @spec args(atom(), String.t()) :: [String.t()]
   def args(:claude, prompt), do: ["-p", prompt]
-  def args(:codex_cli, prompt), do: ["exec", prompt]
+
+  def args(:codex_cli, prompt),
+    do: ["exec", "--json", "--color", "never", "--ephemeral", "--skip-git-repo-check", prompt]
+
   def args(:gemini, prompt), do: ["-p", prompt]
 
   @doc "Absolute path of a CLI backend's binary, or nil if not installed."
@@ -43,11 +46,11 @@ defmodule Ourocode.Model.Cli do
 
     case which.(bin) do
       nil -> {:error, {:not_installed, bin}}
-      path -> run(path, args(id, prompt), on_chunk)
+      path -> run(id, path, args(id, prompt), on_chunk)
     end
   end
 
-  defp run(path, args, on_chunk) do
+  defp run(id, path, args, on_chunk) do
     # Spawn through `sh -c 'exec "$0" "$@" </dev/null'` so the CLI's stdin is
     # /dev/null, not the BEAM port pipe. Otherwise `claude -p` / `codex exec`
     # block waiting for piped stdin (codex hangs on "Reading additional
@@ -64,17 +67,18 @@ defmodule Ourocode.Model.Cli do
         args: ["-c", ~s(exec "$0" "$@" </dev/null), path | args]
       ])
 
-    collect(port, [], on_chunk)
+    collect(id, port, [], "", on_chunk)
   end
 
-  defp collect(port, acc, on_chunk) do
+  defp collect(id, port, acc, partial, on_chunk) do
     receive do
       {^port, {:data, data}} ->
-        on_chunk.(data)
-        collect(port, [data | acc], on_chunk)
+        {acc, partial} = handle_output(id, partial <> data, acc, on_chunk)
+        collect(id, port, acc, partial, on_chunk)
 
       {^port, {:exit_status, 0}} ->
-        {:ok, acc |> Enum.reverse() |> IO.iodata_to_binary()}
+        {acc, _partial} = flush_output(id, partial, acc, on_chunk)
+        {:ok, final_text(id, acc)}
 
       {^port, {:exit_status, status}} ->
         {:error, {:exit, status}}
@@ -82,6 +86,67 @@ defmodule Ourocode.Model.Cli do
       180_000 ->
         safe_close(port)
         {:error, :timeout}
+    end
+  end
+
+  defp handle_output(:codex_cli, data, acc, on_chunk) do
+    {lines, partial} = complete_lines(data)
+
+    acc =
+      Enum.reduce(lines, acc, fn line, acc ->
+        case codex_agent_text(line) do
+          nil ->
+            acc
+
+          text ->
+            on_chunk.(text)
+            [text | acc]
+        end
+      end)
+
+    {acc, partial}
+  end
+
+  defp handle_output(_id, data, acc, on_chunk) do
+    on_chunk.(data)
+    {[data | acc], ""}
+  end
+
+  defp flush_output(:codex_cli, "", acc, _on_chunk), do: {acc, ""}
+
+  defp flush_output(:codex_cli, partial, acc, on_chunk),
+    do: handle_output(:codex_cli, partial <> "\n", acc, on_chunk)
+
+  defp flush_output(_id, partial, acc, on_chunk) do
+    if partial != "" do
+      on_chunk.(partial)
+      {[partial | acc], ""}
+    else
+      {acc, ""}
+    end
+  end
+
+  defp final_text(:codex_cli, [latest | _rest]), do: latest
+  defp final_text(_id, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp complete_lines(data) do
+    parts = String.split(data, "\n")
+
+    case parts do
+      [partial] ->
+        {[], partial}
+
+      _ ->
+        {Enum.drop(parts, -1), List.last(parts)}
+    end
+  end
+
+  defp codex_agent_text(line) do
+    with {:ok, %{"type" => "item.completed", "item" => item}} <- Ourocode.Json.decode(line),
+         %{"type" => "agent_message", "text" => text} when is_binary(text) <- item do
+      text
+    else
+      _other -> nil
     end
   end
 

@@ -29,40 +29,45 @@ defmodule Ourocode.Terminal.CommandPaletteEntry do
   @spec line(map()) :: String.t()
   def line(entry) when is_map(entry) do
     [
-      "| #{entry.slash}",
-      "[#{entry.source}/#{entry.category}]",
-      availability_label(entry),
-      args_label(entry),
-      aliases_label(entry),
-      summary_label(entry)
+      "| #{String.pad_trailing(entry.slash, 18)}",
+      source_label(entry),
+      summary(entry),
+      usage_label(entry)
     ]
     |> Enum.reject(&(&1 in ["", nil]))
     |> Enum.join(" ")
   end
 
-  defp availability_label(%{availability: :available, runnable?: true}), do: ""
+  defp source_label(%{source: :builtin}), do: "command"
+  defp source_label(%{source: :guided_work}), do: "guided"
+  defp source_label(%{source: :plugin}), do: "plugin"
 
-  defp availability_label(%{availability: availability, runnable?: runnable?}) do
-    "availability=#{availability} runnable?=#{runnable?}"
-  end
+  defp source_label(%{source: source}) when source in [:local, :bundled_skill, :dynamic_skill],
+    do: "skill"
 
-  defp args_label(%{args: []}), do: ""
+  defp source_label(_entry), do: "tool"
 
-  defp args_label(%{args: args}) do
+  defp usage_label(%{args: []}), do: ""
+
+  defp usage_label(%{args: args}) do
     rendered =
       args
       |> Enum.map(fn arg ->
-        suffix = if Map.get(arg, :required?, false), do: "*", else: ""
-        "#{Map.get(arg, :name, "arg")}#{suffix}"
+        name = Map.get(arg, :name, "arg")
+        if Map.get(arg, :required?, false), do: "<#{name}>", else: "[#{name}]"
       end)
-      |> Enum.join(",")
+      |> Enum.join(" ")
 
-    "args=#{rendered}"
+    rendered
   end
 
-  defp aliases_label(%{aliases: []}), do: ""
-  defp aliases_label(%{aliases: aliases}), do: "aliases=#{Enum.join(aliases, ",")}"
+  defp summary(%{summary: summary}) when is_binary(summary) and summary != "" do
+    summary
+    |> String.replace(~r/\s+/, " ")
+    |> String.replace(~r/\bDo NOT use:.*$/i, "")
+    |> String.replace(~r/\bTriggers?:.*$/i, "")
+    |> String.trim()
+  end
 
-  defp summary_label(%{summary: ""}), do: ""
-  defp summary_label(%{summary: summary}), do: ~s(summary="#{summary}")
+  defp summary(_entry), do: "Run this command"
 end

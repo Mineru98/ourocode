@@ -157,8 +157,13 @@ defmodule Ourocode.Command.RegistryTest do
     assert {:ok, parent_registry} = Registry.expose_contextual_actions(registry, parent_context)
     assert Registry.fetch(parent_registry, "/interrupt") == :error
     assert Registry.fetch(parent_registry, "/stop-child") == :error
-    assert Registry.fetch(parent_registry, "/cancel") == :error
-    assert Registry.fetch(parent_registry, "/cancel-child") == :error
+
+    assert {:ok, parent_cancel} = Registry.fetch(parent_registry, "/cancel")
+    refute Map.get(parent_cancel.metadata, :contextual?, false)
+    assert parent_cancel.run_spec == %{kind: :builtin_action, action: :cancel_focused_child}
+
+    assert {:ok, parent_cancel_alias} = Registry.fetch(parent_registry, "/cancel-child")
+    assert parent_cancel_alias.slash == "/cancel"
 
     child_pane_id = "child-session:interrupt-alpha"
 
@@ -214,7 +219,7 @@ defmodule Ourocode.Command.RegistryTest do
              %{
                name: "reason",
                required?: false,
-               description: "Optional cancellation reason sent to the child session"
+               description: "Optional cancellation reason sent to the task"
              }
            ]
 
@@ -240,6 +245,8 @@ defmodule Ourocode.Command.RegistryTest do
              "/skills",
              "/capabilities",
              "/preflight",
+             "/verify",
+             "/approve",
              "/clear",
              "/resume",
              "/exit",
@@ -247,14 +254,18 @@ defmodule Ourocode.Command.RegistryTest do
              "/status",
              "/pane",
              "/children",
+             "/agents",
              "/queue",
              "/hooks",
              "/wonder",
              "/plugins",
              "/mcp",
+             "/mcps",
+             "/sandbox",
              "/sessions",
              "/config",
              "/model",
+             "/theme",
              "/login",
              "/logout",
              "/reload",
@@ -282,7 +293,8 @@ defmodule Ourocode.Command.RegistryTest do
              )
 
     assert Registry.fetch(contextual_registry, "/interrupt") == :error
-    assert Registry.fetch(contextual_registry, "/cancel") == :error
+    assert {:ok, cancel} = Registry.fetch(contextual_registry, "/cancel")
+    refute Map.get(cancel.metadata, :contextual?, false)
   end
 
   test "loads local skill directory commands into normalized command entries" do
@@ -1063,6 +1075,8 @@ defmodule Ourocode.Command.RegistryTest do
              "/skills",
              "/capabilities",
              "/preflight",
+             "/verify",
+             "/approve",
              "/clear",
              "/resume",
              "/exit",
@@ -1070,18 +1084,23 @@ defmodule Ourocode.Command.RegistryTest do
              "/status",
              "/pane",
              "/children",
+             "/agents",
              "/queue",
              "/hooks",
              "/wonder",
              "/plugins",
              "/mcp",
+             "/mcps",
+             "/sandbox",
              "/sessions",
              "/config",
              "/model",
+             "/theme",
              "/login",
              "/logout",
              "/reload",
              "/replay",
+             "/cancel",
              "/vim-help",
              "/vim-mode"
            ]

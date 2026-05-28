@@ -44,19 +44,16 @@ defmodule Ourocode.Terminal.CommandPaletteArea do
   """
   @spec render_text(t()) :: String.t()
   def render_text(%{entries: entries} = palette) do
-    header =
-      "+-- Command Palette (#{palette.loaded_count}) region=command_palette status=#{palette.status}"
-
-    source_line = "| sources=#{format_sources(palette.sources)}"
+    header = "commands: #{palette.loaded_count} available"
 
     entry_lines =
       if entries == [] do
-        ["| no commands or skills loaded"]
+        ["  no commands or skills loaded"]
       else
         Enum.map(entries, &CommandPaletteEntry.line/1)
       end
 
-    ([header, source_line] ++ entry_lines)
+    ([header] ++ entry_lines)
     |> Enum.join("\n")
   end
 
@@ -83,7 +80,4 @@ defmodule Ourocode.Terminal.CommandPaletteArea do
   def select(registry, selection) when is_map(registry) do
     CommandPaletteSelection.select(registry, selection)
   end
-
-  defp format_sources([]), do: "none"
-  defp format_sources(sources), do: Enum.map_join(sources, ",", &to_string/1)
 end

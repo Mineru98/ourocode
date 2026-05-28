@@ -10,18 +10,25 @@ defmodule Ourocode.Terminal.Suggestions do
 
     cond do
       trimmed == "ooo" ->
-        commands
+        OooCommands.starters(commands)
 
       String.starts_with?(trimmed, "ooo ") ->
-        query =
-          trimmed
-          |> String.replace_prefix("ooo ", "")
-          |> String.trim()
-          |> String.downcase()
+        case completed_ooo_command(trimmed, commands) do
+          nil ->
+            query =
+              trimmed
+              |> String.replace_prefix("ooo ", "")
+              |> String.trim()
+              |> String.downcase()
 
-        commands
-        |> Enum.map(fn {command, summary} -> {command, {command, summary}} end)
-        |> Fuzzy.rank(query, limit: 8)
+            starter_suggestions(query, commands) ||
+              commands
+              |> Enum.map(fn {command, summary} -> {command, {command, summary}} end)
+              |> Fuzzy.rank(query, limit: 8)
+
+          command ->
+            [command]
+        end
 
       true ->
         []
@@ -29,6 +36,34 @@ defmodule Ourocode.Terminal.Suggestions do
   end
 
   def ooo_suggestions(_prompt_buffer, _mode, _wonder_focus, _commands), do: []
+
+  @spec completed_ooo_command?(String.t(), [{String.t(), String.t()}]) :: boolean()
+  def completed_ooo_command?(prompt_buffer, commands) do
+    not is_nil(completed_ooo_command(String.trim_leading(prompt_buffer), commands))
+  end
+
+  defp completed_ooo_command(trimmed, commands) do
+    Enum.find(commands, fn {command, _summary} ->
+      String.starts_with?(trimmed, command <> " ")
+    end)
+  end
+
+  defp starter_suggestions(query, commands) do
+    starters = OooCommands.starters(commands)
+
+    matching =
+      Enum.filter(starters, fn {command, _summary} ->
+        command
+        |> String.replace_prefix("ooo ", "")
+        |> String.starts_with?(query)
+      end)
+
+    cond do
+      query == "" -> starters
+      matching != [] -> matching
+      true -> nil
+    end
+  end
 
   @spec ooo_prompt?(term()) :: boolean()
   def ooo_prompt?(prompt_buffer) when is_binary(prompt_buffer) do

@@ -319,10 +319,31 @@ defmodule Ourocode.Command.Registry do
   def expose_contextual_actions(registry, context \\ []) when is_map(registry) do
     context
     |> ContextualActions.entries()
-    |> merge_entries(registry)
+    |> merge_contextual_entries(registry)
   end
 
   defp merge_entries(new_entries, registry), do: Merge.run(new_entries, registry)
+
+  defp merge_contextual_entries([], registry), do: {:ok, registry}
+
+  defp merge_contextual_entries(new_entries, registry) do
+    slashes = MapSet.new(new_entries, & &1.slash)
+    aliases = MapSet.new(Enum.flat_map(new_entries, & &1.aliases))
+
+    registry =
+      registry
+      |> Map.update!(:ordered, &Enum.reject(&1, fn entry -> entry.slash in slashes end))
+      |> Map.update!(:entries, &Map.drop(&1, MapSet.to_list(slashes)))
+      |> Map.update!(:aliases, &drop_contextual_aliases(&1, aliases, slashes))
+
+    merge_entries(new_entries, registry)
+  end
+
+  defp drop_contextual_aliases(alias_map, aliases, slashes) do
+    alias_map
+    |> Enum.reject(fn {alias, slash} -> alias in aliases or slash in slashes end)
+    |> Map.new()
+  end
 
   defp normalize_slash(command) when is_binary(command) do
     command = String.trim(command)

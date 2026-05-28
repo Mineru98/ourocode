@@ -46,14 +46,15 @@ defmodule Ourocode.Terminal.CommandPaletteAreaTest do
 
     assert palette.loaded_count == registry.loaded_count
     assert Enum.map(palette.entries, & &1.slash) == Enum.map(registry.ordered, & &1.slash)
-    assert text =~ "+-- Command Palette (#{registry.loaded_count})"
-    assert text =~ "| /help [builtin/discovery]"
+    assert text =~ "commands: #{registry.loaded_count} available"
+    assert text =~ "| /help"
+    refute text =~ "[builtin/discovery]"
 
     assert text =~
-             ~s(| /review-skill [local/skills] args=target* aliases=/review-now summary="Run local review workflow.")
+             "| /review-skill      skill Run local review workflow. <target>"
 
     assert text =~
-             ~s(| /vim-toggle [plugin/plugins] aliases=/vim summary="Toggle vim keybindings.")
+             "| /vim-toggle        plugin Toggle vim keybindings."
   end
 
   test "projects compact event entries from registry entries" do

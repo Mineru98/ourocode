@@ -3,7 +3,7 @@ defmodule Ourocode.Terminal.CommandPaletteDetailTest do
 
   alias Ourocode.Terminal.CommandPaletteDetail
 
-  test "rows include selected command metadata and capability semantics" do
+  test "rows include user-facing command detail and safety copy" do
     entry = %{
       name: "Test",
       slash: "/test",
@@ -16,8 +16,10 @@ defmodule Ourocode.Terminal.CommandPaletteDetailTest do
     }
 
     assert [
-             "selected /test  source=plugin trust=plugin category=plugins availability=available",
-             "capability attachment/external_side_effect/elevated  aliases=/t, /try  args=goal!, dry_run?"
+             "● /test · Plugin · Available",
+             "Purpose · Run test command",
+             "Safety · Workspace context · External changes · Asks first",
+             "Usage · /t, /try · goal required · dry_run optional"
            ] = CommandPaletteDetail.rows(entry, 200)
   end
 
@@ -35,13 +37,16 @@ defmodule Ourocode.Terminal.CommandPaletteDetailTest do
 
     rows = CommandPaletteDetail.rows(entry, 96)
 
-    assert length(rows) == 2
+    assert length(rows) == 4
     assert Enum.all?(rows, &(String.length(&1) <= 96))
-    assert Enum.join(rows, "\n") =~ "trust=builtin"
-    assert Enum.join(rows, "\n") =~ "aliases=none"
+    assert Enum.join(rows, "\n") =~ "Built-in command"
+    assert Enum.join(rows, "\n") =~ "No extra input"
+    refute Enum.join(rows, "\n") =~ "source="
+    refute Enum.join(rows, "\n") =~ "capability"
   end
 
   test "trust_tier maps known sources and falls back to unknown" do
+    assert CommandPaletteDetail.trust_tier(%{source: :guided_work}) == "guided"
     assert CommandPaletteDetail.trust_tier(%{source: :bundled_skill}) == "bundled"
     assert CommandPaletteDetail.trust_tier(%{source: :local}) == "local"
     assert CommandPaletteDetail.trust_tier(%{source: :mcp}) == "mcp"

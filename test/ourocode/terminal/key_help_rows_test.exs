@@ -7,7 +7,7 @@ defmodule Ourocode.Terminal.KeyHelpRowsTest do
     rows = KeyHelpRows.rows(:normal, %{wonder_focus: true, interview_paused: true})
 
     assert {"Up/Dn j/k", "move option"} in rows
-    assert {"Esc", "pause to main session"} in rows
+    assert {"Esc", "pause interview"} in rows
     refute {"/answer <text>", "submit to interview"} in rows
   end
 

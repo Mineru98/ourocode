@@ -20,7 +20,7 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommandsTest do
     refute CommandDiscoveryCommands.handles?(:unknown)
   end
 
-  test "render help and commands list all registry entries", %{
+  test "render help and commands list core command entries with starter shortcuts first", %{
     registry: registry,
     state: state,
     output: output
@@ -31,13 +31,28 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommandsTest do
     assert {:ok, %{count: commands_count}} =
              CommandDiscoveryCommands.render(:show_commands, state, registry)
 
-    assert help_count == length(Registry.entries(registry))
-    assert commands_count == help_count
+    assert help_count < length(Registry.entries(registry))
+    assert commands_count < length(Registry.entries(registry))
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "commands:"
-    assert text =~ "/help [builtin/discovery]"
-    assert text =~ "/capabilities"
+    assert text =~ "help"
+    assert text =~ "start here:"
+    assert text =~ "ooo pm"
+    assert text =~ "ooo interview"
+    assert text =~ "ooo auto"
+    refute text =~ "  /ooo pm"
+    assert text =~ "common:"
+    assert text =~ "core commands:"
+    assert text =~ "more:"
+    refute text =~ "/preflight"
+    assert text =~ "/verify"
+    assert text =~ "/agents"
+    assert text =~ "/config"
+    assert text =~ "/theme"
+    refute text =~ "/mcps"
+    assert text =~ "/sandbox"
+    refute text =~ "[builtin/discovery]"
+    refute text =~ "/wonder-tool"
   end
 
   test "render_registry renders entries and returns count", %{
@@ -47,11 +62,13 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommandsTest do
     assert {:ok, %{count: count}} =
              CommandDiscoveryCommands.render_registry(output, registry, :all)
 
-    assert count == length(Registry.entries(registry))
+    assert count < length(Registry.entries(registry))
 
     {_input, text} = StringIO.contents(output)
+    assert text =~ "help"
+    assert text =~ "/help"
     assert text =~ "commands:"
-    assert text =~ "/help [builtin/discovery]"
+    refute text =~ "[builtin/discovery]"
   end
 
   test "render skills filters skill-capable registry sources", %{
@@ -65,8 +82,8 @@ defmodule Ourocode.Terminal.CommandDiscoveryCommandsTest do
     {_input, text} = StringIO.contents(output)
 
     assert count >= 0
-    assert text =~ "commands:"
-    refute text =~ "/help [builtin/discovery]"
+    assert text =~ "skills:"
+    refute text =~ "[builtin/discovery]"
   end
 
   test "render capabilities shows capability graph", %{

@@ -34,7 +34,7 @@ defmodule Ourocode.Terminal.CommandPaletteEntryTest do
            }
   end
 
-  test "formats compact terminal lines with optional labels" do
+  test "formats product-facing terminal lines with arguments" do
     entry = %{
       slash: "/review-skill",
       source: :local,
@@ -47,6 +47,6 @@ defmodule Ourocode.Terminal.CommandPaletteEntryTest do
     }
 
     assert CommandPaletteEntry.line(entry) ==
-             ~s(| /review-skill [local/skills] availability=blocked runnable?=false args=target*,mode aliases=/review-now summary="Run local review workflow.")
+             "| /review-skill      skill Run local review workflow. <target> [mode]"
   end
 end

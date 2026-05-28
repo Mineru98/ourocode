@@ -60,6 +60,38 @@ defmodule Ourocode.Command.CapabilityPreflightTest do
            } = CapabilityPreflight.resolve(registry, "/sp-tdd --goal retry")
   end
 
+  test "resolves bare ooo workflow prefix as the official plugin command" do
+    assert {:ok, plugin_config} =
+             Ourocode.Plugin.ConfigSchema.parse("""
+             {
+               "plugins": [
+                 {
+                   "identity": {"id": "ouroboros-plugin", "version": "1.0.0"},
+                   "path": "plugins/ouroboros",
+                   "entrypoint": {"type": "manifest", "path": "capabilities.json"},
+                   "enabled": true,
+                   "source": "official",
+                   "permissions": {"filesystem": [], "network": [], "process": []},
+                   "trust_policy": {
+                     "tier": "official",
+                     "requires_explicit_approval": false
+                   },
+                   "config": {"commands": true, "skills": true}
+                 }
+               ]
+             }
+             """)
+
+    {:ok, registry} =
+      Registry.load(bundled_skill_dirs: [], skill_dirs: [], plugin_config: plugin_config)
+
+    assert %{
+             status: :ready,
+             match: %{token: "/ooo", canonical: "/ooo"},
+             capability: %{source: :plugin, source_id: "ouroboros-plugin"}
+           } = CapabilityPreflight.resolve(registry, "ooo pm build onboarding")
+  end
+
   test "blocks plugin preflight when explicit trust approval is still required" do
     registry = registry_with(plugin_entry(:community), command_definition())
 

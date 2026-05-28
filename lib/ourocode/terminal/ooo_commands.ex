@@ -7,12 +7,12 @@ defmodule Ourocode.Terminal.OooCommands do
   alias Ourocode.Terminal.PromptStore
 
   @fallback [
-    {"ooo interview", "clarify requirements through a Socratic interview"},
     {"ooo pm", "shape product requirements through a PM interview"},
-    {"ooo auto", "interview, generate a Seed, and execute automatically"},
+    {"ooo interview", "clarify requirements through a Socratic interview"},
+    {"ooo auto", "interview, draft a plan, then execute"},
     {"ooo clarify", "turn vague requirements into a concrete direction"},
-    {"ooo seed", "generate a validated Seed from the current interview"},
-    {"ooo run", "execute a Seed specification"},
+    {"ooo seed", "create a reusable task plan from the current interview"},
+    {"ooo run", "execute a saved task plan"},
     {"ooo evolve", "run one evolutionary generation"},
     {"ooo ralph", "run an iterative Ralph loop"},
     {"ooo qa", "evaluate an artifact against a quality bar"},
@@ -20,11 +20,11 @@ defmodule Ourocode.Terminal.OooCommands do
     {"ooo status", "inspect session status and drift"},
     {"ooo cancel", "cancel a stuck or orphaned execution"},
     {"ooo brownfield", "scan and manage repository context"},
-    {"ooo publish", "publish Seed requirements as GitHub issues"},
-    {"ooo resume-session", "list or resume in-flight Ouroboros sessions"},
-    {"ooo help", "show Ouroboros commands and agents"},
-    {"ooo tutorial", "learn Ouroboros hands-on"},
-    {"ooo update", "check for Ouroboros updates"}
+    {"ooo publish", "publish task requirements as GitHub issues"},
+    {"ooo resume-session", "list or resume in-flight work"},
+    {"ooo help", "show guided-work commands and agents"},
+    {"ooo tutorial", "learn guided work hands-on"},
+    {"ooo update", "check for guided-work updates"}
   ]
 
   @core_names MapSet.new([
@@ -50,6 +50,17 @@ defmodule Ourocode.Terminal.OooCommands do
 
   @spec fallback() :: [{String.t(), String.t()}]
   def fallback, do: @fallback
+
+  @spec starters([{String.t(), String.t()}]) :: [{String.t(), String.t()}]
+  def starters(commands) when is_list(commands) do
+    wanted = ["ooo pm", "ooo interview", "ooo auto"]
+
+    wanted
+    |> Enum.map(fn command ->
+      Enum.find(commands, fn {candidate, _summary} -> candidate == command end)
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
 
   @spec build(boolean()) :: [{String.t(), String.t()}]
   def build(test_run?) do

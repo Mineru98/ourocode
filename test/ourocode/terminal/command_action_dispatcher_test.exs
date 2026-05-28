@@ -21,7 +21,9 @@ defmodule Ourocode.Terminal.CommandActionDispatcherTest do
     assert count > 0
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "commands:"
+    assert text =~ "help"
+    assert text =~ "/theme"
+    assert text =~ "/config"
   end
 
   test "dispatches command preflight action" do
@@ -40,7 +42,30 @@ defmodule Ourocode.Terminal.CommandActionDispatcherTest do
     {_input, text} = StringIO.contents(output)
     assert text =~ "preflight: ready"
     assert text =~ "command: /help"
-    assert text =~ "execution: none"
+    assert text =~ "execution: preview only"
+    refute text =~ "plugin_path"
+    refute text =~ "source:"
+  end
+
+  test "dispatches product verify guidance" do
+    {:ok, registry} = Registry.load_builtin()
+    {:ok, output} = StringIO.open("")
+
+    assert {:ok, %{verify: %{status: :ready}}} =
+             CommandActionDispatcher.dispatch(
+               :show_verify,
+               %{args: []},
+               %{slash: "/verify"},
+               %{output: output},
+               registry
+             )
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "verify: ready"
+    assert text =~ "startup, plugins, preflight, guided work, real terminal replay"
+    assert text =~ "ourocode --verify --format json --project-dir ."
+    refute text =~ "source:"
+    refute text =~ "plugin_path"
   end
 
   test "dispatches status actions" do
@@ -56,7 +81,12 @@ defmodule Ourocode.Terminal.CommandActionDispatcherTest do
              )
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "mcp: stdio,SSE,streamable_http"
+    assert text =~ "Connected tools"
+    assert text =~ "not configured; 0 connected tools"
+    assert text =~ "nothing here yet"
+    assert text =~ "No connected tool configured."
+    assert text =~ "Open /plugins | /verify"
+    refute text =~ "streamable_http"
   end
 
   test "dispatches resume actions" do
@@ -108,6 +138,68 @@ defmodule Ourocode.Terminal.CommandActionDispatcherTest do
     assert_receive {:interrupt, %{id: "child-session:alpha"}, serialized_request, context}
     assert is_binary(serialized_request)
     assert context.decoded_request.action == "interrupt"
+  end
+
+  test "dispatches auto workflow approval through runtime events" do
+    {:ok, output} = StringIO.open("")
+
+    state = %{
+      startup_result: %{status: :healthy},
+      output: output,
+      journal_path: nil,
+      runtime_events: [],
+      recoverable_errors: [],
+      on_runtime_event: fn _event, _startup -> :ok end,
+      pane_model: %{
+        panes: %{
+          "workflow:auto-1" => %{
+            id: "workflow:auto-1",
+            kind: :workflow_session,
+            title: "Auto run",
+            status: "preparing approval",
+            task: "ooo auto improve startup",
+            last_line: "interview -> plan -> approval -> verify",
+            progress: "approval checkpoint before file changes"
+          }
+        },
+        open: ["workflow:auto-1"]
+      }
+    }
+
+    assert {:ok,
+            %{
+              state: approved,
+              approval: %{status: :approved_sandbox_execution, sandbox_path: sandbox_path}
+            }} =
+             CommandActionDispatcher.dispatch(
+               :approve_workflow,
+               %{command: "/approve", args: []},
+               %{slash: "/approve"},
+               state,
+               %{}
+             )
+
+    pane = approved.pane_model.panes["workflow:auto-1"]
+    assert pane.status == "running"
+    assert pane.phase == "verify sandbox"
+
+    assert pane.current ==
+             "sandbox verification passed; project mutation still requires explicit execution"
+
+    assert pane.progress == [
+             "approval journaled",
+             "sandbox verified",
+             sandbox_path,
+             "project files unchanged"
+           ]
+
+    assert length(approved.runtime_events) == 2
+    assert File.exists?(sandbox_path)
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "approval: sandbox execution accepted"
+    assert text =~ "changed and verified a temporary sandbox file"
+    assert text =~ "project: unchanged"
   end
 
   test "returns command metadata for actions owned elsewhere" do

@@ -14,7 +14,7 @@ defmodule Ourocode.Terminal.KeyHelpRows do
           {"Left/Right h/l", "move question"},
           {"Space", "toggle multi-select"},
           {"Enter", "submit or review"},
-          {"Esc", "pause to main session"}
+          {"Esc", "pause interview"}
         ]
 
       {_mode, _focus, true} ->

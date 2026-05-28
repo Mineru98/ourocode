@@ -6,8 +6,22 @@ defmodule Ourocode.Terminal.OooCommandsTest do
   test "fallback contains core ooo workflow commands" do
     commands = OooCommands.fallback()
 
+    assert Enum.take(commands, 3) == [
+             {"ooo pm", "shape product requirements through a PM interview"},
+             {"ooo interview", "clarify requirements through a Socratic interview"},
+             {"ooo auto", "interview, draft a plan, then execute"}
+           ]
+
     assert {"ooo interview", "clarify requirements through a Socratic interview"} in commands
-    assert {"ooo run", "execute a Seed specification"} in commands
+    assert {"ooo run", "execute a saved task plan"} in commands
+  end
+
+  test "starters expose only pm interview and auto in first-start order" do
+    assert OooCommands.starters(OooCommands.fallback()) == [
+             {"ooo pm", "shape product requirements through a PM interview"},
+             {"ooo interview", "clarify requirements through a Socratic interview"},
+             {"ooo auto", "interview, draft a plan, then execute"}
+           ]
   end
 
   test "registry_entry? accepts core, plugin, dynamic skill, and ouroboros-prefixed entries" do

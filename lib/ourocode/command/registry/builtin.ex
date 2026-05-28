@@ -19,7 +19,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/commands",
       aliases: ["/cmds"],
       category: :discovery,
-      summary: "Open the merged command registry view.",
+      summary: "Show the main command list.",
       run_spec: %{kind: :builtin_action, action: :show_commands}
     },
     %{
@@ -27,7 +27,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/skills",
       aliases: [],
       category: :discovery,
-      summary: "Open skill discovery from the merged registry.",
+      summary: "Browse installed skills.",
       run_spec: %{kind: :builtin_action, action: :show_skills}
     },
     %{
@@ -35,7 +35,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/capabilities",
       aliases: ["/caps"],
       category: :discovery,
-      summary: "Show the merged runtime capability graph.",
+      summary: "Show what commands can do before they run.",
       run_spec: %{kind: :builtin_action, action: :show_capabilities}
     },
     %{
@@ -43,7 +43,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/preflight",
       aliases: [],
       category: :discovery,
-      summary: "Resolve a command capability without executing it.",
+      summary: "Preview what a command would do before executing it.",
       args: [
         %{
           name: "command",
@@ -52,6 +52,23 @@ defmodule Ourocode.Command.Registry.Builtin do
         }
       ],
       run_spec: %{kind: :builtin_action, action: :show_preflight}
+    },
+    %{
+      name: "verify",
+      slash: "/verify",
+      aliases: [],
+      category: :discovery,
+      summary: "Run product checks for startup, plugins, TTY, and guided work.",
+      run_spec: %{kind: :builtin_action, action: :show_verify}
+    },
+    %{
+      name: "approve",
+      slash: "/approve",
+      aliases: [],
+      category: :runtime,
+      summary:
+        "Approve the pending auto workflow checkpoint and advance sandbox execution evidence.",
+      run_spec: %{kind: :builtin_action, action: :approve_workflow}
     },
     %{
       name: "clear",
@@ -98,7 +115,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/status",
       aliases: ["/health"],
       category: :runtime,
-      summary: "Show runtime, transport, plugin, hook, and queue health.",
+      summary: "Show app, plugin, and queue health.",
       run_spec: %{kind: :builtin_action, action: :show_status}
     },
     %{
@@ -107,7 +124,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       aliases: ["/focus"],
       category: :steering,
       summary: "Focus or open a terminal pane.",
-      args: [%{name: "pane_id", required?: true, description: "Pane id or child session id"}],
+      args: [%{name: "pane_id", required?: true, description: "Pane or work item id"}],
       run_spec: %{kind: :builtin_action, action: :focus_pane}
     },
     %{
@@ -115,8 +132,16 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/children",
       aliases: ["/child"],
       category: :steering,
-      summary: "Show child session panes and steering targets.",
+      summary: "Show delegated work and steering targets.",
       run_spec: %{kind: :builtin_action, action: :show_children}
+    },
+    %{
+      name: "agents",
+      slash: "/agents",
+      aliases: [],
+      category: :steering,
+      summary: "Show delegated agents, active tasks, and steering targets.",
+      run_spec: %{kind: :builtin_action, action: :show_agents}
     },
     %{
       name: "queue",
@@ -131,15 +156,15 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/hooks",
       aliases: [],
       category: :visibility,
-      summary: "Show hook lifecycle activity.",
+      summary: "Show recent automation activity.",
       run_spec: %{kind: :builtin_action, action: :show_hooks}
     },
     %{
       name: "wonder",
       slash: "/wonder",
-      aliases: ["/wonderTool"],
+      aliases: [],
       category: :interaction,
-      summary: "Show active wonderTool interaction flows.",
+      summary: "Show active questions and answer checkpoints.",
       run_spec: %{kind: :builtin_action, action: :show_wonder_tool}
     },
     %{
@@ -155,17 +180,31 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/mcp",
       aliases: [],
       category: :runtime,
-      availability: :stub,
-      summary: "Show stdio, SSE, and streamable HTTP MCP transport status.",
+      summary: "Show local connection and structured-work readiness.",
       run_spec: %{kind: :builtin_action, action: :show_mcp}
+    },
+    %{
+      name: "mcps",
+      slash: "/mcps",
+      aliases: [],
+      category: :runtime,
+      summary: "Show connected tools and guided-work readiness.",
+      run_spec: %{kind: :builtin_action, action: :show_mcps}
+    },
+    %{
+      name: "sandbox",
+      slash: "/sandbox",
+      aliases: [],
+      category: :runtime,
+      summary: "Show project-bounded safety and approval posture.",
+      run_spec: %{kind: :builtin_action, action: :show_sandbox}
     },
     %{
       name: "sessions",
       slash: "/sessions",
       aliases: [],
       category: :steering,
-      availability: :stub,
-      summary: "Show the parent and child session list.",
+      summary: "Show active workspaces and steering targets.",
       run_spec: %{kind: :builtin_action, action: :show_sessions}
     },
     %{
@@ -173,8 +212,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/config",
       aliases: [],
       category: :plugins,
-      availability: :stub,
-      summary: "Show plugin/runtime config and reload guidance.",
+      summary: "Show plugin readiness and reload guidance.",
       run_spec: %{kind: :builtin_action, action: :show_config}
     },
     %{
@@ -184,6 +222,21 @@ defmodule Ourocode.Command.Registry.Builtin do
       category: :runtime,
       summary: "Pick the active main-session backend (detected models).",
       run_spec: %{kind: :builtin_action, action: :select_model}
+    },
+    %{
+      name: "theme",
+      slash: "/theme",
+      aliases: [],
+      category: :runtime,
+      summary: "Switch terminal colors between light, dark, or auto.",
+      args: [
+        %{
+          name: "mode",
+          required?: false,
+          description: "light, dark, white, or auto"
+        }
+      ],
+      run_spec: %{kind: :builtin_action, action: :set_theme}
     },
     %{
       name: "login",
@@ -206,7 +259,7 @@ defmodule Ourocode.Command.Registry.Builtin do
       slash: "/reload",
       aliases: [],
       category: :plugins,
-      summary: "Reload plugin and command registries at the Elixir boundary.",
+      summary: "Reload plugins and commands.",
       run_spec: %{kind: :builtin_action, action: :reload_runtime_boundary}
     },
     %{
@@ -216,6 +269,21 @@ defmodule Ourocode.Command.Registry.Builtin do
       category: :journal,
       summary: "Replay journaled terminal-visible state.",
       run_spec: %{kind: :builtin_action, action: :replay_journal}
+    },
+    %{
+      name: "cancel",
+      slash: "/cancel",
+      aliases: ["/cancel-child"],
+      category: :steering,
+      summary: "Cancel the active interview or focused delegated task.",
+      args: [
+        %{
+          name: "reason",
+          required?: false,
+          description: "Optional cancellation reason sent to the task"
+        }
+      ],
+      run_spec: %{kind: :builtin_action, action: :cancel_focused_child}
     }
   ]
 
@@ -224,7 +292,7 @@ defmodule Ourocode.Command.Registry.Builtin do
     slash: "/interrupt",
     aliases: ["/stop-child"],
     category: :steering,
-    summary: "Interrupt the currently focused child session.",
+    summary: "Interrupt the currently focused delegated task.",
     run_spec: %{kind: :builtin_action, action: :interrupt_focused_child}
   }
 
@@ -233,12 +301,12 @@ defmodule Ourocode.Command.Registry.Builtin do
     slash: "/cancel",
     aliases: ["/cancel-child"],
     category: :steering,
-    summary: "Cancel the currently focused child session.",
+    summary: "Cancel the active interview or focused delegated task.",
     args: [
       %{
         name: "reason",
         required?: false,
-        description: "Optional cancellation reason sent to the child session"
+        description: "Optional cancellation reason sent to the task"
       }
     ],
     run_spec: %{kind: :builtin_action, action: :cancel_focused_child}
