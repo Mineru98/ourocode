@@ -47,9 +47,9 @@ defmodule Ourocode.Terminal.ParentWorkflowFeedback do
 
   def render_text(%{kind: :terminal_parent_workflow_feedback} = feedback, _state_event) do
     [
-      "+-- Parent Workflow region=parent_pane",
-      "| " <> feedback.line,
-      "+--"
+      "task: starting",
+      "  " <> feedback.line,
+      "  next: waiting for a question, result, or delegated work"
     ]
     |> Enum.join("\n")
   end
@@ -61,16 +61,7 @@ defmodule Ourocode.Terminal.ParentWorkflowFeedback do
   end
 
   defp line_for(feedback) do
-    [
-      "[workflow-starting]",
-      "state=#{feedback.prompt_state}",
-      "task=#{feedback.task_request_id}",
-      maybe_segment("route", feedback.workflow_route),
-      maybe_segment("adapter", feedback.adapter_route),
-      "accepted_prompt=" <> inspect(feedback.accepted_prompt)
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
+    "#{workflow_label(feedback)} accepted " <> inspect(feedback.accepted_prompt)
   end
 
   defp route_value(%{routing_decision: routing_decision}, key) when is_map(routing_decision) do
@@ -79,6 +70,15 @@ defmodule Ourocode.Terminal.ParentWorkflowFeedback do
 
   defp route_value(_input_event, _key), do: nil
 
-  defp maybe_segment(_key, nil), do: nil
-  defp maybe_segment(key, value), do: key <> "=" <> to_string(value)
+  defp workflow_label(%{adapter_route: adapter}) when adapter in [:interview, "interview"],
+    do: "interview"
+
+  defp workflow_label(%{adapter_route: adapter}) when adapter in [:pm, "pm"],
+    do: "PM task"
+
+  defp workflow_label(%{workflow_route: route})
+       when route in [:ouroboros_workflow, "ouroboros_workflow"],
+       do: "guided task"
+
+  defp workflow_label(_feedback), do: "task"
 end

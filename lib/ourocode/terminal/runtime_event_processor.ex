@@ -2,7 +2,7 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
   @moduledoc false
 
   alias Ourocode.Journal
-  alias Ourocode.Terminal.{PluginStatus, RuntimeEventFlow}
+  alias Ourocode.Terminal.{PluginStatus, RuntimeEventFlow, WorkflowLaneLifecycle}
 
   @spec drain(map()) :: {:ok, map()} | {:error, term()}
   def drain(state) when is_map(state) do
@@ -34,6 +34,7 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
 
     with :ok <- maybe_append_input_event(state.journal_path, runtime_event),
          {:ok, state} <- PluginStatus.apply_reload_event(runtime_event, state),
+         {:ok, state} <- apply_workflow_lifecycle_event(runtime_event, state),
          {:ok, state} <- dispatch_runtime_event(runtime_event, state) do
       state =
         %{state | runtime_events: [runtime_event | state.runtime_events]}
@@ -91,6 +92,41 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
       %{state | recoverable_errors: [recoverable_error | state.recoverable_errors]}
     else
       state
+    end
+  end
+
+  defp apply_workflow_lifecycle_event(%{type: type} = runtime_event, state)
+       when type in [:stream_started, :stream_event, :paused, :resumed, :cancelled, :failed, :completed] do
+    case workflow_pane_id(runtime_event) do
+      pane_id when is_binary(pane_id) ->
+        {:ok,
+         Map.update(state, :pane_model, %{}, fn pane_model ->
+           WorkflowLaneLifecycle.apply_event(pane_model, pane_id, runtime_event)
+         end)}
+
+      nil ->
+        {:ok, state}
+    end
+  end
+
+  defp apply_workflow_lifecycle_event(_runtime_event, state), do: {:ok, state}
+
+  defp workflow_pane_id(runtime_event) do
+    cond do
+      is_binary(Map.get(runtime_event, :pane_id)) ->
+        Map.get(runtime_event, :pane_id)
+
+      is_binary(Map.get(runtime_event, "pane_id")) ->
+        Map.get(runtime_event, "pane_id")
+
+      is_binary(Map.get(runtime_event, :workflow_id)) ->
+        "workflow:" <> Map.get(runtime_event, :workflow_id)
+
+      is_binary(Map.get(runtime_event, "workflow_id")) ->
+        "workflow:" <> Map.get(runtime_event, "workflow_id")
+
+      true ->
+        nil
     end
   end
 

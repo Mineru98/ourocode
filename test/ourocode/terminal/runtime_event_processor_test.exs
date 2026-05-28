@@ -2,6 +2,7 @@ defmodule Ourocode.Terminal.RuntimeEventProcessorTest do
   use ExUnit.Case, async: true
 
   alias Ourocode.Terminal.RuntimeEventProcessor
+  alias Ourocode.Terminal.{WorkspaceModel, WorkspaceText}
 
   test "submit records handler failures as recoverable while keeping the runtime event" do
     state =
@@ -40,6 +41,57 @@ defmodule Ourocode.Terminal.RuntimeEventProcessorTest do
     assert Enum.map(state.runtime_events, & &1.type) == [:second, :first]
   end
 
+  test "submit applies runtime workflow lifecycle events to the pane model" do
+    state =
+      base_state(%{
+        pane_model: %{
+          panes: %{
+            "workflow:task-1" => %{
+              id: "workflow:task-1",
+              kind: :workflow_session,
+              session_id: "task-1",
+              status: "queued",
+              task: "ooo pm verify lifecycle",
+              last_line: "waiting for first prompt"
+            }
+          },
+          open: ["workflow:task-1"]
+        }
+      })
+
+    assert {:ok, state} =
+             RuntimeEventProcessor.submit(
+               %{
+                 type: :stream_started,
+                 pane_id: "workflow:task-1",
+                 line: "stream: runtime event arrived",
+                 parent_call_id: "parent-runtime",
+                 focused?: true
+               },
+               state
+             )
+
+    assert {:ok, state} =
+             RuntimeEventProcessor.submit(
+               %{type: :paused, pane_id: "workflow:task-1", line: "paused by user"},
+               state
+             )
+
+    assert get_in(state.pane_model, [:panes, "workflow:task-1", :status]) == "paused"
+    assert get_in(state.pane_model, [:panes, "workflow:task-1", :event_count]) == 2
+
+    text =
+      "/agents"
+      |> WorkspaceModel.build(%{startup_result: %{}, pane_model: state.pane_model}, %{})
+      |> WorkspaceText.render()
+
+    assert text =~ "paused"
+    assert text =~ "stage paused"
+    assert text =~ "Paused by user"
+    refute text =~ "focused in workspace"
+    refute text =~ "updates received"
+  end
+
   test "submit applies plugin reload status and renders the plugin status area" do
     {:ok, output} = StringIO.open("")
     event = plugin_config_reloaded_event()
@@ -63,10 +115,14 @@ defmodule Ourocode.Terminal.RuntimeEventProcessorTest do
     assert Enum.map(items, & &1.enabled?) == [true, true]
 
     {_input, rendered} = StringIO.contents(output)
-    assert rendered =~ "+-- Plugin Status (2) region=plugin_status"
-    assert rendered =~ "[OFFICIAL] id=ouroboros-plugin"
-    assert rendered =~ "[THIRD-PARTY] id=vim-mode"
-    assert rendered =~ "state=newly_loaded"
+    assert rendered =~ "plugins: 2 available"
+    assert rendered =~ "[BUILT-IN] Guided workflows"
+    assert rendered =~ "[EXTENSION] vim-mode"
+    assert rendered =~ "loaded"
+    refute rendered =~ "ouroboros-plugin"
+    refute rendered =~ "state="
+    refute rendered =~ "region="
+    refute rendered =~ "visible="
   end
 
   defp base_state(overrides) do
@@ -77,6 +133,7 @@ defmodule Ourocode.Terminal.RuntimeEventProcessorTest do
         runtime_events: [],
         recoverable_errors: [],
         plugin_status_updates: [],
+        pane_model: %{panes: %{}, open: []},
         output: :stdio,
         on_runtime_event: fn _event, _startup_result -> :ok end,
         poll_runtime_event: fn _state -> :none end

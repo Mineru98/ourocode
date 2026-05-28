@@ -83,7 +83,9 @@ defmodule Ourocode.Terminal.PluginStatusTest do
            ] = state.plugin_status_updates
 
     {_input, rendered} = StringIO.contents(output)
-    assert rendered =~ "Plugin Status"
+    assert rendered =~ "plugins:"
     assert rendered =~ "superpowers"
+    refute rendered =~ "region="
+    refute rendered =~ "visible="
   end
 end

@@ -4,7 +4,7 @@ defmodule Ourocode.Terminal.ParentWorkflowFeedbackTest do
   alias Ourocode.Terminal.{EventLoop, ParentWorkflowFeedback}
 
   test "renders accepted prompt and workflow-start state for the parent pane" do
-    prompt = "ooo interview로 terminal feedback 요구사항을 정리해줘."
+    prompt = "ooo interview clarify terminal feedback requirements"
 
     assert {:ok, {_task_request, input_event}} =
              EventLoop.normalize_input_line(prompt,
@@ -34,16 +34,15 @@ defmodule Ourocode.Terminal.ParentWorkflowFeedbackTest do
              workflow_route: :ouroboros_workflow,
              adapter_route: :interview,
              prompt_state: :dispatching_input,
-             line:
-               ~s([workflow-starting] state=dispatching_input task=feedback-task-1 route=ouroboros_workflow adapter=interview accepted_prompt="#{prompt}")
+             line: ~s(interview accepted "#{prompt}")
            }
 
     assert frame ==
              Enum.join(
                [
-                 "+-- Parent Workflow region=parent_pane",
-                 ~s(| [workflow-starting] state=dispatching_input task=feedback-task-1 route=ouroboros_workflow adapter=interview accepted_prompt="#{prompt}"),
-                 "+--"
+                 "task: starting",
+                 ~s(  interview accepted "#{prompt}"),
+                 "  next: waiting for a question, result, or delegated work"
                ],
                "\n"
              )

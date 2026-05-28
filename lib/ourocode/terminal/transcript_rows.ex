@@ -25,6 +25,10 @@ defmodule Ourocode.Terminal.TranscriptRows do
 
   def rows(_activity), do: []
 
+  @spec workspace_activity?([String.t()] | nil) :: boolean()
+  def workspace_activity?([first | _rest]) when is_binary(first), do: workspace_line?(first)
+  def workspace_activity?(_activity), do: false
+
   @spec paused_interview_discussion([String.t()] | nil) :: [String.t()]
   def paused_interview_discussion(activity) when activity in [nil, []], do: []
 
@@ -71,19 +75,40 @@ defmodule Ourocode.Terminal.TranscriptRows do
         end
 
       rest = strip_prefix(line, "you> ") ->
-        push_block(rows, :user, "YOU", rest)
+        push_block(rows, :user, "Answer", rest)
 
       rest = strip_prefix(line, "ourocode> ") ->
         push_block(rows, :assistant, "OUROCODE", rest)
 
       rest = strip_prefix(line, "> ") ->
-        push_block(rows, :user, "YOU", rest)
+        push_block(rows, :user, "Answer", rest)
+
+      status_line?(line) ->
+        {[{:status, line}, :sep | rows], nil}
+
+      live_line?(line) ->
+        {[{:live, String.trim(line)}, :sep | rows], nil}
 
       system_line?(line) ->
         {[{:system, line}, :sep | rows], nil}
 
       line == "" ->
         {rows, role}
+
+      workspace_line?(line) ->
+        {[{:workspace_header, line}, :sep | rows], :workspace}
+
+      role == :workspace and workspace_section?(line) ->
+        {[{:workspace_section, String.trim(line)} | rows], :workspace}
+
+      role == :workspace and workspace_selected_row?(line) ->
+        {[{:workspace_selected, String.trim(line)} | rows], :workspace}
+
+      role == :workspace and workspace_record_row?(line) ->
+        {[{:workspace_record, String.trim(line)} | rows], :workspace}
+
+      role == :workspace and workspace_detail_row?(line) ->
+        {[{:workspace_detail, String.trim(line)} | rows], :workspace}
 
       role in [:user, :assistant] ->
         {[{{:body, role}, line} | rows], role}
@@ -118,6 +143,93 @@ defmodule Ourocode.Terminal.TranscriptRows do
     ]) or String.contains?(line, ["error", "failed"])
   end
 
+  defp status_line?(line) do
+    line in [
+      "Interview cancelled.",
+      "Command held. Press Esc to discuss, or /cancel to stop this interview."
+    ]
+  end
+
+  defp live_line?(line) do
+    trimmed = String.trim(line)
+    String.starts_with?(trimmed, ["live: ", "pulse: "])
+  end
+
+  defp workspace_line?(line) do
+    trimmed = String.trim(line)
+
+    trimmed in [
+      "Agents",
+      "Connected tools",
+      "Plugins",
+      "Configuration",
+      "Sandbox",
+      "Sessions",
+      "Resume",
+      "Guided Work",
+      "Auto Run",
+      "PM Interview",
+      "Socratic Interview"
+    ] or
+      String.contains?(line, " workspace · ") or
+      String.ends_with?(line, " workspace") or
+      String.match?(
+        trimmed,
+        ~r/\A.+ · (plugins|guided work|connected tools|configuration|sandbox|sessions|resume|interview)\z/
+      )
+  end
+
+  defp workspace_section?(line) do
+    trimmed = String.trim(line)
+
+    trimmed in [
+      "Rows",
+      "Detail",
+      "Actions",
+      "List",
+      "Selected",
+      "Use",
+      "Available",
+      "Current",
+      "Work",
+      "Focus",
+      "Start",
+      "Run",
+      "Move"
+    ] or String.match?(trimmed, ~r/\A.+; \d+ .+\z/) or
+      String.starts_with?(line, [
+        "Status · ",
+        "Actions · ",
+        "Shortcuts · ",
+        "Use · ",
+        "Use:",
+        "Try ",
+        "Keys · ",
+        "Keys:",
+        "Move with ",
+        "Start · ",
+        "Run · ",
+        "Run:",
+        "Shortcuts:",
+        "Move · ",
+        "Next · ",
+        "Then:",
+        "Try ",
+        "Keyboard ",
+        "Move with ",
+        "Next step "
+      ])
+  end
+
+  defp workspace_selected_row?(line), do: String.starts_with?(String.trim(line), ">> ")
+
+  defp workspace_record_row?(line) do
+    trimmed = String.trim(line)
+    String.starts_with?(trimmed, "-- ") or Regex.match?(~r/^[^\s].* · /, trimmed)
+  end
+
+  defp workspace_detail_row?(line), do: String.starts_with?(line, "  ")
+
   defp paused_interview_noise?(trimmed) when is_binary(trimmed) do
     downcased = String.downcase(trimmed)
 
@@ -140,13 +252,34 @@ defmodule Ourocode.Terminal.TranscriptRows do
     do: %{rail: nil, rail_style: :text, text: text, text_style: :label}
 
   defp render_row({{:body, :user}, text}),
-    do: %{rail: "|", rail_style: :accent, text: text, text_style: :strong}
+    do: %{rail: "│", rail_style: :accent, text: text, text_style: :strong}
 
   defp render_row({{:body, :assistant}, text}),
-    do: %{rail: "|", rail_style: :dim, text: text, text_style: :text}
+    do: %{rail: "│", rail_style: :dim, text: text, text_style: :text}
 
   defp render_row({:system, text}),
-    do: %{rail: nil, rail_style: :text, text: "-- " <> humanize(text), text_style: :muted}
+    do: %{rail: nil, rail_style: :text, text: "• " <> humanize(text), text_style: :muted}
+
+  defp render_row({:status, text}),
+    do: %{rail: "│", rail_style: :accent, text: humanize(text), text_style: :strong}
+
+  defp render_row({:live, text}),
+    do: %{rail: "│", rail_style: :accent, text: humanize(text), text_style: :accent}
+
+  defp render_row({:workspace_header, text}),
+    do: %{rail: nil, rail_style: :text, text: humanize(text), text_style: :label}
+
+  defp render_row({:workspace_section, text}),
+    do: %{rail: nil, rail_style: :text, text: humanize(text), text_style: :accent}
+
+  defp render_row({:workspace_selected, text}),
+    do: %{rail: "│", rail_style: :accent, text: humanize(text), text_style: :strong}
+
+  defp render_row({:workspace_record, text}),
+    do: %{rail: "│", rail_style: :dim, text: humanize(text), text_style: :text}
+
+  defp render_row({:workspace_detail, text}),
+    do: %{rail: "│", rail_style: :dim, text: humanize(text), text_style: :muted}
 
   @spec humanize(String.t()) :: String.t()
   def humanize(line) do

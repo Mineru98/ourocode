@@ -18,7 +18,14 @@ defmodule Ourocode.Terminal.CommandChildControlCommands do
   end
 
   def dispatch(:cancel_focused_child, command_event, state) do
-    Dispatcher.dispatch_cancel_action(command_event, dispatch_options(state))
+    case Dispatcher.dispatch_cancel_action(command_event, dispatch_options(state)) do
+      {:error, reason}
+      when reason in [:no_focused_child_session, :focused_child_session_pane_not_found] ->
+        render_no_active_cancel(state)
+
+      other ->
+        other
+    end
   end
 
   @spec dispatch_options(map()) :: map()
@@ -28,5 +35,31 @@ defmodule Ourocode.Terminal.CommandChildControlCommands do
     |> Map.new()
     |> Map.put(:focus_state, Map.get(state, :focus_state))
     |> Map.put(:pane_model, Map.get(state, :pane_model))
+  end
+
+  defp render_no_active_cancel(%{output: output}) when is_pid(output) do
+    IO.puts(output, no_active_cancel_text())
+    {:ok, no_active_cancel_result()}
+  end
+
+  defp render_no_active_cancel(_state), do: {:ok, no_active_cancel_result()}
+
+  defp no_active_cancel_text do
+    [
+      "cancel: no active work",
+      "  nothing is waiting for cancellation",
+      "  next: start ooo pm <goal>, inspect /agents, or run /verify"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp no_active_cancel_result do
+    %{
+      cancel: %{
+        status: :idle,
+        message: "No active work to cancel.",
+        next_actions: ["ooo pm <goal>", "/agents", "/verify"]
+      }
+    }
   end
 end

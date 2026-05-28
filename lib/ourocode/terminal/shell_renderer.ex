@@ -8,14 +8,7 @@ defmodule Ourocode.Terminal.ShellRenderer do
   over.
   """
 
-  alias Ourocode.Dashboard.{ChildSessionPanes, Layout, ParentMcpPane}
-
-  alias Ourocode.Terminal.{
-    HeaderStatusArea,
-    ParentChildPaneArea,
-    PluginStatusArea,
-    PromptFooterLayout
-  }
+  alias Ourocode.Terminal.PluginStatusArea
 
   @doc """
   Writes the first terminal baseline frame to the given IO device.
@@ -31,46 +24,33 @@ defmodule Ourocode.Terminal.ShellRenderer do
   @spec render_initial_frame(map()) :: String.t()
   def render_initial_frame(%{status: :healthy, context: _context, panes: panes} = startup_result) do
     [
-      render_header_status(startup_result),
-      "mode=#{layout_mode(panes)} focus=#{focused_pane(panes)}",
+      "ourocode agent",
+      "status: #{status_label(startup_result)}   project: #{project_label(startup_result)}",
       "",
-      render_parent_child_pane_area(startup_result),
+      "Start here:",
+      "  ooo pm <goal>        product requirements with answer choices",
+      "  ooo interview <goal> clarify decisions through questions",
+      "  ooo auto <goal>      plan, verify, then execute",
       "",
-      render_plugin_status_area(startup_result),
+      "Ready:",
+      "  model: codex cli",
+      "  #{plugin_summary(startup_result)}",
+      "  live verify: ourocode --verify --format json --project-dir .",
+      "  safety preview: /preflight <command>",
+      "  active work: /sessions",
       "",
-      render_prompt_footer_layout(startup_result)
+      "Automation:",
+      "  ourocode --verify --format json --project-dir .",
+      "  ourocode --prompt \"summarize this repo\" --format json",
+      "",
+      "Prompt: #{prompt_value(startup_result)}",
+      "Mode: #{layout_mode(panes)}   Focus: #{focused_pane(panes)}"
     ]
     |> Enum.join("\n")
   end
 
   def render_initial_frame(%{status: status}) do
-    HeaderStatusArea.render_text(HeaderStatusArea.render(%{status: status}))
-  end
-
-  defp render_header_status(%{context: context} = startup_result) do
-    startup_result
-    |> Map.put(:runtime, Map.get(startup_result, :runtime) || Map.get(context, :runtime))
-    |> HeaderStatusArea.render()
-    |> HeaderStatusArea.render_text()
-  end
-
-  defp render_parent_child_pane_area(startup_result) do
-    startup_result
-    |> runtime_hierarchy()
-    |> ParentChildPaneArea.render()
-    |> ParentChildPaneArea.render_text()
-  end
-
-  defp render_plugin_status_area(startup_result) do
-    startup_result
-    |> PluginStatusArea.render()
-    |> PluginStatusArea.render_text()
-  end
-
-  defp render_prompt_footer_layout(startup_result) do
-    startup_result
-    |> PromptFooterLayout.render()
-    |> PromptFooterLayout.render_text()
+    "ourocode agent\nstatus: #{status}"
   end
 
   defp layout_mode(%{layout: %{mode: mode}}), do: mode
@@ -80,21 +60,43 @@ defmodule Ourocode.Terminal.ShellRenderer do
   defp focused_pane(%{focused: focused}) when not is_nil(focused), do: focused
   defp focused_pane(_panes), do: :none
 
-  defp runtime_hierarchy(%{parent_child_hierarchy: %{id: :mcp_runtime_hierarchy} = hierarchy}) do
-    hierarchy
+  defp status_label(%{status: status, runtime: %{status: runtime_status}}) do
+    "#{status} / #{runtime_status}"
   end
 
-  defp runtime_hierarchy(%{runtime: %{parent_panes: parent_state, child_panes: child_state}}) do
-    Layout.parent_child_hierarchy(parent_state, child_state)
+  defp status_label(%{status: status}), do: to_string(status)
+
+  defp project_label(%{context: %{project_dir: project_dir}}) when is_binary(project_dir) do
+    Path.basename(project_dir)
   end
 
-  defp runtime_hierarchy(%{
-         context: %{runtime: %{parent_panes: parent_state, child_panes: child_state}}
-       }) do
-    Layout.parent_child_hierarchy(parent_state, child_state)
+  defp project_label(_startup_result), do: "current directory"
+
+  defp plugin_summary(startup_result) do
+    area = PluginStatusArea.render(startup_result)
+
+    case area.items do
+      [] ->
+        "none configured"
+
+      items ->
+        items
+        |> Enum.map(fn item -> "#{item.plugin_id} #{item.state_label}" end)
+        |> Enum.join(", ")
+    end
   end
 
-  defp runtime_hierarchy(_startup_result) do
-    Layout.parent_child_hierarchy(ParentMcpPane.new(), ChildSessionPanes.new())
+  defp prompt_value(%{context: %{initial_task_request: %{task_input: task_input}}})
+       when is_binary(task_input) do
+    task_input
   end
+
+  defp prompt_value(%{panes: %{task_prompt: %{value: value}}}) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "Describe a task for a new session"
+      prompt -> prompt
+    end
+  end
+
+  defp prompt_value(_startup_result), do: "Describe a task for a new session"
 end

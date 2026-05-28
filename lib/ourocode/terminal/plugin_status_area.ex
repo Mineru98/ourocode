@@ -9,7 +9,7 @@ defmodule Ourocode.Terminal.PluginStatusArea do
 
   alias Ourocode.Plugin.ConfigSchema
   alias Ourocode.Plugin.Loader
-  alias Ourocode.Terminal.{LayoutSegment, PluginStatusEntries, PluginStatusFields}
+  alias Ourocode.Terminal.{PluginStatusEntries, PluginStatusFields}
 
   @default_width 80
   @default_y 18
@@ -58,11 +58,9 @@ defmodule Ourocode.Terminal.PluginStatusArea do
   @spec render_text(rendered_area() | map() | [map()]) :: String.t()
   def render_text(%{kind: :terminal_plugin_status_area} = area) do
     [
-      "+-- #{area.title} (#{area.plugin_count}) #{LayoutSegment.format(area, "plugin_status")}",
-      "| status=#{area.status} visible=#{area.visible_count}"
+      "plugins: #{plugin_count_label(area)}"
       | item_lines(area.items)
     ]
-    |> Kernel.++(["+--"])
     |> Enum.join("\n")
   end
 
@@ -117,22 +115,14 @@ defmodule Ourocode.Terminal.PluginStatusArea do
 
   defp find_report([_candidate | rest]), do: find_report(rest)
 
-  defp item_lines([]), do: ["| empty"]
+  defp plugin_count_label(%{plugin_count: 1}), do: "1 available"
+  defp plugin_count_label(%{plugin_count: count}), do: "#{count} available"
+
+  defp item_lines([]), do: ["  none configured"]
 
   defp item_lines(items) do
     Enum.map(items, fn item ->
-      [
-        "| plugin",
-        item.source_badge,
-        "id=#{item.plugin_id}",
-        "label=#{item.source_label}",
-        "source=#{item.source_type}",
-        "version=#{item.version}",
-        "enabled?=#{item.enabled?}",
-        "state=#{item.load_state}",
-        "path=#{item.path}"
-      ]
-      |> Enum.join(" ")
+      "  #{item.source_badge} #{item.display_name} - #{item.source_label} - #{item.state_label}"
     end)
   end
 

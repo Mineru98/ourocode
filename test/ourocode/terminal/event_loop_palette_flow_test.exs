@@ -43,7 +43,9 @@ defmodule Ourocode.Terminal.EventLoopPaletteFlowTest do
     assert journaled.payload["prompt_mutated?"] == false
 
     {_input, output_text} = StringIO.contents(output)
-    assert output_text =~ "Command Palette"
+    assert output_text =~ "commands:"
+    assert output_text =~ "| /help"
+    refute output_text =~ "[builtin/"
   end
 
   test "select persists selection state and clears the active palette" do

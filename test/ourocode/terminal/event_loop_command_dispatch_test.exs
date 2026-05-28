@@ -36,6 +36,23 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatchTest do
     assert output_text =~ "command /missing failed: unknown command /missing"
   end
 
+  test "submit accepts command handlers that return an updated loop state" do
+    command_event = CommandInput.command_event("/approve")
+
+    state =
+      state(
+        on_command: fn _event, _args, _startup, loop_state ->
+          {:ok, %{state: Map.put(loop_state, :approval_seen?, true)}}
+        end
+      )
+
+    assert {:ok, state} = EventLoopCommandDispatch.submit(command_event, state)
+
+    assert state.approval_seen? == true
+    assert state.iterations == 1
+    assert [%{command: "/approve"}] = state.command_events
+  end
+
   test "dispatch normalizes raised command handler exceptions" do
     command_event = CommandInput.command_event("/explode")
 

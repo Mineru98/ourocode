@@ -27,16 +27,20 @@ defmodule Ourocode.Terminal.EventLoopCommandDispatch do
       :ok ->
         {:ok, record_command(state, command_event)}
 
+      {:ok, new_state} when is_map(new_state) ->
+        {:ok, record_command(new_state, command_event)}
+
       {:error, reason} ->
         record_command_error(state, command_event, reason)
     end
   end
 
-  @spec dispatch(map(), map()) :: :ok | {:error, term()}
+  @spec dispatch(map(), map()) :: :ok | {:ok, map()} | {:error, term()}
   def dispatch(command_event, state) when is_map(command_event) and is_map(state) do
     try do
       case invoke_handler(command_event, state) do
         :ok -> :ok
+        {:ok, %{state: new_state}} when is_map(new_state) -> {:ok, new_state}
         {:ok, _result} -> :ok
         {:error, reason} -> {:error, reason}
         other -> {:error, {:invalid_command_handler_result, other}}

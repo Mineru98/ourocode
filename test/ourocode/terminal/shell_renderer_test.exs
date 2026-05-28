@@ -83,37 +83,26 @@ defmodule Ourocode.Terminal.ShellRendererTest do
         panes: panes
       })
 
-    assert frame =~ "ourocode terminal"
-    assert frame =~ "+-- ourocode terminal region=header_status x=0 y=0 w=88 h=5"
-    assert frame =~ "| app=ourocode status=healthy runtime=running session=none"
-    assert frame =~ "mode=compact focus=task_prompt"
-    assert frame =~ "+-- Parent/Child Sessions region=runtime_panes layout=terminal_split"
-    assert frame =~ "| [parent-region] x=0 y=0 w=80 h=8"
-    assert frame =~ "| parent [starting] parent=parent-shell-renderer-1"
-    assert frame =~ "| [child-region] x=0 y=9 w=80 h=12"
-    assert frame =~ "| child [working] child=child-shell-renderer-1"
-    assert frame =~ ~s(title="Shell Renderer Child")
-    assert frame =~ "+-- Plugin Status (2) region=plugin_status"
-
-    assert frame =~
-             "| plugin [OFFICIAL] id=ouroboros-plugin label=Official plugin source=official version=0.1.0 enabled?=true state=load_requested path=plugins/ouroboros"
-
-    assert frame =~
-             "| plugin [THIRD-PARTY] id=vim-mode label=Third-party plugin source=third_party version=1.4.2 enabled?=true state=load_requested path=plugins/vim-mode"
-
-    assert frame =~ "+-- Task region=task_prompt x=0 y=22 w=72 h=3"
-    assert frame =~ "| > Describe a task for a new session"
-    assert frame =~ "+-- Queued Notifications (1) region=queued_notifications x=0 y=26 w=80 h=6"
-
-    assert frame =~
-             ~s(| pending id=queue-1 source=hook target=child-shell-renderer-1 priority=high seq=3 queued_at_ms=300 summary="Review child result")
-
-    assert frame =~ "+-- State"
-    assert frame =~ "| surface=terminal focus=task_prompt layout=compact"
-    assert frame =~ "| runtime=running stream=streaming journal=ready"
-
-    assert frame =~
-             "| queued=1 replayable?=true transports=stdio:connected,sse:connected,streamable_http:connected"
+    assert frame =~ "ourocode agent"
+    assert frame =~ "status: healthy / running"
+    assert frame =~ "Start here:"
+    assert frame =~ "ooo pm <goal>"
+    assert frame =~ "ooo interview <goal>"
+    assert frame =~ "ooo auto <goal>"
+    assert frame =~ "Ready:"
+    assert frame =~ "model: codex cli"
+    assert frame =~ "safety preview: /preflight <command>"
+    assert frame =~ "active work: /sessions"
+    assert frame =~ "Automation:"
+    assert frame =~ "ourocode --verify --format json --project-dir ."
+    assert frame =~ "ouroboros-plugin ready to load, vim-mode ready to load"
+    assert frame =~ "Prompt: Describe a task for a new session"
+    assert frame =~ "Mode: compact   Focus: task_prompt"
+    refute frame =~ "region="
+    refute frame =~ "x=0"
+    refute frame =~ "source="
+    refute frame =~ "enabled?="
+    refute frame =~ "event_seq"
 
     header_lines =
       frame
@@ -144,12 +133,12 @@ defmodule Ourocode.Terminal.ShellRendererTest do
         })
       end)
 
-    assert output =~ "ourocode terminal"
-    assert output =~ "| > Inspect stream panes"
-    assert output =~ "+-- Parent/Child Sessions"
-    assert output =~ "+-- Plugin Status (0)"
-    assert output =~ "+-- Queued Notifications (0)"
-    assert output =~ "+-- State"
+    assert output =~ "ourocode agent"
+    assert output =~ "Prompt: Inspect stream panes"
+    assert output =~ "Start here:"
+    assert output =~ "Automation:"
+    refute output =~ "region="
+    refute output =~ "+-- State"
     assert String.ends_with?(output, "\n")
   end
 

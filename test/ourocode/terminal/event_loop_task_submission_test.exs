@@ -3,6 +3,8 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmissionTest do
 
   alias Ourocode.Terminal.EventLoopState
   alias Ourocode.Terminal.EventLoopTaskSubmission
+  alias Ourocode.Terminal.WorkspaceModel
+  alias Ourocode.Terminal.WorkspaceText
   alias Ourocode.Journal
 
   test "accepts journals dispatches and records a natural-language task" do
@@ -74,8 +76,8 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmissionTest do
                     %{status: :healthy}}
 
     {_input, output_text} = StringIO.contents(output)
-    assert output_text =~ "Parent Workflow"
-    assert output_text =~ "queued task"
+    assert output_text =~ "task: starting"
+    assert output_text =~ "task: queued"
 
     assert {:ok, [journaled]} = Journal.read_ordered(journal_path)
     assert journaled.type == :prompt_input_submitted
@@ -101,6 +103,112 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmissionTest do
 
     {_input, output_text} = StringIO.contents(output)
     assert output_text =~ "ignored input"
+  end
+
+  test "ooo workflow submission opens a visible workflow workspace" do
+    {:ok, output} = StringIO.open("")
+    journal_path = journal_path("task-submission-ooo-workspace")
+
+    state =
+      EventLoopState.build(
+        %{status: :healthy},
+        %{
+          journal_path: journal_path,
+          output: output,
+          on_prompt_input: fn _task_request, _input_event, _startup_result -> :ok end
+        },
+        "ourocode> "
+      )
+
+    assert {:ok, state} = EventLoopTaskSubmission.submit("ooo pm build onboarding", state)
+    assert [%{id: task_id, task_input: "ooo pm build onboarding"}] = state.submitted_tasks
+
+    pane_id = "workflow:" <> task_id
+
+    assert %{
+             kind: :workflow_session,
+             session_id: ^task_id,
+             title: "PM interview",
+             status: "preparing question",
+             task: "ooo pm build onboarding",
+             last_line: "waiting for first PM question",
+             progress: "answer choices pending"
+           } = state.pane_model.panes[pane_id]
+
+    assert pane_id in state.pane_model.open
+
+    {_input, output_text} = StringIO.contents(output)
+    assert output_text =~ "PM interview: starting - ooo pm build onboarding"
+    assert output_text =~ "pm: preparing the first product question"
+    refute output_text =~ "task: queued #{task_id}"
+  end
+
+  test "ooo auto submission opens an approval-plan workflow lane" do
+    {:ok, output} = StringIO.open("")
+    journal_path = journal_path("task-submission-ooo-auto-workspace")
+
+    state =
+      EventLoopState.build(
+        %{status: :healthy},
+        %{
+          journal_path: journal_path,
+          output: output,
+          on_prompt_input: fn _task_request, _input_event, _startup_result -> :ok end
+        },
+        "ourocode> "
+      )
+
+    assert {:ok, state} = EventLoopTaskSubmission.submit("ooo auto improve startup", state)
+    assert [%{id: task_id, task_input: "ooo auto improve startup"}] = state.submitted_tasks
+
+    pane_id = "workflow:" <> task_id
+
+    assert %{
+             title: "Auto run",
+             status: "preparing approval",
+             task: "ooo auto improve startup",
+             last_line: "interview -> plan -> approval -> verify",
+             progress: "approval checkpoint before file changes"
+           } = state.pane_model.panes[pane_id]
+
+    {_input, output_text} = StringIO.contents(output)
+    assert output_text =~ "Auto run: starting - ooo auto improve startup"
+    assert output_text =~ "auto: preparing an approval plan before file changes"
+    refute output_text =~ "task: queued #{task_id}"
+  end
+
+  test "ooo workflow submission appears as an active agents lane" do
+    {:ok, output} = StringIO.open("")
+    journal_path = journal_path("task-submission-agents-lane")
+
+    state =
+      EventLoopState.build(
+        %{status: :healthy},
+        %{
+          journal_path: journal_path,
+          output: output,
+          on_prompt_input: fn _task_request, _input_event, _startup_result -> :ok end
+        },
+        "ourocode> "
+      )
+
+    assert {:ok, state} = EventLoopTaskSubmission.submit("ooo pm verify lifecycle work", state)
+    assert [%{id: _task_id}] = state.submitted_tasks
+
+    text =
+      "/agents"
+      |> WorkspaceModel.build(
+        %{startup_result: %{status: :healthy}, pane_model: state.pane_model},
+        %{}
+      )
+      |> WorkspaceText.render()
+
+    assert text =~ "running, 1 active; 1 lane"
+    assert text =~ ">> PM interview - preparing question · live"
+    assert text =~ "start with ooo pm verify lifecycle work"
+    assert text =~ "Waiting for first PM question"
+    refute text =~ "target · active work"
+    refute text =~ "activity · work preparing question"
   end
 
   test "accepted prompt events keep journal sequences and buffer identity" do

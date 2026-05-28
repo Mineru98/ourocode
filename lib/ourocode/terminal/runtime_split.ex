@@ -24,7 +24,8 @@ defmodule Ourocode.Terminal.RuntimeSplit do
           non_neg_integer(),
           [String.t()],
           [String.t()],
-          function()
+          function(),
+          map()
         ) :: map()
   def draw(
         screen,
@@ -37,7 +38,8 @@ defmodule Ourocode.Terminal.RuntimeSplit do
         scroll,
         reasoning,
         mcp_activity,
-        draw_transcript
+        draw_transcript,
+        opts \\ %{}
       )
       when is_function(draw_transcript, 8) do
     left_w = split_left_width(width)
@@ -58,7 +60,8 @@ defmodule Ourocode.Terminal.RuntimeSplit do
         scroll,
         reasoning,
         mcp_activity,
-        draw_transcript
+        draw_transcript,
+        opts
       )
     end
   end
@@ -90,7 +93,8 @@ defmodule Ourocode.Terminal.RuntimeSplit do
          scroll,
          reasoning,
          mcp_activity,
-         draw_transcript
+         draw_transcript,
+         opts
        ) do
     right_x = left_w + 1
     panel_h = max(bottom - right_top + 1, 1)
@@ -129,6 +133,9 @@ defmodule Ourocode.Terminal.RuntimeSplit do
     child_top = parent_top + 1 + parent_body_h + 1
     activity_top = inner_top + upper_region + activity_gap
     transcript_clip_w = max(left_w - @body - @left, 1)
+    labels = Map.get(opts, :labels, %{})
+    section_opts = Map.get(opts, :section_opts, %{})
+    activity_opts = Map.get(opts, :activity_opts, %{})
 
     screen
     |> draw_transcript.(
@@ -146,17 +153,19 @@ defmodule Ourocode.Terminal.RuntimeSplit do
       inner_x,
       parent_top,
       inner_w,
-      "MCP parent",
+      Map.get(labels, :parent, "Main session (MCP)"),
       parent_rows,
-      parent_body_h
+      parent_body_h,
+      section_opts
     )
     |> RuntimeSplitSidebar.draw_section(
       inner_x,
       child_top,
       inner_w,
-      "child stream",
+      Map.get(labels, :child, "Delegated session (MCP)"),
       child_rows,
-      child_body_h
+      child_body_h,
+      section_opts
     )
     |> maybe_draw_activity_section(
       inner_x,
@@ -164,7 +173,9 @@ defmodule Ourocode.Terminal.RuntimeSplit do
       inner_w,
       activity_rows,
       activity_h,
-      scroll
+      scroll,
+      labels,
+      activity_opts
     )
   end
 
@@ -174,10 +185,24 @@ defmodule Ourocode.Terminal.RuntimeSplit do
     RuntimeSplitSidebar.draw_section(screen, x, y, w, "interview", reasoning, max(iv_h - 2, 1))
   end
 
-  defp maybe_draw_activity_section(screen, _x, _y, _w, [], _h, _scroll), do: screen
-  defp maybe_draw_activity_section(screen, _x, _y, _w, _lines, h, _scroll) when h < 2, do: screen
+  defp maybe_draw_activity_section(screen, _x, _y, _w, [], _h, _scroll, _labels, _opts),
+    do: screen
 
-  defp maybe_draw_activity_section(screen, x, y, w, lines, h, scroll) do
-    RuntimeSplitSidebar.draw_activity(screen, x, y, w, "activity log", lines, h - 1, scroll)
+  defp maybe_draw_activity_section(screen, _x, _y, _w, _lines, h, _scroll, _labels, _opts)
+       when h < 2,
+       do: screen
+
+  defp maybe_draw_activity_section(screen, x, y, w, lines, h, scroll, labels, opts) do
+    RuntimeSplitSidebar.draw_activity(
+      screen,
+      x,
+      y,
+      w,
+      Map.get(labels, :activity, "activity log"),
+      lines,
+      h - 1,
+      scroll,
+      opts
+    )
   end
 end

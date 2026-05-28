@@ -87,6 +87,35 @@ defmodule Ourocode.Terminal.CommandChildControlCommandsTest do
     assert wire_request["reason"] == "user cancelled"
   end
 
+  test "dispatch cancel without focused child returns idle guidance" do
+    {:ok, output} = StringIO.open("")
+
+    assert {:ok,
+            %{
+              cancel: %{
+                status: :idle,
+                message: "No active work to cancel.",
+                next_actions: ["ooo pm <goal>", "/agents", "/verify"]
+              }
+            }} =
+             CommandChildControlCommands.dispatch(
+               :cancel_focused_child,
+               command_event(:cancel_focused_child, "/cancel", []),
+               %{
+                 output: output,
+                 focus_state: FocusState.new(),
+                 pane_model: %{panes: %{}, open: []}
+               }
+             )
+
+    {_input, text} = StringIO.contents(output)
+    StringIO.close(output)
+
+    assert text =~ "cancel: no active work"
+    assert text =~ "nothing is waiting for cancellation"
+    assert text =~ "ooo pm <goal>"
+  end
+
   defp command_event(action, command, args) do
     %{
       type: :slash_command_submitted,

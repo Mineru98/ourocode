@@ -19,23 +19,28 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
     Journal.append!(session_path, %{type: :event, event_seq: 1})
     Journal.append!(session_path, %{type: :event, event_seq: 2})
 
-    assert ResumeSessions.list(%{journal_path: active_path}) == [
-             %{id: "session-alpha", path: session_path, event_count: 2}
-           ]
+    assert [
+             %{id: "session-alpha", path: ^session_path, event_count: 2, updated_label: updated}
+           ] = ResumeSessions.list(%{journal_path: active_path})
+
+    assert is_binary(updated)
   end
 
   test "resolves by session id or explicit journal file path" do
     dir = tmp_dir!("resume-session-resolve")
     active_path = Path.join(dir, "active.jsonl")
     session_path = Path.join(dir, "session-bravo.jsonl")
-    external_path = Path.join(dir, "external.jsonl")
 
     File.write!(session_path, "")
-    File.write!(external_path, "")
 
     state = %{journal_path: active_path}
 
     assert ResumeSessions.resolve_path(state, "session-bravo") == {:ok, session_path}
+    assert ResumeSessions.resolve_path(state, "1") == {:ok, session_path}
+
+    external_path = Path.join(dir, "external.jsonl")
+    File.write!(external_path, "")
+
     assert ResumeSessions.resolve_path(state, external_path) == {:ok, external_path}
 
     assert ResumeSessions.resolve_path(state, "missing") ==
@@ -59,8 +64,13 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
              ResumeSessions.run(["session-charlie"], state, output)
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "resume: journaled sessions"
-    assert text =~ "session-charlie events=1"
+    assert text =~ "resume workspace"
+    assert text =~ "latest Saved session"
+    assert text =~ "record 1"
+    assert text =~ "task Saved session"
+    assert text =~ "state 1 replay event"
+    assert text =~ "action /resume 1"
+    assert text =~ "actions /resume latest, /resume <number>, /resume --all"
     assert text =~ "resumed session-charlie: 1 events replayed"
   end
 
@@ -76,8 +86,11 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
 
     {_input, text} = StringIO.contents(output)
     assert text =~ "resume: no journaled sessions found"
-    assert text =~ "resume: journaled sessions"
-    assert text =~ "session-echo events=3 path=/tmp/session-echo.jsonl"
+    assert text =~ "resume workspace"
+    assert text =~ "latest Saved session"
+    assert text =~ "record 1"
+    assert text =~ "state 3 replay events"
+    refute text =~ "path=/tmp/session-echo.jsonl"
   end
 
   test "dispatch uses command args and state output" do
@@ -97,7 +110,7 @@ defmodule Ourocode.Terminal.ResumeSessionsTest do
              ResumeSessions.dispatch(:replay_journal, %{args: ["session-delta"]}, state)
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "resume: journaled sessions"
+    assert text =~ "resume workspace"
     assert text =~ "resumed session-delta: 1 events replayed"
   end
 

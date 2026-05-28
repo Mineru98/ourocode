@@ -12,6 +12,7 @@ defmodule Ourocode.Terminal.EventLoopPromptState do
       prompt_state: :dispatching_input,
       reason: :input_dispatch_started,
       task_request_id: input_event.task_request_id,
+      task_input: Map.get(input_event, :task_input),
       occurred_at_ms: System.system_time(:millisecond)
     }
   end
@@ -24,6 +25,7 @@ defmodule Ourocode.Terminal.EventLoopPromptState do
       prompt_state: :awaiting_prompt,
       reason: :input_dispatch_completed,
       task_request_id: input_event.task_request_id,
+      task_input: Map.get(input_event, :task_input),
       occurred_at_ms: System.system_time(:millisecond)
     }
   end

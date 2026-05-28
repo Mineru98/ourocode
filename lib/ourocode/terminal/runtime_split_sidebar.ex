@@ -42,8 +42,74 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
     |> Enum.filter(&String.starts_with?(&1, prefix))
     |> Enum.map(&String.replace_prefix(&1, prefix, ""))
     |> Enum.reject(&(&1 in ["empty", ""]))
-    |> Enum.map(&TranscriptRows.humanize/1)
+    |> Enum.flat_map(&work_lines/1)
   end
+
+  defp work_lines("label=current-task status=" <> status) do
+    ["● PM interview", "  State " <> TranscriptRows.humanize(status)]
+  end
+
+  defp work_lines("label=delegated-work token=" <> token) do
+    ["● Question ready", "  State " <> TranscriptRows.humanize(token)]
+  end
+
+  defp work_lines("task=" <> fields) do
+    field_lines(fields, "task", "Task")
+  end
+
+  defp work_lines("agent=" <> fields) do
+    field_lines(fields, "agent", "Agent")
+  end
+
+  defp work_lines(line), do: [TranscriptRows.humanize(line)]
+
+  defp field_lines(fields, primary_key, fallback_label) do
+    parsed = parse_fields(primary_key <> "=" <> fields)
+    primary = Map.get(parsed, primary_key, fallback_label)
+    state = Map.get(parsed, "state") || Map.get(parsed, "status")
+    elapsed = Map.get(parsed, "elapsed")
+    action = Map.get(parsed, "action")
+    current = Map.get(parsed, "current")
+
+    [
+      "● " <> primary_label(fallback_label, primary),
+      state_line(state, elapsed),
+      action_line(action),
+      current_line(current)
+    ]
+    |> Enum.reject(&blank?/1)
+  end
+
+  defp primary_label(label, value), do: label <> " " <> value
+
+  defp state_line(nil, nil), do: nil
+  defp state_line("", nil), do: nil
+  defp state_line(nil, elapsed), do: "  Elapsed " <> TranscriptRows.humanize(elapsed)
+  defp state_line("", elapsed), do: "  Elapsed " <> TranscriptRows.humanize(elapsed)
+
+  defp state_line(state, nil) do
+    "  State " <> TranscriptRows.humanize(state)
+  end
+
+  defp state_line(state, elapsed) do
+    "  State " <> TranscriptRows.humanize(state) <> " · " <> TranscriptRows.humanize(elapsed)
+  end
+
+  defp action_line(nil), do: nil
+  defp action_line(""), do: nil
+  defp action_line(action), do: "  Action " <> TranscriptRows.humanize(action)
+
+  defp current_line(nil), do: nil
+  defp current_line(""), do: nil
+  defp current_line(current), do: "  Now " <> TranscriptRows.humanize(current)
+
+  defp parse_fields(fields) do
+    ~r/(\w+)=([^=]+?)(?=\s+\w+=|$)/
+    |> Regex.scan(fields)
+    |> Map.new(fn [_match, key, value] -> {key, String.trim(value)} end)
+  end
+
+  defp blank?(value), do: value in [nil, ""]
 
   @doc false
   @spec wrap_lines([String.t()], pos_integer()) :: [String.t()]
@@ -60,9 +126,21 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
   end
 
   @doc false
-  def draw_section(screen, x, y, w, title, lines, body_h)
+  def draw_section(screen, x, y, w, title, lines, body_h, opts \\ %{})
+
+  def draw_section(screen, x, y, w, title, lines, body_h, opts)
       when w >= 4 and body_h >= 1 do
-    {status, status_style} = section_status(lines)
+    if lines == [] do
+      screen
+    else
+      draw_section_rows(screen, x, y, w, title, lines, body_h, opts)
+    end
+  end
+
+  def draw_section(screen, _x, _y, _w, _title, _lines, _body_h, _opts), do: screen
+
+  defp draw_section_rows(screen, x, y, w, title, lines, body_h, opts) do
+    {status, status_style} = section_status(lines, opts)
     screen = Screen.put_text(screen, x, y, title, :p_title)
 
     screen =
@@ -70,8 +148,8 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
 
     rows =
       case lines do
-        [] -> [{"idle", :p_muted}]
-        lines -> lines |> Enum.take(-body_h) |> Enum.map(&{&1, line_style(&1)})
+        [] -> []
+        lines -> lines |> Enum.take(body_h) |> Enum.map(&{&1, line_style(&1)})
       end
 
     rows
@@ -81,11 +159,21 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
     end)
   end
 
-  def draw_section(screen, _x, _y, _w, _title, _lines, _body_h), do: screen
-
   @doc false
-  def draw_activity(screen, x, y, w, title, lines, body_h, scroll)
+  def draw_activity(screen, x, y, w, title, lines, body_h, scroll, opts \\ %{})
+
+  def draw_activity(screen, x, y, w, title, lines, body_h, scroll, opts)
       when w >= 4 and body_h >= 1 do
+    if lines == [] do
+      screen
+    else
+      draw_activity_rows(screen, x, y, w, title, lines, min(body_h, 4), scroll, opts)
+    end
+  end
+
+  def draw_activity(screen, _x, _y, _w, _title, _lines, _body_h, _scroll, _opts), do: screen
+
+  defp draw_activity_rows(screen, x, y, w, title, lines, body_h, scroll, opts) do
     rows =
       lines
       |> scroll_tail(body_h, scroll)
@@ -93,7 +181,12 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
 
     screen
     |> Screen.put_text(x, y, title, :p_title)
-    |> Screen.put_text(x + String.length(title) + 1, y, "live", :warn)
+    |> Screen.put_text(
+      x + String.length(title) + 1,
+      y,
+      Map.get(opts, :activity_status, "live"),
+      Map.get(opts, :activity_status_style, :warn)
+    )
     |> then(fn screen ->
       rows
       |> Enum.with_index(1)
@@ -103,14 +196,13 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
     end)
   end
 
-  def draw_activity(screen, _x, _y, _w, _title, _lines, _body_h, _scroll), do: screen
+  defp section_status([], _opts), do: {"idle", :p_muted}
 
-  defp section_status([]), do: {"idle", :p_muted}
-
-  defp section_status(lines) do
+  defp section_status(lines, opts) do
     cond do
       Enum.any?(lines, &(&1 =~ ~r/failed|error/i)) -> {"failed", :p_err}
-      true -> {"live", :p_accent}
+      status = Map.get(opts, :status) -> {"● " <> status, Map.get(opts, :status_style, :p_accent)}
+      true -> {"● live", :p_accent}
     end
   end
 

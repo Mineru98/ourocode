@@ -60,10 +60,17 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmission do
             input_event
           )
 
-        IO.puts(
-          awaiting_state.output,
-          "queued task #{dispatched_task_request.id}: #{dispatched_task_request.task_input}"
-        )
+        if ouroboros_workflow?(dispatched_task_request) do
+          IO.puts(awaiting_state.output, workflow_start_line(dispatched_task_request))
+          IO.puts(awaiting_state.output, workflow_next_line(dispatched_task_request))
+        else
+          IO.puts(
+            awaiting_state.output,
+            "task: queued #{dispatched_task_request.id} - #{dispatched_task_request.task_input}"
+          )
+        end
+
+        awaiting_state = maybe_put_workflow_session(awaiting_state, dispatched_task_request)
 
         {:ok,
          %{
@@ -86,4 +93,100 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmission do
       ParentWorkflowFeedback.render_text(input_event, state_event)
     )
   end
+
+  defp ouroboros_workflow?(%{routing_decision: routing_decision}) when is_map(routing_decision) do
+    route =
+      Map.get(routing_decision, :execution_route) || Map.get(routing_decision, "execution_route")
+
+    route in [:ouroboros_workflow, "ouroboros_workflow"]
+  end
+
+  defp ouroboros_workflow?(_task_request), do: false
+
+  defp workflow_start_line(task_request) do
+    "#{workflow_label(task_request)}: starting - #{task_request.task_input}"
+  end
+
+  defp workflow_next_line(task_request) do
+    case workflow_mode(task_request) do
+      :auto -> "auto: preparing an approval plan before file changes"
+      :interview -> "interview: preparing the first clarification question"
+      :pm -> "pm: preparing the first product question"
+      :workflow -> "guided work: waiting for the first visible update"
+    end
+  end
+
+  defp maybe_put_workflow_session(state, task_request) do
+    if ouroboros_workflow?(task_request) do
+      pane_id = "workflow:" <> task_request.id
+      panes = Map.get(state.pane_model, :panes, %{})
+      open = Map.get(state.pane_model, :open, [])
+      mode = workflow_mode(task_request)
+
+      pane = %{
+        id: pane_id,
+        kind: :workflow_session,
+        session_id: task_request.id,
+        title: workflow_label(task_request),
+        status: workflow_status(mode),
+        task: task_request.task_input,
+        last_line: workflow_last_line(mode),
+        progress: workflow_progress(mode),
+        visible?: true
+      }
+
+      pane_model =
+        state.pane_model
+        |> Map.put(:panes, Map.put(panes, pane_id, pane))
+        |> Map.put(:open, Enum.uniq(open ++ [pane_id]))
+
+      %{state | pane_model: pane_model}
+    else
+      state
+    end
+  end
+
+  defp workflow_mode(%{task_input: input}) when is_binary(input) do
+    normalized = input |> String.trim() |> String.downcase()
+
+    cond do
+      normalized == "ooo auto" or String.starts_with?(normalized, "ooo auto ") ->
+        :auto
+
+      normalized == "ooo interview" or String.starts_with?(normalized, "ooo interview ") ->
+        :interview
+
+      normalized == "ooo pm" or String.starts_with?(normalized, "ooo pm ") ->
+        :pm
+
+      true ->
+        :workflow
+    end
+  end
+
+  defp workflow_mode(_task_request), do: :workflow
+
+  defp workflow_label(task_request) do
+    case workflow_mode(task_request) do
+      :auto -> "Auto run"
+      :interview -> "Socratic interview"
+      :pm -> "PM interview"
+      :workflow -> "Guided work"
+    end
+  end
+
+  defp workflow_status(:auto), do: "preparing approval"
+  defp workflow_status(:interview), do: "preparing question"
+  defp workflow_status(:pm), do: "preparing question"
+  defp workflow_status(:workflow), do: "preparing"
+
+  defp workflow_last_line(:auto), do: "interview -> plan -> approval -> verify"
+  defp workflow_last_line(:interview), do: "waiting for first clarification question"
+  defp workflow_last_line(:pm), do: "waiting for first PM question"
+  defp workflow_last_line(:workflow), do: "waiting for the first visible update"
+
+  defp workflow_progress(:auto), do: "approval checkpoint before file changes"
+  defp workflow_progress(:interview), do: "first question pending"
+  defp workflow_progress(:pm), do: "answer choices pending"
+  defp workflow_progress(:workflow), do: "first update pending"
 end

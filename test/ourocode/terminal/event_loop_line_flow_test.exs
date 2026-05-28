@@ -145,9 +145,10 @@ defmodule Ourocode.Terminal.EventLoopLineFlowTest do
     assert Enum.any?(entries, &(&1.slash == "/ship-it" and &1.source == :local))
 
     {_input, text} = StringIO.contents(output)
-    assert text =~ "+-- Command Palette"
-    assert text =~ "| /help [builtin/discovery]"
-    assert text =~ ~s(| /ship-it [local/skills] summary="Run the local ship workflow.")
+    assert text =~ "commands:"
+    assert text =~ "| /help"
+    assert text =~ "| /ship-it           skill Run the local ship workflow."
+    refute text =~ "[builtin/discovery]"
   end
 
   defp state(attrs \\ []) do

@@ -57,12 +57,11 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert text =~ "hello there"
   end
 
-  test "live workflow splits transcript left, MCP parent/child right" do
+  test "live workflow splits transcript left, MCP internals right" do
     text = render(@live_frame, ["you> ooo interview", "ourocode> dispatching"])
 
-    # Right side shows MCP internals, parent on top, child stream below.
-    assert text =~ "MCP parent"
-    assert text =~ "child stream"
+    assert text =~ "Main session (MCP)"
+    assert text =~ "Delegated session (MCP)"
     assert text =~ "parent-1"
     assert text =~ "child=child-1"
 
@@ -70,17 +69,17 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert text =~ "dispatching"
 
     # The vertical separator proves a real two-column split, not inlined text.
-    assert text =~ "|"
+    assert text =~ "│"
   end
 
-  test "interview renders as a pinned left block (not a modal) + right reasoning" do
+  test "interview renders as one focused block without right telemetry" do
     block =
       {"INTERVIEW",
        [
          "Which MCP transport should the interview prioritize?",
          "1. stdio - local process pipe",
          "2. streamable HTTP - remote streaming"
-       ], "type answer   /cancel decline   Esc pause"}
+       ], "type answer   /cancel stop   Esc pause"}
 
     reasoning = ["ambiguity 0.42", "milestone scope", "seed-ready: no"]
 
@@ -97,25 +96,26 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert text =~ "Which MCP transport should the interview prioritize?"
     assert text =~ "type answer"
 
-    # The "why this question" reasoning is on the right.
-    assert text =~ "interview"
-    assert text =~ "ambiguity 0.42"
-    assert text =~ "milestone scope"
+    # Interview questions own the body; internal reasoning stays out of the
+    # decision surface.
+    refute text =~ "MCP parent"
+    refute text =~ "ambiguity 0.42"
+    refute text =~ "milestone scope"
   end
 
   test "a long interview block uses the left column without shrinking the right panel" do
     long_question =
-      "right panel에서 구체적으로 어떤 순간이 거칠거나 뚝뚝 끊긴다고 느껴지는지 " <>
-        "패널 전환, 스트리밍 텍스트, 스크롤, 색상 질감까지 구체적으로 알려주세요 끝문장"
+      "Which exact right-panel moment feels rough or interrupted across panel switching, " <>
+        "streaming text, scroll behavior, and color treatment? final sentence"
 
     block =
       {"INTERVIEW",
        [
          "Interview",
          long_question,
-         ">> [1] panel transition - 전환이 갑작스럽다",
-         "   [2] streaming - 텍스트가 점프한다"
-       ], "Up/Dn pick   1-9 shortcut   Enter submit   type answer   /cancel decline   Esc pause"}
+         ">> [1] panel transition - the switch feels abrupt",
+         "   [2] streaming - text jumps during updates"
+       ], "Up/Dn pick   1-9 shortcut   Enter confirms   type answer   /cancel stop   Esc pause"}
 
     plain =
       Tui.frame_lines(@live_frame, ["you> ooo interview"], "", 120, 30, %{})
@@ -126,10 +126,12 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
         interview_reasoning: ["waiting for your answer"]
       })
 
-    assert Enum.join(with_block, "\n") =~ "끝문장"
+    assert Enum.join(with_block, "\n") =~ "final sentence"
     assert Enum.join(with_block, "\n") =~ ">> [1] panel transition"
 
-    assert line_index(plain, "MCP parent") == line_index(with_block, "interview live")
+    assert line_index(plain, "Main session (MCP)")
+    refute Enum.join(with_block, "\n") =~ "Main session (MCP)"
+    refute Enum.join(with_block, "\n") =~ "interview live"
   end
 
   test "active wonder picker focuses the decision and hides the right pane" do
@@ -140,7 +142,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
          "Which behavior should change first?",
          ">> [1] Arrow navigation - selection should move",
          "   [2] Visual focus - dim everything else"
-       ], "Up/Dn pick   1-9 shortcut   Enter submit   type answer   /cancel decline   Esc pause"}
+       ], "Up/Dn pick   1-9 shortcut   Enter confirms   type answer   /cancel stop   Esc pause"}
 
     text =
       Tui.frame_lines(@live_frame, ["you> ooo interview"], "custom thought", 100, 24, %{
@@ -152,10 +154,35 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
 
     assert text =~ "INTERVIEW"
     assert text =~ ">> [1] Arrow navigation"
-    assert text =~ "Free answer: custom thought"
-    assert text =~ "Esc main session"
+    assert text =~ "Custom answer: custom thought"
+    assert text =~ "Enter confirm"
     refute text =~ "MCP parent"
     refute text =~ "child stream"
+  end
+
+  test "interview option block focuses the decision even before wonder focus catches up" do
+    block =
+      {"INTERVIEW",
+       [
+         "Interview",
+         "Which surface should get fixed first?",
+         ">> [1] Question handoff - show the choices immediately",
+         "   [2] Sidebar noise - hide internal telemetry"
+       ], "Up/Dn pick   1-9 shortcut   Enter confirms   type answer   Esc pause"}
+
+    text =
+      Tui.frame_lines(@live_frame, ["you> ooo interview"], "", 100, 24, %{
+        interview_block: block,
+        interview_reasoning: ["step waiting - waiting for your answer"],
+        wonder_focus: false
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "Which surface should get fixed first?"
+    assert text =~ ">> [1] Question handoff"
+    assert text =~ "Enter confirm"
+    refute text =~ "MCP parent"
+    refute text =~ "activity log"
   end
 
   test "right column is MCP-internal only; router/reasoning live in the LEFT block" do
@@ -198,7 +225,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       seed_ready: false,
       session_id: "interview_meta",
       mcp_reasoning: [
-        "phase: answer",
+        "step: answer",
         "rounds: 1 answered / 2 total",
         "next: ask user to answer pending question"
       ]
@@ -208,7 +235,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
 
     right = Tui.interview_reasoning_lines(result)
 
-    assert "phase: answer" in right
+    assert "step: answer" in right
     assert "rounds: 1 answered / 2 total" in right
     assert "next: ask user to answer pending question" in right
 
@@ -244,7 +271,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
   test "right column puts activity log in its own lower stream" do
     text =
       Tui.frame_lines(@live_frame, ["you> ooo interview"], "", 120, 30, %{
-        interview_reasoning: ["phase: answer"],
+        interview_reasoning: ["step: answer"],
         mcp_activity: [
           "activity: interview started · session 1",
           "activity: round 1 · question generated · 128 chars"
@@ -252,13 +279,13 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       })
       |> Enum.join("\n")
 
-    assert text =~ "interview live"
-    assert text =~ "MCP parent"
-    assert text =~ "child stream"
+    assert text =~ "interview"
+    assert text =~ "Main session (MCP)"
+    assert text =~ "Delegated session (MCP)"
     assert text =~ "activity log live"
 
     assert line_index(String.split(text, "\n"), "activity log") >
-             line_index(String.split(text, "\n"), "child stream")
+             line_index(String.split(text, "\n"), "Delegated session (MCP)")
   end
 
   test "right column wraps long MCP and activity lines instead of ellipsizing" do
@@ -286,17 +313,17 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     block =
       {"INTERVIEW",
        [
-         {"MCP   Which work should happen first?", :warn},
-         {"YOU   Refactor/cleanup", :strong},
-         {"MCP   What does cleanup mean here?", :warn}
-       ], "type your answer + Enter   Esc pause"}
+         {"Question  Which work should happen first?", :warn},
+         {"Answer  Refactor/cleanup", :strong},
+         {"Question  What does cleanup mean here?", :warn}
+       ], "plain answer"}
 
     text =
       Tui.frame_lines(
         @live_frame,
         [
           "[workflow-starting] dispatching_input task=task_1",
-          "queued task task_1: ooo interview",
+          "task: queued task_1: ooo interview",
           "you> Refactor/cleanup",
           "you> General hygiene",
           "workflow resumed"
@@ -313,12 +340,12 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       |> Enum.join("\n")
 
     assert text =~ "INTERVIEW"
-    assert text =~ "MCP Which work should happen first?"
-    assert text =~ "YOU Refactor/cleanup"
-    assert text =~ "MCP parent"
+    assert text =~ "Question Which work should happen first?"
+    assert text =~ "Answer Refactor/cleanup"
+    refute text =~ "MCP parent"
 
     refute text =~ "workflow-starting"
-    refute text =~ "queued task"
+    refute text =~ "task: queued"
     refute text =~ "you> Refactor/cleanup"
     refute text =~ "you> General hygiene"
     refute text =~ "workflow resumed"
@@ -344,17 +371,17 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     Enum.find_index(lines, &String.contains?(&1, pattern))
   end
 
-  test "the activity line animates and stays clean when no trace yet" do
-    result = %{pane_snapshot: fn -> %{interview: %{question: "q?"}, paused: false} end}
+  test "the activity line animates and stays clean before a question arrives" do
+    result = %{pane_snapshot: fn -> %{interview: %{}, paused: false} end}
 
     a = Tui.interview_working_lines(result, 0)
     b = Tui.interview_working_lines(result, 1)
 
     assert [line_a] = a
     assert [line_b] = b
-    assert line_a =~ "the main session is handling this"
-    # Different tick -> different spinner frame (visibly not frozen).
-    refute line_a == line_b
+    assert line_a =~ "■⬝⬝ building the first question"
+    assert line_b =~ "■■⬝ building the first question"
+    assert line_a != line_b
   end
 
   test "right interview status shows a visible spinner while waiting on MCP" do
@@ -367,10 +394,10 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       end
     }
 
-    assert ["| phase received - MCP is preparing the interview question"] =
+    assert ["■⬝⬝ step received - preparing the interview question"] =
              Tui.interview_reasoning_lines(result, 0)
 
-    assert ["/ phase received - MCP is preparing the interview question"] =
+    assert ["■■⬝ step received - preparing the interview question"] =
              Tui.interview_reasoning_lines(result, 1)
   end
 
@@ -389,10 +416,10 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       end
     }
 
-    assert ["phase paused - discussing with main session"] =
+    assert ["step paused - discussing with main session"] =
              Tui.interview_reasoning_lines(result, 0)
 
-    assert ["phase paused - discussing with main session"] =
+    assert ["step paused - discussing with main session"] =
              Tui.interview_reasoning_lines(result, 1)
   end
 
@@ -411,8 +438,37 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       })
       |> Enum.join("\n")
 
-    assert text =~ "/answer <answer> submits to interview"
-    assert text =~ "type normally to discuss with main session"
+    assert text =~ "/answer <text> resumes"
+    assert text =~ "type normally to discuss"
+  end
+
+  test "paused interview hides command palette when cancel is ready to submit" do
+    block =
+      {"INTERVIEW (paused)",
+       [
+         "Interview",
+         "What should change?"
+       ], "type to talk to main   /answer <answer> submits to interview"}
+
+    text =
+      Tui.frame_lines(@live_frame, ["you> discuss first"], "/cancel", 100, 24, %{
+        mode: :palette,
+        interview_block: block,
+        interview_paused: true,
+        palette: %{
+          entries: [
+            %{slash: "/cancel", summary: "Stop the paused interview"},
+            %{slash: "/commands", summary: "Open commands"}
+          ],
+          index: 0
+        }
+      })
+      |> Enum.join("\n")
+
+    assert text =~ "INTERVIEW (paused)"
+    assert text =~ "> /cancel"
+    refute text =~ "+- commands"
+    refute text =~ "selected /cancel"
   end
 
   test "paused interview transcript keeps the discussion near the checkpoint" do
@@ -426,12 +482,12 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
         [
           "empty",
           "[workflow-starting] dispatching_input task=task_1",
-          "queued task task_1: ooo interview",
-          "-- interview paused (type to talk to main session)",
+          "task: queued task_1: ooo interview",
+          "-- interview paused (type normally to discuss; /answer <text> resumes)",
           "-- model: codex",
           "status=healthy runtime=ready",
-          "you> 한글로 얘기해줘",
-          "ourocode> 네, 한글로 이야기하겠습니다.",
+          "you> discuss this first",
+          "ourocode> I will discuss it before answering.",
           "workflow resumed"
         ],
         "",
@@ -444,10 +500,10 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       )
       |> Enum.join("\n")
 
-    assert text =~ "한글로 얘기해줘"
-    assert text =~ "한글로 이야기하겠습니다"
+    assert text =~ "discuss this first"
+    assert text =~ "I will discuss it before answering"
     refute text =~ "workflow-starting"
-    refute text =~ "queued task"
+    refute text =~ "task: queued"
     refute text =~ "interview paused (type to talk"
     refute text =~ "-- empty"
     refute text =~ "model: codex"
@@ -468,11 +524,11 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
 
     # Oldest -> newest, each carrying an explicit speaker color.
     assert [{mcp_line, :warn}, :rule, {main_line, :ok}] = rows
-    assert mcp_line == "MCP   (ambiguity 0.42) which stack?"
+    assert mcp_line == "Question  (ambiguity 0.42) which stack?"
     assert main_line == "MAIN  [from-code] Elixir escript"
   end
 
-  test "restored string-keyed dialogue still owns the left interview column" do
+  test "restored string-keyed question owns the left interview decision surface" do
     result = %{
       pane_snapshot: fn ->
         %{
@@ -482,7 +538,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
               %{"role" => "user", "text" => "progress visibility"}
             ],
             "question" =>
-              "For progress visibility, should the interview clarify current phase names, done criteria, or failure causes first?",
+              "For progress visibility, should the interview clarify current step names, done criteria, or failure causes first?",
             "status" => "waiting for your answer"
           },
           "paused" => false
@@ -497,7 +553,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
         @live_frame,
         [
           "[workflow-starting] dispatching_input task=task_1",
-          "queued task task_1: ooo interview ourocode",
+          "task: queued task_1: ooo interview ourocode",
           "you> seed/run/evaluate/evolve execution flow"
         ],
         "",
@@ -512,18 +568,20 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       |> Enum.join("\n")
 
     assert text =~ "INTERVIEW"
-    assert text =~ "YOU seed/run/evaluate/evolve execution flow"
-    assert text =~ "YOU progress visibility"
-    assert text =~ "current phase names"
+    assert text =~ "current step names"
+    assert text =~ "done criteria"
+    assert text =~ "failure causes first"
+    refute text =~ "Answer seed/run/evaluate/evolve execution flow"
+    refute text =~ "Answer progress visibility"
     refute text =~ "workflow-starting"
-    refute text =~ "queued task"
+    refute text =~ "task: queued"
     refute text =~ "you> seed/run/evaluate"
   end
 
   test "internal router prompts are hidden from the dialogue transcript" do
     leaked = """
     [from-code]. Describe what exists; never prescribe what a new feature should do.
-    Tool protocol — emit ONE directive as the first line, nothing before it:
+    Tool protocol - emit ONE directive as the first line, nothing before it:
       ANSWER [from-code] <answer>
       ASK_USER <question for the human>
     Output exactly one directive as the first line.
@@ -539,8 +597,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     rows = Tui.dialogue_rows(result, false)
 
     assert [{mcp_line, :warn}] = rows
-    assert mcp_line == "MCP   What change should this interview define?"
-    refute Enum.any?(rows, fn {line, _style} -> line =~ "Tool protocol" end)
+    assert mcp_line == "Question  What change should this interview define?"
   end
 
   test "the open MCP question is dropped from history when the picker shows it" do
@@ -555,7 +612,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     # drop_trailing_mcp?: the newest turn is :mcp (the open question the
     # picker renders), so it is not duplicated in the history rows.
     assert [{_q, :warn}, :rule, {you, :strong}] = Tui.dialogue_rows(result, true)
-    assert you == "YOU   stdio"
+    assert you == "Answer  stdio"
 
     refute Tui.dialogue_rows(result, true)
            |> Enum.any?(fn
@@ -567,7 +624,7 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert Tui.dialogue_rows(result, false) |> List.last() |> elem(0) =~ "pick transport?"
   end
 
-  test "interview transcript separates chat turns with horizontal rules" do
+  test "interview transcript separates chat turns without heavy horizontal rules" do
     dialogue = [
       %{role: :mcp, text: "Which user segment matters first?"},
       %{role: :user, text: "Developers already using coding agents"}
@@ -576,18 +633,18 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     block =
       {"INTERVIEW",
        Tui.dialogue_rows(%{pane_snapshot: fn -> %{interview: %{dialogue: dialogue}} end}, false),
-       "type your answer + Enter"}
+       "plain answer"}
 
     text =
       Tui.frame_lines(@live_frame, [], "", 100, 24, %{interview_block: block})
       |> Enum.join("\n")
 
-    assert text =~ "MCP Which user segment matters first?"
-    assert text =~ "YOU Developers already using coding agents"
-    assert text =~ "────"
+    assert text =~ "Question Which user segment matters first?"
+    assert text =~ "Answer Developers already using coding agents"
+    refute text =~ "Question Question"
   end
 
-  test "interview thinking status is separated from chat turns" do
+  test "interview preparation status is separated from chat turns" do
     dialogue = [
       %{role: :user, text: "ooo interview improve onboarding"},
       %{role: :mcp, text: "Which onboarding moment is rough?"}
@@ -599,15 +656,15 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     block =
       {"INTERVIEW",
        Tui.dialogue_rows(result, false) ++ [:rule | Tui.interview_working_lines(result, 0)],
-       "type your answer + Enter"}
+       "plain answer"}
 
     text =
       Tui.frame_lines(@live_frame, [], "", 100, 24, %{interview_block: block})
       |> Enum.join("\n")
 
-    assert text =~ "MCP Which onboarding moment is rough?"
-    assert text =~ "| thinking"
-    assert text =~ "────"
+    assert text =~ "Question Which onboarding moment is rough?"
+    assert text =~ "■⬝⬝ building the first question"
+    refute text =~ "Question Question"
   end
 
   test "wonder focus without a block falls back to the transcript instead of blanking" do

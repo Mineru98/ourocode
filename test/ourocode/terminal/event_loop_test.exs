@@ -52,7 +52,7 @@ defmodule Ourocode.Terminal.EventLoopTest do
                     %{status: :healthy}}
 
     {_input_text, output_text} = StringIO.contents(output)
-    assert output_text =~ "queued task"
+    assert output_text =~ "task: queued"
     assert output_text =~ "exiting ourocode"
   end
 
@@ -88,8 +88,30 @@ defmodule Ourocode.Terminal.EventLoopTest do
 
     assert_receive {:task_request, %{task_input: "Inspect parent panes"}, %{status: :healthy}}
     assert_receive {:task_request, %{task_input: "Route this to child"}, %{status: :healthy}}
-    assert output =~ "queued task"
+    assert output =~ "task: queued"
     assert output =~ "exiting ourocode"
+  end
+
+  test "children command shows the queued workflow workspace after ooo submission" do
+    {result, output} =
+      capture_event_loop(
+        %{status: :healthy},
+        [
+          "ooo pm build onboarding\n",
+          "/children\n",
+          "/exit\n"
+        ],
+        on_task: fn _task_request, _startup_result -> :ok end
+      )
+
+    assert result.status == :exit_signal_received
+    assert [%{task_input: "ooo pm build onboarding"}] = result.submitted_tasks
+
+    assert output =~ "PM interview: starting - ooo pm build onboarding"
+    assert output =~ "sessions: 1 active"
+    assert output =~ "preparing question  ooo pm build onboarding"
+    assert output =~ "last waiting for first PM question"
+    refute output =~ "no delegated work yet"
   end
 
   test "continues prompt loop for exit-like natural language and slash near matches" do
@@ -133,7 +155,7 @@ defmodule Ourocode.Terminal.EventLoopTest do
     assert_receive {:task_request, %{task_input: "quit after summarizing the queue"},
                     %{status: :healthy}}
 
-    assert output =~ "queued task"
+    assert output =~ "task: queued"
     assert output =~ "exiting ourocode"
   end
 
@@ -276,7 +298,9 @@ defmodule Ourocode.Terminal.EventLoopTest do
                ] = result.command_palette_events
       end)
 
-    assert output =~ "+-- Command Palette"
+    assert output =~ "help"
+    assert output =~ "/config"
+    assert output =~ "/theme"
     assert output =~ "selected /ship-it: Run the local ship workflow."
 
     assert_receive {:palette_selected,
@@ -326,13 +350,13 @@ defmodule Ourocode.Terminal.EventLoopTest do
                     %{status: :healthy}}
 
     refute_receive {:task_request, %{task_input: ""}, _startup_result}
-    assert output =~ "queued task"
+    assert output =~ "task: queued"
     assert output =~ "exiting ourocode"
   end
 
   test "routes ooo interview prompt to the interview workflow without slash command dispatch" do
     parent = self()
-    prompt = "ooo interview로 ourocode의 MCP streamable UI 요구사항을 정리해줘."
+    prompt = "ooo interview define ourocode MCP streamable UI requirements."
     lines = start_lines([prompt <> "\n", "/exit\n"])
     journal_path = journal_path("terminal-ooo-interview-routing")
 
@@ -384,10 +408,11 @@ defmodule Ourocode.Terminal.EventLoopTest do
                ] = result.input_events
       end)
 
-    assert output =~ "+-- Parent Workflow region=parent_pane"
-    assert output =~ "[workflow-starting] state=dispatching_input"
-    assert output =~ "route=ouroboros_workflow adapter=interview"
-    assert output =~ ~s(accepted_prompt="#{prompt}")
+    assert output =~ "task: starting"
+    assert output =~ "interview accepted"
+    assert output =~ ~s(accepted "#{prompt}")
+    refute output =~ "[workflow-starting]"
+    refute output =~ "dispatching_input"
 
     assert_receive {:prompt_routed, task_request, input_event, %{status: :healthy}}
     assert task_request.routing_decision.adapter_route == :interview
@@ -417,7 +442,7 @@ defmodule Ourocode.Terminal.EventLoopTest do
         journal_path: journal_path
       )
 
-    assert output =~ "queued task"
+    assert output =~ "task: queued"
 
     assert result.status == :exit_signal_received
     assert Enum.map(result.command_events, & &1.command) == ["/clear", "/resume"]
@@ -457,12 +482,14 @@ defmodule Ourocode.Terminal.EventLoopTest do
         []
       )
 
-    assert output =~ "commands:"
-    assert output =~ "/help [builtin/discovery]"
+    assert output =~ "start here:"
+    assert output =~ "/help"
+    refute output =~ "[builtin/discovery]"
     assert output =~ "capabilities:"
     assert output =~ "+-- State"
-    assert output =~ "+-- Plugin Status (1)"
-    assert output =~ "ouroboros-plugin"
+    assert output =~ "plugins: 1 available"
+    assert output =~ "Guided workflows"
+    refute output =~ "ouroboros-plugin"
 
     assert Enum.map(result.command_events, & &1.command) == [
              "/help",
@@ -620,7 +647,7 @@ defmodule Ourocode.Terminal.EventLoopTest do
     assert_receive {:task_request, %{task_input: "non-exit prompt after runtime activity"},
                     %{status: :healthy}}
 
-    assert output =~ "queued task"
+    assert output =~ "task: queued"
     assert output =~ "exiting ourocode"
 
     assert {:ok, journaled} = Journal.read_ordered(journal_path)
@@ -780,7 +807,7 @@ defmodule Ourocode.Terminal.EventLoopTest do
     lines =
       start_lines([
         "/pane #{child_pane_id}\n",
-        "transport는 stdio, SSE, streamable HTTP 모두 필요해.\n",
+        "transport must include stdio, SSE, and streamable HTTP.\n",
         "/exit\n"
       ])
 
@@ -833,7 +860,7 @@ defmodule Ourocode.Terminal.EventLoopTest do
     assert_receive {:command, %{command: "/pane"}, [^child_pane_id], %{status: :healthy}}
 
     assert_receive {:prompt_routed,
-                    %{task_input: "transport는 stdio, SSE, streamable HTTP 모두 필요해."},
+                    %{task_input: "transport must include stdio, SSE, and streamable HTTP."},
                     %{
                       focused_pane: ^child_pane_id,
                       steering_target_pane_id: ^child_pane_id,
@@ -888,7 +915,7 @@ defmodule Ourocode.Terminal.EventLoopTest do
     assert_receive {:task_request, %{task_input: "Route child stream from stdin"},
                     %{status: :healthy}}
 
-    assert output =~ "queued task"
+    assert output =~ "task: queued"
     refute output =~ "exiting ourocode"
   end
 
@@ -950,9 +977,10 @@ defmodule Ourocode.Terminal.EventLoopTest do
         assert plugin_item.load_state == :newly_loaded
       end)
 
-    assert output =~ "+-- Plugin Status (1) region=plugin_status"
-    assert output =~ "[OFFICIAL] id=ouroboros-plugin"
-    assert output =~ "state=newly_loaded"
+    assert output =~ "plugins: 1 available"
+    assert output =~ "[BUILT-IN] Guided workflows"
+    assert output =~ "loaded"
+    refute output =~ "ouroboros-plugin"
     assert output =~ "exiting ourocode"
 
     assert {:ok, journaled} = Journal.read_ordered(journal_path)

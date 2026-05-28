@@ -38,7 +38,7 @@ defmodule Ourocode.Terminal.EventLoopPromptInputTest do
   end
 
   test "normalize_line preserves raw free-form steering text while parsing task text" do
-    steering_text = " \t keep  spacing && symbols: []{}|$`'\" 한글  "
+    steering_text = " \t keep  spacing && symbols: []{}|$`'\" wide  "
 
     focus_state =
       FocusState.new()
@@ -56,7 +56,7 @@ defmodule Ourocode.Terminal.EventLoopPromptInputTest do
                raw_input: steering_text
              )
 
-    assert task_request.task_input == "keep spacing && symbols: []{}|$`'\" 한글"
+    assert task_request.task_input == "keep spacing && symbols: []{}|$`'\" wide"
     assert input_event.task_input == task_request.task_input
     assert input_event.raw_input == steering_text
     assert input_event.steering_text == steering_text
@@ -75,8 +75,8 @@ defmodule Ourocode.Terminal.EventLoopPromptInputTest do
     assert input_event.payload.steering_message == input_event.steering_message
   end
 
-  test "normalize_line preserves mixed English and Korean task payloads" do
-    prompt = "ooo interview로 ourocode의 MCP streamable UI 요구사항을 정리해줘."
+  test "normalize_line preserves mixed command and task payloads" do
+    prompt = "ooo interview define ourocode MCP streamable UI requirements."
 
     assert {:ok, {task_request, input_event}} =
              EventLoopPromptInput.normalize_line(prompt,

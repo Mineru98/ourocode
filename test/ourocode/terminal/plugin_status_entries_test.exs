@@ -13,12 +13,15 @@ defmodule Ourocode.Terminal.PluginStatusEntriesTest do
              path: "plugins/official-tools"
            }) == %{
              plugin_id: "official-tools",
+             display_name: "Official tools",
              source_type: "official",
              source_label: "Official plugin",
-             source_badge: "[OFFICIAL]",
+             source_badge: "[BUILT-IN]",
              version: "1.0.0",
+             version_label: "v1.0.0",
              enabled?: true,
              load_state: :loaded,
+             state_label: "loaded",
              status_entry: :current,
              transition_action: nil,
              transition_reason: nil,
