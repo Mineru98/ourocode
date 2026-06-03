@@ -183,6 +183,7 @@ defmodule Ourocode.TaskRequestTest do
 
   test "annotates Ouroboros workflow routes with adapter route intent" do
     cases = [
+      {"ooo auto improve startup", :auto},
       {"ooo interview clarify cleanup policy", :interview},
       {"ooo pm build onboarding", :interview},
       {"ouroboros seed create dispatcher contract", :seed},

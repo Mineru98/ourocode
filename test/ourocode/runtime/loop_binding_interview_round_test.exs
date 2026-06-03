@@ -40,10 +40,28 @@ defmodule Ourocode.Runtime.LoopBindingInterviewRoundTest do
              LoopBindingInterviewRound.action({:ok, parent_result("Which workflow?")}, "existing")
   end
 
-  defp parent_result(text) do
+  test "initial-context-too-large meta asks the main session to summarize instead of asking user" do
+    result =
+      parent_result("Please summarize the initial context.",
+        meta: %{
+          "session_id" => "iv-large-1",
+          "reason" => "initial_context_too_large",
+          "recoverable" => true,
+          "max_chars" => 120
+        }
+      )
+
+    assert {:summarize_initial_context, meta, "iv-large-1"} =
+             LoopBindingInterviewRound.action({:ok, result}, nil)
+
+    assert meta["reason"] == "initial_context_too_large"
+  end
+
+  defp parent_result(text, opts \\ []) do
     %{
       response: %{
         "result" => %{
+          "meta" => Keyword.get(opts, :meta, %{}),
           "content" => [%{"type" => "text", "text" => text}]
         }
       }

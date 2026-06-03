@@ -34,6 +34,7 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
 
     with :ok <- maybe_append_input_event(state.journal_path, runtime_event),
          {:ok, state} <- PluginStatus.apply_reload_event(runtime_event, state),
+         {:ok, state} <- apply_child_session_registration(runtime_event, state),
          {:ok, state} <- apply_workflow_lifecycle_event(runtime_event, state),
          {:ok, state} <- dispatch_runtime_event(runtime_event, state) do
       state =
@@ -96,7 +97,15 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
   end
 
   defp apply_workflow_lifecycle_event(%{type: type} = runtime_event, state)
-       when type in [:stream_started, :stream_event, :paused, :resumed, :cancelled, :failed, :completed] do
+       when type in [
+              :stream_started,
+              :stream_event,
+              :paused,
+              :resumed,
+              :cancelled,
+              :failed,
+              :completed
+            ] do
     case workflow_pane_id(runtime_event) do
       pane_id when is_binary(pane_id) ->
         {:ok,
@@ -110,6 +119,49 @@ defmodule Ourocode.Terminal.RuntimeEventProcessor do
   end
 
   defp apply_workflow_lifecycle_event(_runtime_event, state), do: {:ok, state}
+
+  defp apply_child_session_registration(%{type: :child_session_registered} = event, state) do
+    pane_id = Map.get(event, :pane_id)
+    child_id = Map.get(event, :child_id) || Map.get(event, :session_id)
+
+    if is_binary(pane_id) and is_binary(child_id) do
+      pane = %{
+        id: pane_id,
+        kind: :child_session,
+        child_id: child_id,
+        parent_call_id: Map.get(event, :parent_call_id),
+        runtime_source: Map.get(event, :runtime_source, "ouroboros"),
+        transport: Map.get(event, :transport, :streamable_http),
+        external_ids: Map.get(event, :external_ids, %{}),
+        status: Map.get(event, :status, "running"),
+        title: Map.get(event, :title, "Ouroboros workflow"),
+        task: Map.get(event, :task, "Ouroboros workflow"),
+        last_line: Map.get(event, :line, "background session attached"),
+        pane_state: Map.get(event, :pane_state, %{}),
+        visible?: true
+      }
+
+      pane_model =
+        state
+        |> Map.get(:pane_model, %{panes: %{}, open: []})
+        |> register_child_pane(pane_id, pane)
+
+      {:ok, %{state | pane_model: pane_model}}
+    else
+      {:ok, state}
+    end
+  end
+
+  defp apply_child_session_registration(_runtime_event, state), do: {:ok, state}
+
+  defp register_child_pane(pane_model, pane_id, pane) do
+    panes = Map.get(pane_model, :panes, %{})
+    open = Map.get(pane_model, :open, [])
+
+    pane_model
+    |> Map.put(:panes, Map.put(panes, pane_id, Map.merge(Map.get(panes, pane_id, %{}), pane)))
+    |> Map.put(:open, Enum.uniq(open ++ [pane_id]))
+  end
 
   defp workflow_pane_id(runtime_event) do
     cond do

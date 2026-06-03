@@ -1115,6 +1115,89 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert LoopBindings.pane_snapshot(agent).interview.complete == :seed_ready
   end
 
+  test "interview session loop refines long user answers before MCP handoff" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    {:ok, calls} =
+      Agent.start_link(fn ->
+        [
+          parent_result(%{
+            "result" => %{
+              "content" => [
+                %{"type" => "text", "text" => "(ambiguity: 0.80) Which payment provider?"}
+              ],
+              "meta" => %{"session_id" => "iv-refine-1"}
+            }
+          }),
+          parent_result(%{
+            "result" => %{"content" => [%{"type" => "text", "text" => "📍 Next: ooo seed"}]}
+          })
+        ]
+      end)
+
+    pcf = fn payload ->
+      send(test_pid, {:followup, payload})
+      {:ok, Agent.get_and_update(calls, fn [h | t] -> {h, t} end)}
+    end
+
+    model = scripted_model(["ASK_USER Which payment provider should we integrate?"])
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-iv-refine",
+          initial_payload: %{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}},
+          parent_call_fun: pcf,
+          model: model,
+          project_dir: File.cwd!()
+        )
+
+        send(test_pid, :loop_done)
+      end)
+
+    assert_receive {:followup, _initial}, 1_000
+
+    wait_for(fn ->
+      iv = LoopBindings.pane_snapshot(agent).interview
+      iv && iv.question =~ "payment provider"
+    end)
+
+    assert {:ok, _answer} =
+             LoopBindings.answer_interview(
+               agent,
+               "Use Stripe because subscriptions are the core business model, but leave refunds out of scope."
+             )
+
+    wait_for(fn ->
+      wt = LoopBindings.pane_snapshot(agent).wonder_tool
+
+      if wt do
+        wt.request.questions
+        |> hd()
+        |> Map.get(:question)
+        |> String.contains?("structured")
+      else
+        false
+      end
+    end)
+
+    assert {:ok, decision} = LoopBindings.answer_wonder(agent, 1)
+    assert decision.selected_label == "Send as-is"
+
+    assert_receive {:followup, followup}, 1_000
+    answer = followup["params"]["arguments"]["answer"]
+
+    assert answer =~ "[from-user][refined]"
+    assert answer =~ "Decision:"
+    assert answer =~ "Reasoning:"
+    assert answer =~ "Out of scope (user-stated):"
+    assert answer =~ "refunds out of scope"
+
+    assert_receive :loop_done, 1_000
+    assert Process.alive?(loop) == false
+  end
+
   test "interview session loop: slow router falls back to user question" do
     {:ok, agent} = LoopBindings.start_link()
     test_pid = self()
@@ -1340,6 +1423,128 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
 
     assert_receive :loop_done, 1_000
     assert LoopBindings.pane_snapshot(agent).interview.complete == :seed_ready
+  end
+
+  test "interview session loop asks the model for options when ASK_USER has none" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    pcf = fn payload ->
+      send(test_pid, {:followup, payload})
+
+      {:ok,
+       parent_result(%{
+         "result" => %{
+           "content" => [
+             %{
+               "type" => "text",
+               "text" =>
+                 "Interview started. Session ID: iv-generated-options-1\n\nWhat is the bug's observable failure from a user or system perspective, and what behavior should replace it when the fix is correct?"
+             }
+           ],
+           "meta" => %{"session_id" => "iv-generated-options-1"}
+         }
+       })}
+    end
+
+    model =
+      scripted_model([
+        "ASK_USER What failure and replacement behavior should the bug fix define?",
+        """
+        - User-visible failure | Describe the current broken behavior users or systems observe
+        - Correct replacement | Describe the behavior that should happen after the fix
+        - Evidence of fix | Name the signal that proves the fix works
+        """
+      ])
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-generated-options",
+          initial_payload: %{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}},
+          parent_call_fun: pcf,
+          model: model,
+          project_dir: File.cwd!()
+        )
+      end)
+
+    assert_receive {:followup, _initial}, 1_000
+
+    wait_for(fn ->
+      wt = LoopBindings.pane_snapshot(agent).wonder_tool
+      wt && wt.question_count == 1
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+    labels = Enum.map(snap.interview.question_options, & &1["label"])
+
+    assert labels == ["User-visible failure", "Correct replacement", "Evidence of fix"]
+    refute "Define the desired outcome" in labels
+    refute "Clarify the target user" in labels
+
+    Process.exit(loop, :kill)
+  end
+
+  test "interview session loop summarizes oversized initial context back to MCP" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    long_context =
+      "ooo interview " <> String.duplicate("very detailed scope and constraints ", 20)
+
+    {:ok, calls} =
+      Agent.start_link(fn ->
+        [
+          parent_result(%{
+            "result" => %{
+              "content" => [
+                %{"type" => "text", "text" => "Please summarize the initial context."}
+              ],
+              "meta" => %{
+                "session_id" => "iv-large-context-1",
+                "reason" => "initial_context_too_large",
+                "recoverable" => true,
+                "max_chars" => 120
+              }
+            }
+          }),
+          parent_result(%{
+            "result" => %{"content" => [%{"type" => "text", "text" => "📍 Next: ooo seed"}]}
+          })
+        ]
+      end)
+
+    pcf = fn payload ->
+      send(test_pid, {:followup, payload})
+      {:ok, Agent.get_and_update(calls, fn [h | t] -> {h, t} end)}
+    end
+
+    spawn(fn ->
+      LoopBindings.run_interview_session(agent,
+        parent_call_id: "parent-large-context",
+        initial_payload: %{
+          "params" => %{
+            "name" => "ouroboros_interview",
+            "arguments" => %{"initial_context" => long_context}
+          }
+        },
+        parent_call_fun: pcf,
+        model: hanging_model(),
+        project_dir: File.cwd!()
+      )
+
+      send(test_pid, :loop_done)
+    end)
+
+    assert_receive {:followup, _initial}, 1_000
+    assert_receive {:followup, followup}, 1_000
+
+    args = followup["params"]["arguments"]
+    assert args["session_id"] == "iv-large-context-1"
+    assert args["answer"] =~ "[from-user] ooo interview"
+    assert String.length(String.replace_prefix(args["answer"], "[from-user] ", "")) <= 120
+
+    assert_receive :loop_done, 1_000
   end
 
   test "answer_wonder: a multi-question checkpoint captures every question in order" do

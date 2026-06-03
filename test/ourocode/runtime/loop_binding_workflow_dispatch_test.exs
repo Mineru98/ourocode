@@ -26,6 +26,20 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatchTest do
            })
   end
 
+  test "direct_task? detects non-MCP control routes" do
+    assert LoopBindingWorkflowDispatch.direct_task?(%{
+             routing_decision: %{adapter_route: :cancel}
+           })
+
+    assert LoopBindingWorkflowDispatch.direct_task?(%{
+             routing_decision: %{adapter_route: :resume_session}
+           })
+
+    refute LoopBindingWorkflowDispatch.direct_task?(%{
+             routing_decision: %{adapter_route: :run}
+           })
+  end
+
   test "parent_call_id is stable for string and integer ids" do
     assert LoopBindingWorkflowDispatch.parent_call_id(%{id: "abc"}) == "parent-abc"
     assert LoopBindingWorkflowDispatch.parent_call_id(%{id: 42}) == "parent-42"
@@ -50,14 +64,29 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatchTest do
       Agent.start_link(fn ->
         %{
           interview: %{session_id: "session-1", ambiguity: 0.12},
-          workflow: %{latest_seed_path: "/tmp/seed.md", latest_seed_id: "seed-1"}
+          workflow: %{
+            latest_seed_path: "/tmp/seed.md",
+            latest_seed_content: "seed_id: seed-1\n",
+            latest_seed_id: "seed-1",
+            latest_job_id: "job-1",
+            latest_auto_session_id: "auto-1",
+            latest_workflow_session_id: "workflow-session-1",
+            latest_execution_id: "exec-1",
+            latest_lineage_id: "lin-1"
+          }
         }
       end)
 
     assert LoopBindingWorkflowDispatch.workflow_context(agent) == %{
              latest_interview_session_id: "session-1",
              latest_interview_ambiguity: 0.12,
-             latest_seed_path: "/tmp/seed.md"
+             latest_seed_path: "/tmp/seed.md",
+             latest_seed_content: "seed_id: seed-1\n",
+             latest_job_id: "job-1",
+             latest_auto_session_id: "auto-1",
+             latest_workflow_session_id: "workflow-session-1",
+             latest_execution_id: "exec-1",
+             latest_lineage_id: "lin-1"
            }
 
     Agent.stop(agent)

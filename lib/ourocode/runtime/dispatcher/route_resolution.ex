@@ -6,7 +6,28 @@ defmodule Ourocode.Runtime.Dispatcher.RouteResolution do
   @supported_routes [:runtime, :ouroboros_workflow, :mcp_flow]
   @supported_runtime_sources [:auto, :codex, :opencode, :claude_code, :ouroboros, :mcp]
   @supported_transports [:auto, :stdio, :streamable_http, :sse]
-  @supported_adapter_routes [:interview, :seed, :run, :evolve, :ralph, :workflow]
+  @supported_adapter_routes [
+    :auto,
+    :interview,
+    :seed,
+    :run,
+    :evolve,
+    :ralph,
+    :status,
+    :evaluate,
+    :qa,
+    :lateral,
+    :brownfield,
+    :cancel,
+    :resume_session,
+    :update,
+    :setup,
+    :publish,
+    :welcome,
+    :tutorial,
+    :help,
+    :workflow
+  ]
 
   @spec validate_decision(map()) :: :ok | {:error, term()}
   def validate_decision(decision) do

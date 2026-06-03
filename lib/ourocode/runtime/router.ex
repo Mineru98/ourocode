@@ -108,10 +108,24 @@ defmodule Ourocode.Runtime.Router do
   end
 
   defp adapter_route_label(:interview), do: "interview"
+  defp adapter_route_label(:auto), do: "auto"
   defp adapter_route_label(:seed), do: "seed"
   defp adapter_route_label(:run), do: "run"
   defp adapter_route_label(:evolve), do: "evolve"
   defp adapter_route_label(:ralph), do: "Ralph"
+  defp adapter_route_label(:status), do: "status"
+  defp adapter_route_label(:evaluate), do: "evaluate"
+  defp adapter_route_label(:qa), do: "QA"
+  defp adapter_route_label(:lateral), do: "lateral"
+  defp adapter_route_label(:brownfield), do: "brownfield"
+  defp adapter_route_label(:cancel), do: "cancel"
+  defp adapter_route_label(:resume_session), do: "resume-session"
+  defp adapter_route_label(:update), do: "update"
+  defp adapter_route_label(:setup), do: "setup"
+  defp adapter_route_label(:publish), do: "publish"
+  defp adapter_route_label(:welcome), do: "welcome"
+  defp adapter_route_label(:tutorial), do: "tutorial"
+  defp adapter_route_label(:help), do: "help"
   defp adapter_route_label(:workflow), do: "workflow"
   defp adapter_route_label(adapter_route), do: Atom.to_string(adapter_route)
 

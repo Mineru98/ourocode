@@ -1,6 +1,7 @@
 defmodule Ourocode.Terminal.RuntimeEventProcessorTest do
   use ExUnit.Case, async: true
 
+  alias Ourocode.Runtime.FocusState
   alias Ourocode.Terminal.RuntimeEventProcessor
   alias Ourocode.Terminal.{WorkspaceModel, WorkspaceText}
 
@@ -90,6 +91,53 @@ defmodule Ourocode.Terminal.RuntimeEventProcessorTest do
     assert text =~ "Paused by user"
     refute text =~ "focused in workspace"
     refute text =~ "updates received"
+  end
+
+  test "submit registers background Ouroboros jobs as concrete child panes" do
+    state = base_state(%{})
+
+    assert {:ok, state} =
+             RuntimeEventProcessor.submit(
+               %{
+                 type: :child_session_registered,
+                 pane_id: "child-session:job-auto-1",
+                 child_id: "job-auto-1",
+                 parent_call_id: "parent-auto-1",
+                 runtime_source: "ouroboros",
+                 transport: :streamable_http,
+                 external_ids: %{"job_id" => "job-auto-1"},
+                 title: "Ouroboros job job-auto-1",
+                 line: "Auto started"
+               },
+               state
+             )
+
+    assert get_in(state.pane_model, [:panes, "child-session:job-auto-1", :kind]) ==
+             :child_session
+
+    assert state.pane_model.open == ["child-session:job-auto-1"]
+
+    text =
+      "/agents"
+      |> WorkspaceModel.build(%{startup_result: %{}, pane_model: state.pane_model}, %{})
+      |> WorkspaceText.render()
+
+    assert text =~ "job-auto-1"
+    assert text =~ "Auto started"
+
+    assert {:ok, focus_state, _event} =
+             FocusState.focus_pane(
+               FocusState.new(),
+               "child-session:job-auto-1",
+               state.pane_model
+             )
+
+    assert {:ok,
+            %{
+              pane_id: "child-session:job-auto-1",
+              session_id: "job-auto-1",
+              child_id: "job-auto-1"
+            }} = FocusState.focused_child_session(focus_state, state.pane_model)
   end
 
   test "submit applies plugin reload status and renders the plugin status area" do

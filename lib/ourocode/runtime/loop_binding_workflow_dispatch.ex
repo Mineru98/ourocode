@@ -11,11 +11,15 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     InterviewProgress,
     InterviewWorkflowInvocation,
     McpDaemonBinding,
+    OuroborosDirectInvocation,
     OuroborosWorkflowInvocation,
     WorkflowRelay
   }
 
   @ouroboros_adapters %{
+    {:ouroboros_workflow, :auto} => OuroborosWorkflowInvocation,
+    {:ouroboros, :auto} => OuroborosWorkflowInvocation,
+    :ouroboros_auto => OuroborosWorkflowInvocation,
     {:ouroboros_workflow, :interview} => InterviewWorkflowInvocation,
     {:ouroboros, :interview} => InterviewWorkflowInvocation,
     :ouroboros_interview => InterviewWorkflowInvocation,
@@ -24,7 +28,52 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     :ouroboros_seed => OuroborosWorkflowInvocation,
     {:ouroboros_workflow, :run} => OuroborosWorkflowInvocation,
     {:ouroboros, :run} => OuroborosWorkflowInvocation,
-    :ouroboros_run => OuroborosWorkflowInvocation
+    :ouroboros_run => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :evolve} => OuroborosWorkflowInvocation,
+    {:ouroboros, :evolve} => OuroborosWorkflowInvocation,
+    :ouroboros_evolve => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :ralph} => OuroborosWorkflowInvocation,
+    {:ouroboros, :ralph} => OuroborosWorkflowInvocation,
+    :ouroboros_ralph => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :status} => OuroborosWorkflowInvocation,
+    {:ouroboros, :status} => OuroborosWorkflowInvocation,
+    :ouroboros_status => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :evaluate} => OuroborosWorkflowInvocation,
+    {:ouroboros, :evaluate} => OuroborosWorkflowInvocation,
+    :ouroboros_evaluate => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :qa} => OuroborosWorkflowInvocation,
+    {:ouroboros, :qa} => OuroborosWorkflowInvocation,
+    :ouroboros_qa => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :lateral} => OuroborosWorkflowInvocation,
+    {:ouroboros, :lateral} => OuroborosWorkflowInvocation,
+    :ouroboros_lateral => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :brownfield} => OuroborosWorkflowInvocation,
+    {:ouroboros, :brownfield} => OuroborosWorkflowInvocation,
+    :ouroboros_brownfield => OuroborosWorkflowInvocation,
+    {:ouroboros_workflow, :cancel} => OuroborosDirectInvocation,
+    {:ouroboros, :cancel} => OuroborosDirectInvocation,
+    :ouroboros_cancel => OuroborosDirectInvocation,
+    {:ouroboros_workflow, :resume_session} => OuroborosDirectInvocation,
+    {:ouroboros, :resume_session} => OuroborosDirectInvocation,
+    :ouroboros_resume_session => OuroborosDirectInvocation,
+    {:ouroboros_workflow, :update} => OuroborosDirectInvocation,
+    {:ouroboros, :update} => OuroborosDirectInvocation,
+    :ouroboros_update => OuroborosDirectInvocation,
+    {:ouroboros_workflow, :setup} => OuroborosDirectInvocation,
+    {:ouroboros, :setup} => OuroborosDirectInvocation,
+    :ouroboros_setup => OuroborosDirectInvocation,
+    {:ouroboros_workflow, :publish} => OuroborosDirectInvocation,
+    {:ouroboros, :publish} => OuroborosDirectInvocation,
+    :ouroboros_publish => OuroborosDirectInvocation,
+    {:ouroboros_workflow, :welcome} => OuroborosDirectInvocation,
+    {:ouroboros, :welcome} => OuroborosDirectInvocation,
+    :ouroboros_welcome => OuroborosDirectInvocation,
+    {:ouroboros_workflow, :tutorial} => OuroborosDirectInvocation,
+    {:ouroboros, :tutorial} => OuroborosDirectInvocation,
+    :ouroboros_tutorial => OuroborosDirectInvocation,
+    {:ouroboros_workflow, :help} => OuroborosDirectInvocation,
+    {:ouroboros, :help} => OuroborosDirectInvocation,
+    :ouroboros_help => OuroborosDirectInvocation
   }
 
   @type callbacks :: %{
@@ -33,6 +82,10 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
           required(:production_parent_call) => (pid(), map(), String.t() -> function()),
           required(:mcp_url) => (-> String.t())
         }
+
+  @doc false
+  @spec adapter_registry() :: map()
+  def adapter_registry, do: @ouroboros_adapters
 
   @spec handle_prompt(pid(), map(), map(), map(), callbacks()) :: :ok
   def handle_prompt(agent, runtime, task_request, input_event, callbacks)
@@ -59,6 +112,22 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
   def interview_task?(%{routing_decision: %{adapter_route: :interview}}), do: true
   def interview_task?(_task_request), do: false
 
+  @spec direct_task?(map()) :: boolean()
+  def direct_task?(%{routing_decision: %{adapter_route: adapter_route}}) do
+    adapter_route in [
+      :cancel,
+      :resume_session,
+      :update,
+      :setup,
+      :publish,
+      :welcome,
+      :tutorial,
+      :help
+    ]
+  end
+
+  def direct_task?(_task_request), do: false
+
   @spec parent_call_id(map()) :: String.t()
   def parent_call_id(task_request), do: "parent-" <> to_string(task_request.id)
 
@@ -71,7 +140,17 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
       %{
         latest_interview_session_id: Map.get(interview, :session_id),
         latest_interview_ambiguity: Map.get(interview, :ambiguity),
-        latest_seed_path: Map.get(workflow, :latest_seed_path)
+        latest_seed_path: Map.get(workflow, :latest_seed_path),
+        latest_seed_content: Map.get(workflow, :latest_seed_content),
+        latest_job_id: Map.get(workflow, :latest_job_id),
+        latest_auto_session_id: Map.get(workflow, :latest_auto_session_id),
+        latest_workflow_session_id: Map.get(workflow, :latest_workflow_session_id),
+        latest_execution_id: Map.get(workflow, :latest_execution_id),
+        latest_lineage_id: Map.get(workflow, :latest_lineage_id),
+        latest_evaluation_artifact: Map.get(workflow, :latest_evaluation_artifact),
+        latest_problem_context: Map.get(workflow, :latest_problem_context),
+        latest_current_approach: Map.get(workflow, :latest_current_approach),
+        latest_failed_attempts: Map.get(workflow, :latest_failed_attempts)
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
@@ -91,19 +170,28 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
 
   defp dispatch_workflow(agent, runtime, task_request, input_event, parent_call_id, callbacks) do
     model = input_event_model(input_event) || Catalog.default()
-    {:ok, mcp_url} = McpDaemonBinding.ensure(agent, model)
-    invoker = transport_invoker(agent, runtime, parent_call_id, model, callbacks)
+
+    context =
+      if direct_task?(task_request) do
+        %{cwd: project_dir(runtime)}
+      else
+        {:ok, mcp_url} = McpDaemonBinding.ensure(agent, model)
+
+        %{
+          streamable_http_url: mcp_url,
+          mcp_invoker: transport_invoker(agent, runtime, parent_call_id, model, callbacks)
+        }
+      end
 
     Dispatcher.dispatch(task_request,
-      adapters: @ouroboros_adapters,
+      adapters: adapter_registry(),
       context:
-        %{
+        context
+        |> Map.merge(%{
           request_id: "req-" <> to_string(task_request.id),
           parent_call_id: parent_call_id,
-          streamable_http_url: mcp_url,
-          cwd: File.cwd!(),
-          mcp_invoker: invoker
-        }
+          cwd: project_dir(runtime)
+        })
         |> Map.merge(workflow_context(agent))
     )
     |> case do

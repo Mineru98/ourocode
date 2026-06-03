@@ -6,6 +6,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   alias Ourocode.Runtime.{
     InterviewEvents,
     InterviewProgress,
+    InterviewAnswerRefiner,
+    InterviewOptionGenerator,
     LoopBindingQuestionRouter,
     InterviewResponse,
     InterviewState,
@@ -88,6 +90,19 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
         enqueue_server_error(agent, st.parent_call_id, message, session_id, st.callbacks)
         :ok
 
+      {:summarize_initial_context, meta, session_id} ->
+        answer =
+          st.payload
+          |> LoopBindingInterviewText.initial_context_from_payload()
+          |> LoopBindingInterviewText.summarize_initial_context(max_context_chars(meta))
+
+        SessionIO.push_router_trace(
+          agent,
+          "main session summarized oversized initial context for MCP"
+        )
+
+        followup(agent, %{st | session_id: session_id}, "[from-user] " <> answer, st.streak)
+
       {:complete, text, meta, session_id} ->
         SessionIO.merge_interview(
           agent,
@@ -147,7 +162,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
 
   defp optimistic_interview_round(agent, st) do
     prompt = optimistic_prompt(st.payload)
-    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, [])
+    options = suggested_options(agent, st, prompt, [])
+    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, options)
 
     SessionIO.push_dialogue(agent, :main, "→ asking you: " <> prompt)
     SessionIO.enqueue(agent, event, st.callbacks)
@@ -224,7 +240,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     case await_task_result(task) do
       {:ok, result} ->
         unless cancelled?(agent, st.parent_call_id) do
-          relay_optimistic_answer(agent, st, result, user_text)
+          relay_optimistic_answer(agent, st, result, refine_user_answer(agent, st, user_text))
         end
 
       {:error, reason} ->
@@ -268,21 +284,30 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   defp relay_live_optimistic_answer(agent, st, result, user_text) do
     case LoopBindingInterviewRound.action(result, st.session_id) do
       {:question, _question, _text, _meta, session_id} ->
-        SessionIO.push_dialogue(agent, :user, user_text)
+        refined_text = refine_user_answer(agent, st, user_text)
+        SessionIO.push_dialogue(agent, :user, refined_text)
         InterviewProgress.mark_answer_sync(agent, "answer sent - generating next question")
 
         followup(
           agent,
           %{st | session_id: session_id, user_routed?: true},
-          LoopBindingInterviewText.ensure_user_prefix(user_text),
+          LoopBindingInterviewText.ensure_user_prefix(refined_text),
           0
         )
 
       {:complete, text, meta, session_id} ->
         SessionIO.merge_interview(agent, st.parent_call_id, text, meta, session_id)
-        SessionIO.push_dialogue(agent, :user, user_text)
+        SessionIO.push_dialogue(agent, :user, refine_user_answer(agent, st, user_text))
         SessionIO.enqueue_complete(agent, st.parent_call_id, :seed_ready, st.callbacks)
         :ok
+
+      {:summarize_initial_context, meta, session_id} ->
+        answer =
+          st.payload
+          |> LoopBindingInterviewText.initial_context_from_payload()
+          |> LoopBindingInterviewText.summarize_initial_context(max_context_chars(meta))
+
+        followup(agent, %{st | session_id: session_id}, "[from-user] " <> answer, st.streak)
 
       {:server_error, message, session_id} ->
         enqueue_server_error(agent, st.parent_call_id, message, session_id, st.callbacks)
@@ -439,6 +464,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   end
 
   defp ask_live_user(agent, st, prompt, options) do
+    options = suggested_options(agent, st, prompt, options)
+
     SessionIO.push_dialogue(
       agent,
       :main,
@@ -459,12 +486,13 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
         if cancelled?(agent, st.parent_call_id) do
           :ok
         else
-          SessionIO.push_dialogue(agent, :user, user_text)
+          refined_text = refine_user_answer(agent, st, user_text)
+          SessionIO.push_dialogue(agent, :user, refined_text)
 
           followup(
             agent,
             %{st | user_routed?: true},
-            LoopBindingInterviewText.ensure_user_prefix(user_text),
+            LoopBindingInterviewText.ensure_user_prefix(refined_text),
             0
           )
         end
@@ -477,6 +505,103 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     |> case do
       [%{"options" => options} | _rest] when is_list(options) -> options
       _other -> []
+    end
+  end
+
+  defp suggested_options(_agent, _st, _prompt, [_first | _rest] = options), do: options
+
+  defp suggested_options(agent, st, prompt, _options) do
+    timeout_ms = max(div(st.router_decision_timeout_ms, 2), 500)
+
+    case InterviewOptionGenerator.generate(prompt, st.model,
+           timeout_ms: timeout_ms,
+           on_chunk: fn chunk -> SessionIO.push_reasoning(agent, chunk) end
+         ) do
+      {:ok, [_first | _rest] = generated} ->
+        SessionIO.push_router_trace(agent, "option generator: LLM suggested #{length(generated)}")
+        generated
+
+      {:error, reason} ->
+        SessionIO.push_router_trace(agent, "option generator unavailable: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp refine_user_answer(agent, st, user_text) do
+    if InterviewAnswerRefiner.needs_refine?(user_text) do
+      refine_live_user_answer(agent, st, user_text)
+    else
+      user_text
+    end
+  end
+
+  defp refine_live_user_answer(agent, st, user_text) do
+    original_question = get_interview_question(agent)
+
+    payload =
+      InterviewAnswerRefiner.payload(user_text,
+        question: original_question || InterviewResponse.clean_markdown(user_text)
+      )
+
+    prompt = InterviewAnswerRefiner.refine_question(payload)
+
+    event =
+      InterviewWonderPrompt.event(
+        st.parent_call_id,
+        st.round,
+        prompt,
+        InterviewAnswerRefiner.refine_options()
+      )
+
+    SessionIO.push_router_trace(agent, "refine gate: preserving user answer structure")
+    SessionIO.enqueue(agent, event, st.callbacks)
+
+    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, event_options(event)) do
+      {:done, _text} ->
+        payload
+
+      {:answer, choice} ->
+        case InterviewAnswerRefiner.apply_refine_choice(payload, choice, user_text) do
+          {:send, refined_payload} ->
+            refined_payload
+
+          {:collect_more, followup_prompt} ->
+            collect_refine_followup(agent, st, followup_prompt, user_text)
+        end
+    end
+  end
+
+  defp collect_refine_followup(agent, st, prompt, original_answer) do
+    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, [])
+    SessionIO.enqueue(agent, event, st.callbacks)
+
+    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, event_options(event)) do
+      {:done, _text} -> InterviewAnswerRefiner.payload(original_answer)
+      {:answer, text} -> InterviewAnswerRefiner.payload(original_answer <> "\n" <> text)
+    end
+  end
+
+  defp get_interview_question(agent) do
+    Agent.get(agent, fn state ->
+      state
+      |> Map.get(:interview, %{})
+      |> Map.get(:question)
+    end)
+  end
+
+  defp max_context_chars(meta) do
+    case InterviewResponse.meta_value(meta, "max_chars") do
+      value when is_integer(value) and value > 0 ->
+        value
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, _rest} when parsed > 0 -> parsed
+          _other -> 1_200
+        end
+
+      _other ->
+        1_200
     end
   end
 

@@ -47,14 +47,60 @@ defmodule Ourocode.Runtime.RouteTerms do
 
   @spec ouroboros_workflow?([String.t()]) :: boolean()
   def ouroboros_workflow?(tokens) when is_list(tokens) do
-    Enum.any?(tokens, &(&1 in ["interview", "seed", "evolve", "ralph", "workflow"])) or
+    Enum.any?(
+      tokens,
+      &(&1 in [
+          "auto",
+          "interview",
+          "pm",
+          "seed",
+          "evolve",
+          "ralph",
+          "qa",
+          "lateral",
+          "unstuck",
+          "brownfield",
+          "cancel",
+          "resume-session",
+          "update",
+          "setup",
+          "publish",
+          "welcome",
+          "tutorial",
+          "evaluate",
+          "workflow"
+        ])
+    ) or status_terms?(tokens) or quality_terms?(tokens) or lateral_terms?(tokens) or
+      direct_terms?(tokens) or
       Enum.any?(tokens, &String.starts_with?(&1, "ouroboros:"))
   end
 
   @spec ouroboros_adapter_route([String.t()]) ::
-          :interview | :seed | :evolve | :ralph | :run | :workflow
+          :auto
+          | :interview
+          | :seed
+          | :evolve
+          | :ralph
+          | :run
+          | :status
+          | :evaluate
+          | :qa
+          | :lateral
+          | :brownfield
+          | :cancel
+          | :resume_session
+          | :update
+          | :setup
+          | :publish
+          | :welcome
+          | :tutorial
+          | :help
+          | :workflow
   def ouroboros_adapter_route(tokens) when is_list(tokens) do
     cond do
+      Enum.any?(tokens, &(&1 in ["auto", "ouroboros:auto"])) ->
+        :auto
+
       Enum.any?(tokens, &(&1 in ["interview", "pm", "ouroboros:interview", "ouroboros:pm"])) ->
         :interview
 
@@ -67,8 +113,26 @@ defmodule Ourocode.Runtime.RouteTerms do
       Enum.any?(tokens, &(&1 in ["ralph", "ouroboros:ralph"])) ->
         :ralph
 
+      lateral_terms?(tokens) ->
+        :lateral
+
+      quality_terms?(tokens) ->
+        :qa
+
+      Enum.any?(tokens, &(&1 in ["brownfield", "ouroboros:brownfield"])) ->
+        :brownfield
+
+      direct_route = direct_adapter_route(tokens) ->
+        direct_route
+
       explicit_ouroboros_run?(tokens) ->
         :run
+
+      status_terms?(tokens) ->
+        :status
+
+      Enum.any?(tokens, &(&1 in ["evaluate", "eval", "ouroboros:evaluate"])) ->
+        :evaluate
 
       Enum.any?(tokens, &(&1 in ["workflow", "ouroboros:workflow"])) ->
         :workflow
@@ -104,4 +168,99 @@ defmodule Ourocode.Runtime.RouteTerms do
 
   defp explicit_ouroboros_run?(tokens),
     do: Enum.any?(tokens, &(&1 in ["ouroboros:run", "ouroboros:execute"]))
+
+  defp status_terms?(["ooo", "status" | _tokens]), do: true
+  defp status_terms?(["ouroboros", "status" | _tokens]), do: true
+
+  defp status_terms?(tokens) do
+    Enum.any?(tokens, &(&1 in ["ouroboros:status", "drift", "drifting"])) or
+      Enum.chunk_every(tokens, 2, 1, :discard)
+      |> Enum.any?(fn
+        ["session", "status"] -> true
+        ["status", "session"] -> true
+        _other -> false
+      end)
+  end
+
+  defp quality_terms?(["ooo", action | _tokens]) when action in ["qa", "quality"], do: true
+  defp quality_terms?(["ouroboros", action | _tokens]) when action in ["qa", "quality"], do: true
+
+  defp quality_terms?(tokens) do
+    Enum.any?(tokens, &(&1 in ["ouroboros:qa"])) or
+      Enum.chunk_every(tokens, 2, 1, :discard)
+      |> Enum.any?(fn
+        ["qa", "check"] -> true
+        ["quality", "check"] -> true
+        _other -> false
+      end)
+  end
+
+  defp lateral_terms?(["ooo", action | _tokens]) when action in ["lateral", "unstuck"],
+    do: true
+
+  defp lateral_terms?(["ouroboros", action | _tokens]) when action in ["lateral", "unstuck"],
+    do: true
+
+  defp lateral_terms?(tokens) do
+    Enum.any?(tokens, &(&1 in ["ouroboros:unstuck", "ouroboros:lateral"])) or
+      Enum.chunk_every(tokens, 2, 1, :discard)
+      |> Enum.any?(fn
+        ["think", "sideways"] -> true
+        ["i", "stuck"] -> true
+        ["im", "stuck"] -> true
+        _other -> false
+      end)
+  end
+
+  defp direct_terms?(tokens), do: not is_nil(direct_adapter_route(tokens))
+
+  defp direct_adapter_route(["ooo", action | _tokens]), do: explicit_direct_action(action)
+  defp direct_adapter_route(["ouroboros", action | _tokens]), do: explicit_direct_action(action)
+
+  defp direct_adapter_route(tokens) do
+    cond do
+      Enum.any?(tokens, &(&1 in ["ouroboros:cancel"])) -> :cancel
+      Enum.any?(tokens, &(&1 in ["ouroboros:resume-session"])) -> :resume_session
+      Enum.any?(tokens, &(&1 in ["ouroboros:update"])) -> :update
+      Enum.any?(tokens, &(&1 in ["ouroboros:setup"])) -> :setup
+      Enum.any?(tokens, &(&1 in ["ouroboros:publish"])) -> :publish
+      Enum.any?(tokens, &(&1 in ["ouroboros:welcome"])) -> :welcome
+      Enum.any?(tokens, &(&1 in ["ouroboros:tutorial"])) -> :tutorial
+      Enum.any?(tokens, &(&1 in ["ouroboros:help"])) -> :help
+      Enum.chunk_every(tokens, 2, 1, :discard) |> Enum.any?(&cancel_phrase?/1) -> :cancel
+      Enum.chunk_every(tokens, 2, 1, :discard) |> Enum.any?(&resume_phrase?/1) -> :resume_session
+      Enum.chunk_every(tokens, 2, 1, :discard) |> Enum.any?(&update_phrase?/1) -> :update
+      Enum.chunk_every(tokens, 2, 1, :discard) |> Enum.any?(&publish_phrase?/1) -> :publish
+      true -> nil
+    end
+  end
+
+  defp explicit_direct_action("cancel"), do: :cancel
+  defp explicit_direct_action("resume-session"), do: :resume_session
+  defp explicit_direct_action("update"), do: :update
+  defp explicit_direct_action("setup"), do: :setup
+  defp explicit_direct_action("publish"), do: :publish
+  defp explicit_direct_action("welcome"), do: :welcome
+  defp explicit_direct_action("tutorial"), do: :tutorial
+  defp explicit_direct_action("help"), do: :help
+  defp explicit_direct_action(_action), do: nil
+
+  defp cancel_phrase?(["cancel", "execution"]), do: true
+  defp cancel_phrase?(["abort", "execution"]), do: true
+  defp cancel_phrase?(["stop", "running"]), do: true
+  defp cancel_phrase?(_tokens), do: false
+
+  defp resume_phrase?(["in-flight", "sessions"]), do: true
+  defp resume_phrase?(["lost", "ouroboros"]), do: true
+  defp resume_phrase?(["mcp", "disconnected"]), do: true
+  defp resume_phrase?(_tokens), do: false
+
+  defp update_phrase?(["update", "ouroboros"]), do: true
+  defp update_phrase?(["upgrade", "ouroboros"]), do: true
+  defp update_phrase?(_tokens), do: false
+
+  defp publish_phrase?(["publish", "github"]), do: true
+  defp publish_phrase?(["publish", "to"]), do: true
+  defp publish_phrase?(["seed", "issues"]), do: true
+  defp publish_phrase?(_tokens), do: false
 end
