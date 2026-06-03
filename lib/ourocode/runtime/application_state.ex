@@ -17,6 +17,7 @@ defmodule Ourocode.Runtime.ApplicationState do
     :pane_model,
     :focus_state,
     :plugin_registry,
+    :user_level_plugin_registry,
     :plugin_config_watcher,
     :command_registry,
     :queued_notifications,

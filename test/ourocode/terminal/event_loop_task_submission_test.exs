@@ -5,6 +5,7 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmissionTest do
   alias Ourocode.Terminal.EventLoopTaskSubmission
   alias Ourocode.Terminal.WorkspaceModel
   alias Ourocode.Terminal.WorkspaceText
+  alias Ourocode.Plugin.UserLevel.Capability
   alias Ourocode.Journal
 
   test "accepts journals dispatches and records a natural-language task" do
@@ -177,6 +178,44 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmissionTest do
     refute output_text =~ "task: queued #{task_id}"
   end
 
+  test "UserLevel plugin submission is routed and shown as a plugin workflow lane" do
+    {:ok, output} = StringIO.open("")
+    journal_path = journal_path("task-submission-user-level-plugin")
+
+    state =
+      EventLoopState.build(
+        %{status: :healthy, user_level_capabilities: [superpowers_capability()]},
+        %{
+          journal_path: journal_path,
+          output: output,
+          on_prompt_input: fn _task_request, _input_event, _startup_result -> :ok end
+        },
+        "ourocode> "
+      )
+
+    assert {:ok, state} = EventLoopTaskSubmission.submit("ooo superpowers list", state)
+    assert [%{id: task_id, routing_decision: routing}] = state.submitted_tasks
+    assert routing.execution_route == :user_level_plugin
+    assert routing.plugin_id == "superpowers"
+
+    pane_id = "workflow:" <> task_id
+
+    assert %{
+             title: "UserLevel plugin",
+             status: "preflighting plugin",
+             task: "ooo superpowers list",
+             last_line: "resolving plugin capability and trust",
+             progress: "plugin preflight -> guarded run -> artifacts"
+           } = state.pane_model.panes[pane_id]
+
+    assert [%{routing_decision: %{execution_route: :user_level_plugin}}] = state.input_events
+
+    {_input, output_text} = StringIO.contents(output)
+    assert output_text =~ "UserLevel plugin: starting - ooo superpowers list"
+    assert output_text =~ "plugin: running through Ouroboros UserLevel dispatch"
+    refute output_text =~ "task: queued #{task_id}"
+  end
+
   test "ooo workflow submission appears as an active agents lane" do
     {:ok, output} = StringIO.open("")
     journal_path = journal_path("task-submission-agents-lane")
@@ -281,5 +320,17 @@ defmodule Ourocode.Terminal.EventLoopTaskSubmissionTest do
 
     File.rm(path)
     path
+  end
+
+  defp superpowers_capability do
+    {:ok, capability} =
+      Capability.new(%{
+        plugin_id: "superpowers",
+        source: :fixture,
+        trust_scope: ["filesystem:read"],
+        commands: [%{name: "list", risk_class: "read_only"}]
+      })
+
+    capability
   end
 end

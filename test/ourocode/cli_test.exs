@@ -74,9 +74,19 @@ defmodule Ourocode.CLITest do
 
   import ExUnit.CaptureIO
 
-  test "startup resolves the fixed implementation project directory" do
-    assert Ourocode.CLI.resolve_project_dir() ==
-             {:ok, "/Users/jaegyu.lee/Project/ourocode"}
+  test "startup resolves the current working directory by default" do
+    assert Ourocode.CLI.resolve_project_dir() == {:ok, File.cwd!()}
+  end
+
+  test "startup honors the OUROCODE_PROJECT_DIR override" do
+    System.put_env("OUROCODE_PROJECT_DIR", File.cwd!())
+
+    try do
+      assert Ourocode.CLI.resolve_project_dir(StartupArgs.default_project_dir()) ==
+               {:ok, File.cwd!()}
+    after
+      System.delete_env("OUROCODE_PROJECT_DIR")
+    end
   end
 
   test "startup argument parser separates launch args, config overrides, and task text" do
@@ -269,7 +279,7 @@ defmodule Ourocode.CLITest do
              Ourocode.CLI.main([], Ourocode.CLITest.DashboardSpy)
 
     assert_receive {:dashboard_init, ^context}
-    assert context.project_dir == "/Users/jaegyu.lee/Project/ourocode"
+    assert context.project_dir == File.cwd!()
     assert is_binary(context.cwd)
     assert context.initial_task_request == nil
     assert context.plugin_config.plugins |> Enum.map(& &1.id) == ["ouroboros-plugin"]
@@ -466,7 +476,7 @@ defmodule Ourocode.CLITest do
              orderly?: true,
              supervisor_alive_before?: true,
              supervisor_stopped?: true,
-             service_count: 13,
+             service_count: 14,
              services_stopped?: true,
              released_service_ids: [
                :child_supervisor,
@@ -481,6 +491,7 @@ defmodule Ourocode.CLITest do
                :runtime_registry,
                :session_supervisor,
                :transport_supervisor,
+               :user_level_plugin_registry,
                :wonder_tool
              ],
              leaked_service_ids: [],

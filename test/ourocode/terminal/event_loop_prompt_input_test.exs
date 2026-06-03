@@ -2,6 +2,7 @@ defmodule Ourocode.Terminal.EventLoopPromptInputTest do
   use ExUnit.Case, async: true
 
   alias Ourocode.Runtime.FocusState
+  alias Ourocode.Plugin.UserLevel.Capability
   alias Ourocode.Terminal.EventLoopPromptInput
 
   test "normalize_line builds a natural-language prompt event with steering metadata" do
@@ -89,6 +90,19 @@ defmodule Ourocode.Terminal.EventLoopPromptInputTest do
     assert input_event.payload.task_input == prompt
   end
 
+  test "normalize_line refines ooo plugin prompts with UserLevel capabilities" do
+    assert {:ok, {task_request, input_event}} =
+             EventLoopPromptInput.normalize_line("ooo superpowers list",
+               id: "prompt-user-level-plugin",
+               submitted_at_ms: 999,
+               user_level_capabilities: [superpowers_capability()]
+             )
+
+    assert task_request.routing_decision.execution_route == :user_level_plugin
+    assert task_request.routing_decision.plugin_id == "superpowers"
+    assert input_event.routing_decision == task_request.routing_decision
+  end
+
   test "dispatch_event validates the event and invokes the prompt processor" do
     assert {:ok, {_task_request, input_event}} =
              EventLoopPromptInput.normalize_line("Add focused tests",
@@ -112,6 +126,27 @@ defmodule Ourocode.Terminal.EventLoopPromptInputTest do
     assert_receive {:processed, "prompt-dispatch-1", "prompt-dispatch-1", %{status: :healthy}}
   end
 
+  test "dispatch_event restores the journaled UserLevel routing decision" do
+    assert {:ok, {_task_request, input_event}} =
+             EventLoopPromptInput.normalize_line("ooo superpowers list",
+               id: "prompt-dispatch-user-level",
+               submitted_at_ms: 1_001,
+               user_level_capabilities: [superpowers_capability()]
+             )
+
+    parent = self()
+
+    assert {:ok, dispatched} =
+             EventLoopPromptInput.dispatch_event(input_event, %{status: :healthy},
+               on_prompt_input: fn task_request, _event, _startup_result ->
+                 send(parent, {:routed, task_request.routing_decision})
+               end
+             )
+
+    assert dispatched.routing_decision.execution_route == :user_level_plugin
+    assert_receive {:routed, %{execution_route: :user_level_plugin, plugin_id: "superpowers"}}
+  end
+
   test "dispatch_event rejects unsupported or malformed input events" do
     assert EventLoopPromptInput.dispatch_event(
              %{type: :slash_command_submitted, input_kind: :slash_command},
@@ -120,5 +155,17 @@ defmodule Ourocode.Terminal.EventLoopPromptInputTest do
 
     assert EventLoopPromptInput.dispatch_event(%{input_kind: :natural_language}, %{}) ==
              {:error, :invalid_prompt_input_event}
+  end
+
+  defp superpowers_capability do
+    {:ok, capability} =
+      Capability.new(%{
+        plugin_id: "superpowers",
+        source: :fixture,
+        trust_scope: ["filesystem:read"],
+        commands: [%{name: "list", risk_class: "read_only"}]
+      })
+
+    capability
   end
 end
