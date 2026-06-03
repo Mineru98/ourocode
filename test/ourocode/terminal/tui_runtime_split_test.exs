@@ -60,8 +60,8 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
   test "live workflow splits transcript left, MCP internals right" do
     text = render(@live_frame, ["you> ooo interview", "ourocode> dispatching"])
 
-    assert text =~ "Main session (MCP)"
-    assert text =~ "Delegated session (MCP)"
+    assert text =~ "MCP graph"
+    assert text =~ "pane ledgers"
     assert text =~ "parent-1"
     assert text =~ "child=child-1"
 
@@ -129,9 +129,9 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
     assert Enum.join(with_block, "\n") =~ "final sentence"
     assert Enum.join(with_block, "\n") =~ ">> [1] panel transition"
 
-    assert line_index(plain, "Main session (MCP)")
-    refute Enum.join(with_block, "\n") =~ "Main session (MCP)"
-    refute Enum.join(with_block, "\n") =~ "interview live"
+    assert line_index(plain, "MCP graph")
+    refute Enum.join(with_block, "\n") =~ "MCP graph"
+    refute Enum.join(with_block, "\n") =~ "● interview live"
   end
 
   test "active wonder picker focuses the decision and hides the right pane" do
@@ -280,12 +280,12 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       |> Enum.join("\n")
 
     assert text =~ "interview"
-    assert text =~ "Main session (MCP)"
-    assert text =~ "Delegated session (MCP)"
+    assert text =~ "MCP graph"
+    assert text =~ "pane ledgers"
     assert text =~ "activity log live"
 
     assert line_index(String.split(text, "\n"), "activity log") >
-             line_index(String.split(text, "\n"), "Delegated session (MCP)")
+             line_index(String.split(text, "\n"), "pane ledgers")
   end
 
   test "right column wraps long MCP and activity lines instead of ellipsizing" do
@@ -301,10 +301,10 @@ defmodule Ourocode.Terminal.TuiRuntimeSplitTest do
       |> Enum.join("\n")
 
     assert text =~ "must"
-    assert text =~ "wrap inside the sidebar"
-    assert text =~ "Which exact"
-    assert text =~ "right panel surface should show the internal"
-    assert text =~ "MCP reasoning and activity stream for the"
+    assert text =~ "status that must wrap inside the"
+    assert text =~ "exact right panel surface should"
+    assert text =~ "show the internal MCP reasoning and"
+    assert text =~ "activity stream for the user?"
     assert text =~ "user?\""
     refute text =~ "..."
   end

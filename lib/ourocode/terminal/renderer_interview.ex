@@ -70,10 +70,7 @@ defmodule Ourocode.Terminal.RendererInterview do
   def draw_block(screen, top, width, marker, lines, hint, max_rows) do
     inner = max(width - @body - @left, 1)
 
-    rows =
-      lines
-      |> Enum.flat_map(&wrap_logical_line(&1, inner))
-      |> Enum.take(max_rows)
+    rows = block_rows(lines, inner, max_rows)
 
     screen =
       screen
@@ -98,6 +95,79 @@ defmodule Ourocode.Terminal.RendererInterview do
 
     {screen, 1 + length(rows) + 1}
   end
+
+  @doc false
+  @spec ledger_hit_map(
+          :block | :focus,
+          integer(),
+          pos_integer(),
+          [term()],
+          pos_integer(),
+          map()
+        ) :: map()
+  def ledger_hit_map(:block, top, width, lines, max_rows, block_ids) do
+    inner = max(width - @body - @left, 1)
+
+    lines
+    |> logical_rows(:block, inner)
+    |> Enum.take(max_rows)
+    |> hit_map_from_rows(top + 1, width, block_ids)
+  end
+
+  def ledger_hit_map(:focus, top, width, lines, max_content, block_ids) do
+    panel_w = max(width - 2 * @left, 1)
+    inner_w = max(panel_w - 4, 1)
+
+    lines
+    |> logical_rows(:focus, inner_w)
+    |> Enum.take(max_content)
+    |> hit_map_from_rows(top + 2, width, block_ids)
+  end
+
+  defp block_rows(lines, inner, max_rows) do
+    lines
+    |> Enum.flat_map(&wrap_logical_line(&1, inner))
+    |> Enum.take(max_rows)
+  end
+
+  defp logical_rows(lines, mode, inner) do
+    lines
+    |> Enum.flat_map(fn line ->
+      index = ledger_question_index(line)
+
+      line
+      |> wrap_line_for_mode(mode, inner)
+      |> Enum.map(fn row -> {row, index} end)
+    end)
+  end
+
+  defp wrap_line_for_mode(line, :focus, inner), do: wrap_focus_line(line, inner)
+  defp wrap_line_for_mode(line, :block, inner), do: wrap_logical_line(line, inner)
+
+  defp hit_map_from_rows(rows, start_y, width, block_ids) do
+    rows
+    |> Enum.with_index(start_y)
+    |> Enum.reduce(%{}, fn {{_row, index}, y}, acc ->
+      case Map.get(block_ids, index) do
+        id when is_binary(id) ->
+          Map.put(acc, y + 1, %{id: id, x1: 1, x2: width})
+
+        _none ->
+          acc
+      end
+    end)
+  end
+
+  defp ledger_question_index({text, _style}) when is_binary(text), do: ledger_question_index(text)
+
+  defp ledger_question_index(text) when is_binary(text) do
+    case Regex.run(~r/\A[+\-> ] \[[^\]]+\] Q(\d+)\b/u, text) do
+      [_match, index] -> String.to_integer(index)
+      _no_match -> nil
+    end
+  end
+
+  defp ledger_question_index(_line), do: nil
 
   defp wrap_focus_line({text, style}, inner) when is_binary(text) do
     wrap_styled(text, focus_style(style), inner)

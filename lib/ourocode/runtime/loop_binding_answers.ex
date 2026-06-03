@@ -83,6 +83,7 @@ defmodule Ourocode.Runtime.LoopBindingAnswers do
         case WonderAnswer.capture(request, selection) do
           {:ok, combined} ->
             enqueue.(agent, WonderAnswer.ack_event(detection, combined))
+            enqueue.(agent, decision_answered_event(detection, combined))
             Agent.update(agent, &accept_wonder_answer(&1, detection, combined.handback))
 
             if is_pid(waiter) do
@@ -109,6 +110,7 @@ defmodule Ourocode.Runtime.LoopBindingAnswers do
         cancelled = WonderAnswer.cancelled(detection, reason)
 
         enqueue.(agent, WonderAnswer.cancel_event(detection, cancelled))
+        enqueue.(agent, decision_cancelled_event(detection, cancelled))
 
         Agent.update(agent, fn state ->
           state
@@ -170,6 +172,52 @@ defmodule Ourocode.Runtime.LoopBindingAnswers do
   defp parent_call_id(%{request: %{"parentCallId" => parent_call_id}}), do: parent_call_id
   defp parent_call_id(_detection), do: nil
 
+  defp decision_answered_event(detection, combined) do
+    %{
+      type: :decision_answered,
+      event_type: :decision_answered,
+      source: :wonder_tool,
+      runtime_source: "ourocode",
+      transport: :local,
+      decision_id: decision_id(detection),
+      parent_call_id: parent_call_id(detection),
+      child_id: child_id(detection),
+      selected_label: get_in(combined, [:result, :selected_label]),
+      occurred_at_ms: System.system_time(:millisecond)
+    }
+    |> drop_nil_values()
+  end
+
+  defp decision_cancelled_event(detection, cancelled) do
+    %{
+      type: :decision_cancelled,
+      event_type: :decision_cancelled,
+      source: :wonder_tool,
+      runtime_source: "ourocode",
+      transport: :local,
+      decision_id: decision_id(detection),
+      parent_call_id: parent_call_id(detection),
+      child_id: child_id(detection),
+      reason: Map.get(cancelled, :reason),
+      occurred_at_ms: System.system_time(:millisecond)
+    }
+    |> drop_nil_values()
+  end
+
+  defp decision_id(%{request_id: request_id}), do: request_id
+  defp decision_id(%{request: %{request_id: request_id}}), do: request_id
+  defp decision_id(%{request: %{"request_id" => request_id}}), do: request_id
+  defp decision_id(%{request: %{"requestId" => request_id}}), do: request_id
+
+  defp decision_id(detection),
+    do: parent_call_id(detection) && parent_call_id(detection) <> ":decision"
+
+  defp child_id(%{child_id: child_id}), do: child_id
+  defp child_id(%{request: %{child_id: child_id}}), do: child_id
+  defp child_id(%{request: %{"child_id" => child_id}}), do: child_id
+  defp child_id(%{request: %{"childID" => child_id}}), do: child_id
+  defp child_id(_detection), do: nil
+
   defp accept_wonder_answer(state, detection, text) do
     state =
       case Map.get(state, :interview) do
@@ -208,4 +256,6 @@ defmodule Ourocode.Runtime.LoopBindingAnswers do
     do: Map.get(map, key, Map.get(map, to_string(key), default))
 
   defp value(_map, _key, default), do: default
+
+  defp drop_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
 end

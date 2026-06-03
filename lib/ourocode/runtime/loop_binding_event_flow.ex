@@ -3,8 +3,9 @@ defmodule Ourocode.Runtime.LoopBindingEventFlow do
   Runtime event inbox and live pane folding for loop bindings.
   """
 
-  alias Ourocode.Dashboard.{ChildSessionPanes, ParentMcpPane}
-  alias Ourocode.Runtime.{InterviewState, WonderDetection}
+  alias Ourocode.ACP.Projection, as: AcpProjection
+  alias Ourocode.Dashboard.PaneOrchestrator
+  alias Ourocode.Runtime.{InterviewState, WorkflowHarness, WonderDetection}
 
   @spec enqueue(pid(), map()) :: :ok
   def enqueue(agent, event) when is_pid(agent) and is_map(event) do
@@ -34,16 +35,17 @@ defmodule Ourocode.Runtime.LoopBindingEventFlow do
 
   @spec fold_event(map(), map()) :: map()
   def fold_event(state, event) do
+    orchestrated =
+      state
+      |> PaneOrchestrator.apply_event(event)
+
     state
-    |> Map.update!(:parent, &safe_apply(ParentMcpPane, &1, event))
-    |> Map.update!(:child, &safe_apply(ChildSessionPanes, &1, event))
+    |> Map.update(:acp, AcpProjection.new(), &AcpProjection.apply_runtime_event(&1, event))
+    |> WorkflowHarness.apply_event(event)
+    |> Map.put(:parent, PaneOrchestrator.parent_state(orchestrated))
+    |> Map.put(:child, PaneOrchestrator.child_state(orchestrated))
+    |> Map.put(:mcp_topology, PaneOrchestrator.topology_state(orchestrated))
     |> WonderDetection.apply(event)
     |> InterviewState.detect(event)
-  end
-
-  defp safe_apply(module, pane_state, event) do
-    module.apply_event(pane_state, event)
-  rescue
-    _exception -> pane_state
   end
 end

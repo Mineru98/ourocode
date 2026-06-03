@@ -120,6 +120,38 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
           }
         ]
 
+      korean_interview_flow_check?(normalized) ->
+        [
+          %{
+            "label" => "질문이 다음 라운드로 이어진다",
+            "description" => "답변 후 새 질문과 선택지가 자동으로 생성되는지 확인"
+          },
+          %{
+            "label" => "답변이 다음 질문에 반영된다",
+            "description" => "사용자 답변이 이후 질문의 맥락과 선택지에 남는지 확인"
+          },
+          %{
+            "label" => "Seed 작성에 필요한 기준이 모인다",
+            "description" => "인터뷰 결과가 요구사항/검증 기준으로 정리될 수 있는지 확인"
+          }
+        ]
+
+      korean_success_criteria_question?(normalized) ->
+        [
+          %{
+            "label" => "성공 기준을 먼저 정의",
+            "description" => "잘 동작한다는 상태를 관찰 가능한 기준으로 고정"
+          },
+          %{
+            "label" => "검증 방법을 먼저 정의",
+            "description" => "어떤 테스트나 화면 확인으로 통과를 판단할지 고정"
+          },
+          %{
+            "label" => "사용자 영향을 먼저 정의",
+            "description" => "누가 어떤 문제 없이 사용할 수 있어야 하는지 고정"
+          }
+        ]
+
       String.contains?(normalized, ["template choice", "template selection", "which template"]) ->
         [
           %{
@@ -260,6 +292,22 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
 
   defp fallback_options(_prompt), do: @generic_ask_options
 
+  defp korean_interview_flow_check?(text) do
+    korean?(text) and
+      String.contains?(text, ["ooo interview", "인터뷰"]) and
+      String.contains?(text, ["질문"]) and
+      String.contains?(text, ["답변"]) and
+      String.contains?(text, ["반영", "이어가", "이어지", "검증", "정상"])
+  end
+
+  defp korean_success_criteria_question?(text) do
+    korean?(text) and
+      String.contains?(text, ["기준", "성공", "검증", "잘 동작", "동작"]) and
+      String.contains?(text, ["무엇", "어떤", "어떻게", "인가요", "원하시나요"])
+  end
+
+  defp korean?(text), do: Regex.match?(~r/[가-힣]/u, text)
+
   defp content_words(text) when is_binary(text) do
     text
     |> InterviewResponse.clean_markdown()
@@ -274,14 +322,23 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
 
   defp prompt_option_hints(prompt) when is_binary(prompt) do
     candidates = option_candidate_text(prompt)
+    source_text = InterviewResponse.clean_markdown(prompt)
+    quoted = quoted_option_candidates(candidates)
 
-    if option_list_text?(candidates) do
-      candidates
-      |> split_option_candidates()
-      |> normalize_candidates()
-      |> reject_fragmentary_choices()
-    else
-      []
+    cond do
+      quoted != [] ->
+        quoted
+        |> normalize_candidates()
+        |> reject_fragmentary_choices()
+
+      option_list_text?(candidates, source_text) ->
+        candidates
+        |> split_option_candidates()
+        |> normalize_candidates()
+        |> reject_fragmentary_choices()
+
+      true ->
+        []
     end
   end
 
@@ -300,16 +357,39 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
     end
   end
 
-  defp option_list_text?(text) do
+  defp option_list_text?(text, source_text) do
     list_text = strip_parenthetical_spans(text)
+    source_text = strip_parenthetical_spans(source_text)
 
     list_text =~ ~r/\b(?:or|versus|vs\.?)\b/iu or
       list_text =~ ~r/(?:아니면|또는|혹은)/u or
-      delimiter_count(list_text) >= 2
+      (delimiter_count(list_text) >= 2 and
+         explicit_choice_context?(list_text <> " " <> source_text))
   end
 
   defp delimiter_count(text) do
     Regex.scan(~r/[,，、]/u, text) |> length()
+  end
+
+  defp explicit_choice_context?(text) do
+    String.contains?(text, ["중 하나", "무엇으로", "어디를", "선택", "삼을", "고정"]) or
+      text =~ ~r/\b(?:choose|pick|select|which|what)\b/iu
+  end
+
+  defp quoted_option_candidates(text) do
+    ~r/[“"]([^”"]{4,120})[”"]/u
+    |> Regex.scan(text)
+    |> Enum.map(fn [_match, candidate] -> candidate end)
+    |> Enum.reject(&quoted_context_only?/1)
+    |> Enum.uniq()
+    |> then(fn candidates ->
+      if length(candidates) >= 2, do: candidates, else: []
+    end)
+  end
+
+  defp quoted_context_only?(candidate) do
+    candidate = String.trim(candidate)
+    String.length(candidate) < 4 or candidate in ["패턴", "성능 유지"]
   end
 
   defp trim_candidate(text) do
@@ -340,6 +420,7 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
       |> maybe_strip_question_prefix(index)
       |> strip_question_stem()
       |> maybe_strip_dependent_choice_prefix()
+      |> strip_trailing_korean_choice_context()
       |> trim_candidate()
     end)
     |> Enum.reject(&(String.length(&1) < 2))
@@ -373,7 +454,9 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
   end
 
   defp strip_leading_context(candidate) do
-    Regex.replace(~r/\Afor\s+[^,]+,\s*/iu, candidate, "")
+    candidate
+    |> then(&Regex.replace(~r/\Afor\s+[^,]+,\s*/iu, &1, ""))
+    |> then(&Regex.replace(~r/\A(?:예를\s*들어|예시(?:로)?|예컨대)\s*/u, &1, ""))
   end
 
   defp context_only?(candidate) do
@@ -382,6 +465,14 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizer do
 
   defp strip_question_stem(candidate) do
     Regex.replace(~r/\Ashould\s+the\s+interview\s+clarify\s+/iu, candidate, "")
+  end
+
+  defp strip_trailing_korean_choice_context(candidate) do
+    Regex.replace(
+      ~r/\s*중\s+(?:하나|무엇|어디)(?:를)?(?:\s*선택하고.*|\s*삼고.*|\s*정할까요.*|.*)?\z/u,
+      candidate,
+      ""
+    )
   end
 
   defp single_action_word?(label) do

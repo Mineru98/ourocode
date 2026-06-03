@@ -21,6 +21,7 @@ defmodule Ourocode.Dashboard.ParentMcpPaneRenderer do
       transport: Atom.to_string(pane.transport),
       request_id: Map.get(pane, :request_id),
       method: Map.get(pane, :method),
+      params: Map.get(pane, :params),
       child_id: child_id,
       external_ids: pane.external_ids,
       stream_cursor: pane.stream_cursor,

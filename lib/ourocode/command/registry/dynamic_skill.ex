@@ -24,6 +24,7 @@ defmodule Ourocode.Command.Registry.DynamicSkill do
       |> to_string()
 
     mcp_tool = field(definition, "mcp_tool", nil)
+    input_schema = field(definition, "input_schema", %{})
 
     source_attribution = %{
       source: :dynamic_skill,
@@ -45,10 +46,13 @@ defmodule Ourocode.Command.Registry.DynamicSkill do
           skill_id: field(definition, "id", name) |> to_string(),
           discovered_from: discovered_from
         }
-        |> maybe_put(:mcp_tool, mcp_tool),
+        |> maybe_put(:mcp_tool, mcp_tool)
+        |> maybe_put(:input_schema, input_schema),
       metadata: %{
         distribution: :dynamic,
         discovered_from: discovered_from,
+        mcp_tool: mcp_tool,
+        input_schema: input_schema,
         source_attribution: source_attribution
       }
     )
@@ -61,6 +65,8 @@ defmodule Ourocode.Command.Registry.DynamicSkill do
   defp atom_key(key) when is_atom(key), do: key
   defp atom_key("discovered_from"), do: :discovered_from
   defp atom_key("id"), do: :id
+  defp atom_key("input_schema"), do: :input_schema
+  defp atom_key("inputSchema"), do: :inputSchema
   defp atom_key("mcp_tool"), do: :mcp_tool
   defp atom_key("name"), do: :name
   defp atom_key("session_id"), do: :session_id
@@ -77,5 +83,6 @@ defmodule Ourocode.Command.Registry.DynamicSkill do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, _key, empty) when empty == %{}, do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

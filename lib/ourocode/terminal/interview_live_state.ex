@@ -42,6 +42,9 @@ defmodule Ourocode.Terminal.InterviewLiveState do
       :breakdown,
       :complete,
       :dialogue,
+      :last_answer,
+      :last_answered_question,
+      :last_question_options,
       :mcp_activity,
       :mcp_reasoning,
       :milestone,
@@ -58,6 +61,7 @@ defmodule Ourocode.Terminal.InterviewLiveState do
     ])
     |> normalize_dialogue()
     |> normalize_question_options()
+    |> normalize_last_question_options()
   end
 
   defp normalize_dialogue(%{dialogue: dialogue} = interview) when is_list(dialogue) do
@@ -72,6 +76,13 @@ defmodule Ourocode.Terminal.InterviewLiveState do
   end
 
   defp normalize_question_options(interview), do: interview
+
+  defp normalize_last_question_options(%{last_question_options: options} = interview)
+       when is_list(options) do
+    Map.put(interview, :last_question_options, Enum.map(options, &normalize_option/1))
+  end
+
+  defp normalize_last_question_options(interview), do: interview
 
   defp normalize_option(option) when is_map(option) do
     option

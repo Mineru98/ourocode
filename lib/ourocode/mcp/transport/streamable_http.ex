@@ -75,6 +75,17 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP do
   @spec execute_parent_call([option()], map()) ::
           {:ok, ParentCallResult.t()} | {:error, term()}
   def execute_parent_call(options, request) when is_list(options) and is_map(request) do
+    case do_execute_parent_call(options, request) do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, reason} = error ->
+        emit_failed(options, request, reason)
+        error
+    end
+  end
+
+  defp do_execute_parent_call(options, request) do
     with {:ok, url} <- fetch_option(options, :url),
          :ok <- ensure_http_started(),
          {:ok, options} <- ensure_mcp_session(url, options),
@@ -136,6 +147,17 @@ defmodule Ourocode.MCP.Transport.StreamableHTTP do
     event =
       context
       |> LifecycleNormalizer.started()
+      |> Map.put(:raw_event, build_raw_request_event_record(options, request, context))
+
+    emit_event(options, event)
+  end
+
+  defp emit_failed(options, request, reason) do
+    context = CallContext.normalizer(options, request, Keyword.get(options, :event_seq, 1))
+
+    event =
+      context
+      |> LifecycleNormalizer.failed(reason)
       |> Map.put(:raw_event, build_raw_request_event_record(options, request, context))
 
     emit_event(options, event)

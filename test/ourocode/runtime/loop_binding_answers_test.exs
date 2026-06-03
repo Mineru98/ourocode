@@ -77,6 +77,7 @@ defmodule Ourocode.Runtime.LoopBindingAnswersTest do
     assert_receive {:interview_answer, handback}
     assert handback =~ "B"
     assert_receive {:enqueued, %{type: :child_event}}
+    assert_receive {:enqueued, %{type: :decision_answered, selected_label: "B"}}
 
     assert Agent.get(agent, & &1.wonder) == nil
     assert Agent.get(agent, & &1.interview_waiter) == nil
@@ -94,6 +95,7 @@ defmodule Ourocode.Runtime.LoopBindingAnswersTest do
 
     assert {:ok, %{selected_label: "A"}} = LoopBindingAnswers.answer_wonder(agent, 1, enqueue)
     assert_receive {:enqueued, %{type: :child_event}}
+    assert_receive {:enqueued, %{type: :decision_answered, selected_label: "A"}}
     refute_receive {:interview_answer, _answer}, 50
 
     state = Agent.get(agent, & &1)
@@ -142,6 +144,7 @@ defmodule Ourocode.Runtime.LoopBindingAnswersTest do
 
     assert_receive {:interview_answer, "cancel"}
     assert_receive {:enqueued, %{type: :child_event}}
+    assert_receive {:enqueued, %{type: :decision_cancelled, reason: "decline"}}
 
     assert Agent.get(agent, & &1.wonder) == nil
     assert Agent.get(agent, & &1.interview_waiter) == nil

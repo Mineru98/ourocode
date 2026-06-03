@@ -42,6 +42,11 @@ defmodule Ourocode.Terminal.InterviewLiveStateTest do
             "question_options" => [
               %{"label" => "Phase names", "description" => "Clarify current labels"}
             ],
+            "last_answer" => "Use a question ledger",
+            "last_answered_question" => "Which UX should change?",
+            "last_question_options" => [
+              %{"label" => "Ledger", "description" => "Stack questions"}
+            ],
             "status" => "waiting for your answer",
             "mcp_reasoning" => ["step: question"]
           },
@@ -63,6 +68,11 @@ defmodule Ourocode.Terminal.InterviewLiveStateTest do
              question: "Which step is unclear?",
              question_options: [
                %{label: "Phase names", description: "Clarify current labels"}
+             ],
+             last_answer: "Use a question ledger",
+             last_answered_question: "Which UX should change?",
+             last_question_options: [
+               %{label: "Ledger", description: "Stack questions"}
              ],
              status: "waiting for your answer",
              mcp_reasoning: ["step: question"]

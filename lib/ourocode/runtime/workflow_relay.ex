@@ -10,16 +10,18 @@ defmodule Ourocode.Runtime.WorkflowRelay do
     LoopBindings,
     McpCapabilities,
     InterviewResponse,
-    SeedArtifact
+    SeedArtifact,
+    WorkflowHarness
   }
 
   alias Ourocode.Dashboard.ChildSessionPanes
 
   @relay_grace_ms 2_000
 
-  @spec run(pid(), map(), String.t(), map(), Path.t(), String.t()) :: :ok
-  def run(agent, runtime, parent_call_id, payload, project_dir, mcp_url) do
+  @spec run(pid(), map(), String.t(), map(), Path.t(), String.t(), keyword()) :: :ok
+  def run(agent, runtime, parent_call_id, payload, project_dir, mcp_url, opts \\ []) do
     relay = self()
+    workflow_run_id = Keyword.get(opts, :workflow_run_id, "workflow-run:" <> parent_call_id)
 
     spawn(fn ->
       result =
@@ -38,7 +40,7 @@ defmodule Ourocode.Runtime.WorkflowRelay do
       send(relay, {:relay_worker_done, result})
     end)
 
-    drain(agent, runtime, parent_call_id, project_dir)
+    drain(agent, runtime, parent_call_id, project_dir, workflow_run_id)
   end
 
   @spec flush(pid()) :: :ok
@@ -52,28 +54,67 @@ defmodule Ourocode.Runtime.WorkflowRelay do
     end
   end
 
-  defp drain(agent, runtime, parent_call_id, project_dir) do
+  defp drain(agent, runtime, parent_call_id, project_dir, workflow_run_id) do
     receive do
       {:ourocode_event, event} ->
         LoopBindings.enqueue(agent, event)
         McpCapabilities.maybe_ingest(runtime, event)
-        drain(agent, runtime, parent_call_id, project_dir)
+        drain(agent, runtime, parent_call_id, project_dir, workflow_run_id)
 
       {:relay_worker_done, {:error, reason}} ->
         LoopBindings.enqueue(agent, failure_event(parent_call_id, {:transport_failed, reason}))
+
+        LoopBindings.enqueue(
+          agent,
+          WorkflowHarness.failure_event(parent_call_id, {:transport_failed, reason},
+            run_id: workflow_run_id
+          )
+        )
+
         flush(agent)
 
       {:relay_worker_done, {:ok, result}} ->
-        capture_workflow_result(agent, result, project_dir)
+        case capture_workflow_result(agent, result, project_dir) do
+          {:ok, %{path: path, seed_id: seed_id}} ->
+            LoopBindings.enqueue(
+              agent,
+              WorkflowHarness.evidence_event(
+                parent_call_id,
+                :seed_artifact,
+                "seed artifact captured",
+                run_id: workflow_run_id,
+                event_id: seed_id,
+                path: path
+              )
+            )
+
+          _other ->
+            :ok
+        end
+
+        LoopBindings.enqueue(
+          agent,
+          WorkflowHarness.completed_event(parent_call_id, :relay_completed,
+            run_id: workflow_run_id
+          )
+        )
+
         flush(agent)
 
       {:relay_worker_done, _other} ->
+        LoopBindings.enqueue(
+          agent,
+          WorkflowHarness.completed_event(parent_call_id, :relay_done_unknown,
+            run_id: workflow_run_id
+          )
+        )
+
         flush(agent)
     end
   end
 
   @doc false
-  @spec capture_workflow_result(pid(), term(), Path.t()) :: :ok
+  @spec capture_workflow_result(pid(), term(), Path.t()) :: :ok | {:ok, map()}
   def capture_workflow_result(agent, %ParentCallResult{} = result, project_dir)
       when is_pid(agent) do
     response = result.response
@@ -103,6 +144,8 @@ defmodule Ourocode.Runtime.WorkflowRelay do
 
           %{state | workflow: workflow}
         end)
+
+        {:ok, %{path: path, seed_id: seed_id}}
 
       _ignore_or_error ->
         :ok

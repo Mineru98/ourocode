@@ -4,6 +4,7 @@ defmodule Ourocode.Runtime.WonderDetection do
   """
 
   alias Ourocode.WonderTool.InteractionDetector
+  alias Ourocode.WonderTool.Bridge
 
   @spec apply(map(), map()) :: map()
   def apply(state, runtime_event) when is_map(state) and is_map(runtime_event) do
@@ -18,9 +19,15 @@ defmodule Ourocode.Runtime.WonderDetection do
   def apply(state, _runtime_event), do: state
 
   defp detector_payload(event) when is_map(event) do
-    case Map.get(event, :payload, event) do
-      payload when is_map(payload) -> payload
-      _other -> event
+    case Bridge.to_detection_payload(event) do
+      {:ok, payload} ->
+        payload
+
+      :ignore ->
+        case Map.get(event, :payload, event) do
+          payload when is_map(payload) -> payload
+          _other -> event
+        end
     end
   end
 end

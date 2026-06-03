@@ -1,7 +1,7 @@
 defmodule Ourocode.Terminal.TuiInteractionTest do
   use ExUnit.Case, async: true
 
-  alias Ourocode.Terminal.{TuiInteraction, TuiState}
+  alias Ourocode.Terminal.{InterviewPanel.QuestionLedger, TuiInteraction, TuiState}
 
   setup do
     {:ok, output} = StringIO.open("")
@@ -88,6 +88,165 @@ defmodule Ourocode.Terminal.TuiInteractionTest do
 
     {_input, captured} = StringIO.contents(output)
     assert captured =~ "you> Outlook"
+  end
+
+  test "mouse hover and click select an interview ledger row", %{state: state} do
+    result = %{
+      pane_snapshot: fn ->
+        %{
+          interview: %{
+            dialogue: [
+              %{role: :user, text: "Second answer"},
+              %{role: :mcp, text: "Second question"},
+              %{role: :user, text: "First answer"},
+              %{role: :mcp, text: "First question"}
+            ]
+          },
+          paused: false
+        }
+      end
+    }
+
+    second_id =
+      result
+      |> TuiInteraction.interview_state()
+      |> QuestionLedger.from_interview()
+      |> Map.fetch!(:blocks)
+      |> Enum.at(1)
+      |> Map.fetch!(:id)
+
+    TuiState.put_interview_ledger_hit_map(state, %{10 => %{id: second_id, x1: 1, x2: 80}})
+
+    assert TuiInteraction.nav_event?(
+             %{type: :mouse, key: :mouse_move, x: 20, y: 10},
+             "",
+             result,
+             state
+           )
+
+    assert :ok =
+             TuiInteraction.handle_nav(
+               %{type: :mouse, key: :mouse_move, x: 20, y: 10},
+               result,
+               state
+             )
+
+    assert TuiState.interview_ledger_hover_id(state) == second_id
+
+    assert :ok =
+             TuiInteraction.handle_nav(
+               %{type: :mouse, key: :mouse_down, x: 20, y: 10},
+               result,
+               state
+             )
+
+    assert TuiState.interview_ledger_selected_id(state) == second_id
+  end
+
+  test "mouse miss does not consume or change ledger selection", %{state: state} do
+    result = ledger_result()
+    first_id = ledger_block_id(result, 0)
+    TuiState.put_interview_ledger_selected_id(state, first_id)
+    TuiState.put_interview_ledger_hit_map(state, %{10 => %{id: first_id, x1: 5, x2: 10}})
+
+    refute TuiInteraction.nav_event?(
+             %{type: :mouse, key: :mouse_down, x: 2, y: 10},
+             "",
+             result,
+             state
+           )
+
+    assert :ok =
+             TuiInteraction.handle_nav(
+               %{type: :mouse, key: :mouse_down, x: 2, y: 10},
+               result,
+               state
+             )
+
+    assert TuiState.interview_ledger_selected_id(state) == first_id
+  end
+
+  test "mouse hover and click select an MCP tool ledger row", %{state: state} do
+    tool_id = "ledger:child:tool-call-1"
+    TuiState.put_mcp_ledger_hit_map(state, %{12 => %{id: tool_id, x1: 60, x2: 110}})
+
+    assert TuiInteraction.nav_event?(
+             %{type: :mouse, key: :mouse_move, x: 72, y: 12},
+             "",
+             %{},
+             state
+           )
+
+    assert :ok =
+             TuiInteraction.handle_nav(
+               %{type: :mouse, key: :mouse_move, x: 72, y: 12},
+               %{},
+               state
+             )
+
+    assert TuiState.mcp_ledger_hover_id(state) == tool_id
+
+    assert :ok =
+             TuiInteraction.handle_nav(
+               %{type: :mouse, key: :mouse_down, x: 72, y: 12},
+               %{},
+               state
+             )
+
+    assert TuiState.mcp_ledger_selected_id(state) == tool_id
+    assert TuiState.interview_ledger_hover_id(state) == nil
+  end
+
+  test "keyboard navigation selects and opens MCP tool ledger rows", %{
+    output: output,
+    state: state
+  } do
+    first_id = "ledger:child:tool-call-1"
+    second_id = "ledger:child:tool-call-2"
+
+    TuiState.put_mcp_ledger_hit_map(state, %{
+      12 => %{id: first_id, x1: 60, x2: 110},
+      13 => %{id: second_id, x1: 60, x2: 110}
+    })
+
+    assert TuiInteraction.nav_event?(%{key: :char, char: "1"}, "", %{}, state)
+    assert :ok = TuiInteraction.handle_nav(%{key: :char, char: "1"}, %{}, state)
+    assert TuiState.mcp_ledger_selected_id(state) == first_id
+
+    assert :ok = TuiInteraction.handle_nav(%{key: :char, char: "j"}, %{}, state)
+    assert TuiState.mcp_ledger_selected_id(state) == second_id
+    assert TuiState.mcp_ledger_hover_id(state) == second_id
+
+    assert :ok = TuiInteraction.handle_nav(%{key: :up}, %{}, state)
+    assert TuiState.mcp_ledger_selected_id(state) == first_id
+
+    assert :ok = TuiInteraction.handle_nav(%{key: :down}, %{}, state)
+    assert TuiState.mcp_ledger_selected_id(state) == second_id
+
+    assert :ok = TuiInteraction.handle_event(%{key: :enter}, %{}, output, state)
+    assert hd(TuiState.notifications(state)) == "tool call opened"
+  end
+
+  test "keyboard navigation selects interview ledger rows", %{state: state} do
+    result = ledger_result()
+    first_id = ledger_block_id(result, 0)
+    second_id = ledger_block_id(result, 1)
+
+    assert TuiInteraction.nav_event?(%{key: :char, char: "1"}, "", result, state)
+    assert :ok = TuiInteraction.handle_nav(%{key: :char, char: "1"}, result, state)
+    assert TuiState.interview_ledger_selected_id(state) == first_id
+
+    assert :ok = TuiInteraction.handle_nav(%{key: :char, char: "j"}, result, state)
+    assert TuiState.interview_ledger_selected_id(state) == second_id
+
+    assert :ok = TuiInteraction.handle_nav(%{key: :up}, result, state)
+    assert TuiState.interview_ledger_selected_id(state) == first_id
+
+    assert :ok = TuiInteraction.handle_nav(%{key: :down}, result, state)
+    assert TuiState.interview_ledger_selected_id(state) == second_id
+
+    assert :ok = TuiInteraction.handle_nav(%{key: :char, char: "k"}, result, state)
+    assert TuiState.interview_ledger_selected_id(state) == first_id
   end
 
   test "escape invokes wonder pause callback", %{output: output, state: state} do
@@ -215,6 +374,33 @@ defmodule Ourocode.Terminal.TuiInteractionTest do
       pane_snapshot: fn -> %{wonder_tool: detection(), paused: false} end,
       wonder_answer: answer_fun
     }
+  end
+
+  defp ledger_result do
+    %{
+      pane_snapshot: fn ->
+        %{
+          interview: %{
+            dialogue: [
+              %{role: :user, text: "Second answer"},
+              %{role: :mcp, text: "Second question"},
+              %{role: :user, text: "First answer"},
+              %{role: :mcp, text: "First question"}
+            ]
+          },
+          paused: false
+        }
+      end
+    }
+  end
+
+  defp ledger_block_id(result, index) do
+    result
+    |> TuiInteraction.interview_state()
+    |> QuestionLedger.from_interview()
+    |> Map.fetch!(:blocks)
+    |> Enum.at(index)
+    |> Map.fetch!(:id)
   end
 
   defp detection do

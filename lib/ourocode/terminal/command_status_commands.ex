@@ -93,24 +93,37 @@ defmodule Ourocode.Terminal.CommandStatusCommands do
   @spec render_sessions(pid(), map()) :: {:ok, map()}
   def render_sessions(output, state) when is_map(state) do
     panes = get_in(state, [:pane_model, :panes]) || %{}
+    topology = value(state, :mcp_topology, %{})
+    grouped? = grouped_mcp_sessions?(state, topology)
 
     child_panes =
       panes
       |> Enum.filter(fn {_id, pane} -> session_pane?(pane) end)
       |> Enum.sort_by(fn {id, _pane} -> to_string(id) end)
 
-    IO.puts(output, "sessions: #{length(child_panes)} active")
+    cond do
+      grouped? ->
+        child_count = grouped_child_count(state, topology)
+        active_count = grouped_active_child_count(state, topology)
+        IO.puts(output, "sessions: #{child_count} linked, #{active_count} active")
+        render_grouped_mcp_sessions(output, state, topology)
+        {:ok, %{count: child_count}}
 
-    case child_panes do
-      [] ->
+      child_panes == [] ->
+        IO.puts(output, "sessions: 0 active")
         IO.puts(output, "  no delegated work yet")
+
         IO.puts(
           output,
           "  start with ooo pm <goal>, ooo interview <goal>, or ooo auto <goal>"
         )
 
-      panes ->
-        Enum.each(panes, fn {id, pane} ->
+        {:ok, %{count: 0}}
+
+      true ->
+        IO.puts(output, "sessions: #{length(child_panes)} active")
+
+        Enum.each(child_panes, fn {id, pane} ->
           session_id = value(pane, :child_id) || value(pane, :session_id) || id
           status = value(pane, :status) || value(pane, :state) || "active"
           task = value(pane, :task) || value(pane, :title) || value(pane, :label) || "working"
@@ -123,10 +136,265 @@ defmodule Ourocode.Terminal.CommandStatusCommands do
             IO.puts(output, "    last #{String.trim(recent)}")
           end
         end)
-    end
 
-    {:ok, %{count: length(child_panes)}}
+        {:ok, %{count: length(child_panes)}}
+    end
   end
+
+  defp grouped_mcp_sessions?(state, topology) do
+    topology_parent_nodes(topology) != [] or
+      list_value_at(state, [:parent, :working]) != [] or
+      list_value_at(state, [:parent, :completed]) != []
+  end
+
+  defp render_grouped_mcp_sessions(output, state, topology) do
+    parents = grouped_parent_rows(state, topology)
+    wonder = value(state, :wonder, nil)
+
+    IO.puts(output, "  #{length(parents)} MCP parent #{plural(length(parents), "call")}")
+
+    Enum.each(parents, fn parent ->
+      child_ids = grouped_child_ids(parent.parent_call_id, state, topology)
+      streaming_count = Enum.count(child_ids, &(child_status(&1, state) == "streaming"))
+      parallel = parallel_summary(length(child_ids), streaming_count)
+
+      IO.puts(output, "  MCP toolcall #{parent.tool}  #{parent.status}  #{parallel}")
+      IO.puts(output, "    parent #{parent.parent_call_id}  #{parent.detail}")
+
+      Enum.each(child_ids, fn child_id ->
+        status = child_status(child_id, state, wonder)
+        latest = child_latest(child_id, state, wonder)
+        IO.puts(output, "    #{child_id}  #{status}  #{latest}")
+      end)
+    end)
+  end
+
+  defp grouped_parent_rows(state, topology) do
+    topology_nodes = topology_parent_nodes(topology)
+
+    topology_parent_ids =
+      topology_nodes |> Enum.map(&text_value(&1, :parent_call_id)) |> MapSet.new()
+
+    parent_pane_nodes =
+      (list_value_at(state, [:parent, :working]) ++ list_value_at(state, [:parent, :completed]))
+      |> Enum.reject(&(text_value(&1, :parent_call_id) in topology_parent_ids))
+
+    (topology_nodes ++ parent_pane_nodes)
+    |> Enum.map(fn node ->
+      parent_call_id = text_value(node, :parent_call_id) || "unknown-parent"
+      pane = parent_pane(parent_call_id, state)
+
+      %{
+        parent_call_id: parent_call_id,
+        tool: parent_tool_name(pane || node),
+        status: parent_status(parent_call_id, state),
+        detail: parent_detail(pane || node)
+      }
+    end)
+  end
+
+  defp topology_parent_nodes(topology) do
+    topology
+    |> value(:nodes, %{})
+    |> case do
+      nodes when is_map(nodes) ->
+        nodes
+        |> Map.values()
+        |> Enum.filter(&(value(&1, :kind) == :parent_call))
+        |> Enum.sort_by(
+          &{value(&1, :latest_event_seq, 0), text_value(&1, :parent_call_id) || ""},
+          :desc
+        )
+
+      _nodes ->
+        []
+    end
+  end
+
+  defp topology_child_ids(parent_call_id, topology) do
+    topology
+    |> value(:edges, %{})
+    |> case do
+      edges when is_map(edges) ->
+        edges
+        |> Map.values()
+        |> Enum.filter(&(text_value(&1, :parent_call_id) == parent_call_id))
+        |> Enum.map(&text_value(&1, :child_id))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      _edges ->
+        []
+    end
+  end
+
+  defp grouped_child_ids(parent_call_id, state, topology) do
+    topology_ids = topology_child_ids(parent_call_id, topology)
+
+    state_ids =
+      (list_value_at(state, [:child, :working]) ++ list_value_at(state, [:child, :completed]))
+      |> Enum.filter(&(text_value(&1, :parent_call_id) == parent_call_id))
+      |> Enum.map(&text_value(&1, :child_id))
+      |> Enum.reject(&is_nil/1)
+
+    (topology_ids ++ state_ids)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp grouped_child_count(state, topology) do
+    grouped_parent_rows(state, topology)
+    |> Enum.flat_map(&grouped_child_ids(&1.parent_call_id, state, topology))
+    |> Enum.uniq()
+    |> length()
+  end
+
+  defp grouped_active_child_count(state, topology) do
+    grouped_parent_rows(state, topology)
+    |> Enum.flat_map(&grouped_child_ids(&1.parent_call_id, state, topology))
+    |> Enum.uniq()
+    |> Enum.count(&child_in?(state, [:child, :working], &1))
+  end
+
+  defp parent_pane(parent_call_id, state) do
+    (list_value_at(state, [:parent, :working]) ++ list_value_at(state, [:parent, :completed]))
+    |> Enum.find(&(text_value(&1, :parent_call_id) == parent_call_id))
+  end
+
+  defp parent_status(parent_call_id, state) do
+    cond do
+      Enum.any?(
+        list_value_at(state, [:parent, :working]),
+        &(text_value(&1, :parent_call_id) == parent_call_id)
+      ) ->
+        "running"
+
+      Enum.any?(
+        list_value_at(state, [:parent, :completed]),
+        &(text_value(&1, :parent_call_id) == parent_call_id)
+      ) ->
+        "completed"
+
+      true ->
+        "linked"
+    end
+  end
+
+  defp parent_tool_name(source) when is_map(source) do
+    params = value(source, :params, %{})
+    text_value(params, :name) || text_value(source, :method) || "tools/call"
+  end
+
+  defp parent_tool_name(_source), do: "tools/call"
+
+  defp parent_detail(source) when is_map(source) do
+    seq =
+      get_in(source, [:stream_cursor, :event_seq]) ||
+        value(source, :latest_event_seq) ||
+        get_in(source, [:pane_state, :last_event_seq])
+
+    event = if seq, do: "event #{seq}", else: "waiting for events"
+    transport = text_value(source, :transport) || "unknown transport"
+    event <> " via " <> transport
+  end
+
+  defp parent_detail(_source), do: "waiting for events"
+
+  defp parallel_summary(0, _streaming_count), do: "no child panes yet"
+
+  defp parallel_summary(child_count, streaming_count) do
+    "#{child_count} parallel #{plural(child_count, "session")} · #{streaming_count} streaming"
+  end
+
+  defp child_status(child_id, state, wonder \\ nil) do
+    cond do
+      wonder_child?(wonder, child_id) -> "waiting permission"
+      child_in?(state, [:child, :working], child_id) -> "streaming"
+      child_in?(state, [:child, :completed], child_id) -> "completed"
+      true -> "linked"
+    end
+  end
+
+  defp child_latest(child_id, state, wonder) do
+    cond do
+      wonder_child?(wonder, child_id) ->
+        "permission: " <> wonder_description(wonder)
+
+      pane = child_pane(child_id, state) ->
+        child_pane_latest(pane)
+
+      true ->
+        "linked to parent"
+    end
+  end
+
+  defp child_in?(state, path, child_id) do
+    state
+    |> list_value_at(path)
+    |> Enum.any?(&(text_value(&1, :child_id) == child_id))
+  end
+
+  defp child_pane(child_id, state) do
+    (list_value_at(state, [:child, :working]) ++ list_value_at(state, [:child, :completed]))
+    |> Enum.find(&(text_value(&1, :child_id) == child_id))
+  end
+
+  defp child_pane_latest(pane) do
+    text_value(pane, :last_line) ||
+      text_value(pane, :line) ||
+      text_value(pane, :summary) ||
+      latest_stream_entry_text(pane) ||
+      text_value(pane, :title) ||
+      "stream open"
+  end
+
+  defp latest_stream_entry_text(pane) do
+    pane
+    |> get_in([:pane_state, :stream_entries])
+    |> case do
+      entries when is_list(entries) ->
+        entries
+        |> List.last()
+        |> stream_entry_text()
+
+      _entries ->
+        nil
+    end
+  end
+
+  defp stream_entry_text(entry) when is_map(entry) do
+    entry_text(entry, :token) ||
+      entry_text(entry, :delta) ||
+      entry_text(entry, :content)
+  end
+
+  defp stream_entry_text(_entry), do: nil
+
+  defp entry_text(entry, key) do
+    case value(entry, key) do
+      value when is_binary(value) and value != "" -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      value when is_integer(value) -> Integer.to_string(value)
+      _value -> nil
+    end
+  end
+
+  defp wonder_child?(wonder, child_id) when is_map(wonder) do
+    text_value(wonder, :child_id) == child_id
+  end
+
+  defp wonder_child?(_wonder, _child_id), do: false
+
+  defp wonder_description(wonder) when is_map(wonder) do
+    text_value(wonder, :description) ||
+      get_in(wonder, [:request, :description]) ||
+      get_in(wonder, ["request", "description"]) ||
+      text_value(wonder, :request_id) ||
+      "user decision needed"
+  end
+
+  defp wonder_description(_wonder), do: "user decision needed"
 
   defp render_workspace(output, state, command) do
     workspace = WorkspaceModel.build(command, state, %{})
@@ -155,6 +423,7 @@ defmodule Ourocode.Terminal.CommandStatusCommands do
     IO.puts(output, "  active work #{active_sessions}")
     IO.puts(output, "  queue #{queue_count}")
     IO.puts(output, "  next ooo pm <goal>, ooo interview <goal>, ooo auto <goal>, or /verify")
+    IO.puts(output, "+-- State")
   end
 
   defp session_count(state) do
@@ -265,7 +534,19 @@ defmodule Ourocode.Terminal.CommandStatusCommands do
 
   @spec render_plugins(pid(), map()) :: {:ok, map()}
   def render_plugins(output, state) when is_map(state) do
-    render_workspace(output, state, "/plugins")
+    workspace = WorkspaceModel.build("/plugins", state, %{})
+    plugin_count = workspace |> value(:records, []) |> length()
+
+    IO.puts(output, "plugins: #{plugin_count} available")
+    IO.puts(output, WorkspaceText.render(workspace))
+
+    {:ok,
+     %{
+       status: :rendered,
+       workspace: workspace,
+       plugin_count: plugin_count,
+       count: plugin_count
+     }}
   end
 
   @spec render_stub(pid(), String.t(), String.t()) :: {:ok, map()}
@@ -280,6 +561,30 @@ defmodule Ourocode.Terminal.CommandStatusCommands do
     do: Map.get(map, key, Map.get(map, to_string(key), default))
 
   defp value(_map, _key, default), do: default
+
+  defp text_value(map, key) when is_map(map) do
+    case value(map, key) do
+      nil -> nil
+      value when is_binary(value) and value != "" -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      value when is_integer(value) -> Integer.to_string(value)
+      _value -> nil
+    end
+  end
+
+  defp text_value(_map, _key), do: nil
+
+  defp list_value_at(map, path) when is_map(map) and is_list(path) do
+    case get_in(map, path) do
+      list when is_list(list) -> list
+      _value -> []
+    end
+  end
+
+  defp list_value_at(_map, _path), do: []
+
+  defp plural(1, word), do: word
+  defp plural(_count, word), do: word <> "s"
 
   defp active_agent_count(records, "/agents") when is_list(records) do
     Enum.count(records, fn record ->

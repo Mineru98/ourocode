@@ -27,6 +27,14 @@ defmodule Ourocode.Dashboard.ChildSessionPaneRendererTest do
              rendered.pane_state.stream_entries
 
     assert sequence_id == hd(rendered.rendered_sequences).id
+
+    assert rendered.scrollback_ledger.kind == :scrollback_ledger
+    assert rendered.scrollback_ledger.block_count == 1
+
+    assert [%{id: ledger_id, kind: :message, summary: "first"}] =
+             rendered.scrollback_ledger.blocks
+
+    assert ledger_id == "ledger:" <> sequence_id
   end
 
   test "uses explicit child event ids and includes replay gaps" do

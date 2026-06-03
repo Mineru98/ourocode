@@ -29,6 +29,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfigTest do
              model: "gpt-5",
              project_dir: "/tmp/project",
              parent_call_id: "parent-1",
+             workflow_run_id: "workflow-run:parent-1",
              payload: %{"goal" => "ship"},
              round: 1,
              max_rounds: 3,

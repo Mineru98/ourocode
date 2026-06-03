@@ -17,10 +17,22 @@ defmodule Ourocode.Terminal.KeySgrMouseTest do
            }
   end
 
-  test "consumes non-wheel reports as other mouse input" do
+  test "decodes button and hover reports" do
     assert KeySgrMouse.parse("0;5;6M") == {
              :ok,
-             %{type: :mouse, key: :other, x: nil, y: nil},
+             %{type: :mouse, key: :mouse_down, x: 5, y: 6},
+             ""
+           }
+
+    assert KeySgrMouse.parse("35;7;8M") == {
+             :ok,
+             %{type: :mouse, key: :mouse_move, x: 7, y: 8},
+             ""
+           }
+
+    assert KeySgrMouse.parse("0;5;6m") == {
+             :ok,
+             %{type: :mouse, key: :mouse_release, x: 5, y: 6},
              ""
            }
   end

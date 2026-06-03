@@ -10,9 +10,11 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     Dispatcher,
     InterviewProgress,
     InterviewWorkflowInvocation,
+    LoopBindingEventFlow,
     McpDaemonBinding,
     OuroborosDirectInvocation,
     OuroborosWorkflowInvocation,
+    WorkflowHarness,
     WorkflowRelay
   }
 
@@ -92,12 +94,26 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
       when is_pid(agent) and is_map(callbacks) do
     if ouroboros_route?(task_request) do
       parent_call_id = parent_call_id(task_request)
+      workflow_run_id = "workflow-run:" <> parent_call_id
+
+      LoopBindingEventFlow.enqueue(
+        agent,
+        WorkflowHarness.run_started_event(parent_call_id, task_request, run_id: workflow_run_id)
+      )
 
       if interview_task?(task_request),
         do: InterviewProgress.mark_dispatching(agent, task_request, parent_call_id)
 
       spawn(fn ->
-        dispatch_workflow(agent, runtime, task_request, input_event, parent_call_id, callbacks)
+        dispatch_workflow(
+          agent,
+          runtime,
+          task_request,
+          input_event,
+          parent_call_id,
+          workflow_run_id,
+          callbacks
+        )
       end)
     end
 
@@ -168,18 +184,31 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
 
   def project_dir(_runtime), do: File.cwd!()
 
-  defp dispatch_workflow(agent, runtime, task_request, input_event, parent_call_id, callbacks) do
+  defp dispatch_workflow(
+         agent,
+         runtime,
+         task_request,
+         input_event,
+         parent_call_id,
+         workflow_run_id,
+         callbacks
+       ) do
     model = input_event_model(input_event) || Catalog.default()
 
     context =
       if direct_task?(task_request) do
-        %{cwd: project_dir(runtime)}
+        %{
+          cwd: project_dir(runtime),
+          workflow_run_id: workflow_run_id
+        }
       else
         {:ok, mcp_url} = McpDaemonBinding.ensure(agent, model)
 
         %{
           streamable_http_url: mcp_url,
-          mcp_invoker: transport_invoker(agent, runtime, parent_call_id, model, callbacks)
+          workflow_run_id: workflow_run_id,
+          mcp_invoker:
+            transport_invoker(agent, runtime, parent_call_id, workflow_run_id, model, callbacks)
         }
       end
 
@@ -190,6 +219,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
         |> Map.merge(%{
           request_id: "req-" <> to_string(task_request.id),
           parent_call_id: parent_call_id,
+          workflow_run_id: workflow_run_id,
           cwd: project_dir(runtime)
         })
         |> Map.merge(workflow_context(agent))
@@ -199,10 +229,19 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
         :ok
 
       {:error, reason} ->
+        LoopBindingEventFlow.enqueue(agent, WorkflowHarness.failure_event(parent_call_id, reason))
         callbacks.enqueue_failure.(agent, parent_call_id, {:dispatch_failed, reason})
     end
   rescue
     exception ->
+      LoopBindingEventFlow.enqueue(
+        agent,
+        WorkflowHarness.failure_event(
+          "parent-" <> to_string(task_request.id),
+          {:dispatch_exception, Exception.message(exception)}
+        )
+      )
+
       callbacks.enqueue_failure.(
         agent,
         "parent-" <> to_string(task_request.id),
@@ -210,14 +249,14 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
       )
   end
 
-  defp transport_invoker(agent, runtime, parent_call_id, model, callbacks) do
+  defp transport_invoker(agent, runtime, parent_call_id, workflow_run_id, model, callbacks) do
     fn payload, _transport_options ->
-      start_relay(agent, runtime, parent_call_id, payload, model, callbacks)
+      start_relay(agent, runtime, parent_call_id, workflow_run_id, payload, model, callbacks)
       {:ok, %{parent_call_id: parent_call_id}}
     end
   end
 
-  defp start_relay(agent, runtime, parent_call_id, payload, model, callbacks) do
+  defp start_relay(agent, runtime, parent_call_id, workflow_run_id, payload, model, callbacks) do
     if interview_payload?(payload) do
       spawn(fn ->
         callbacks.run_interview_session.(
@@ -226,6 +265,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
           initial_payload: payload,
           parent_call_fun: callbacks.production_parent_call.(agent, runtime, parent_call_id),
           model: model,
+          workflow_run_id: workflow_run_id,
           project_dir: project_dir(runtime)
         )
       end)
@@ -237,7 +277,8 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
           parent_call_id,
           payload,
           project_dir(runtime),
-          callbacks.mcp_url.()
+          callbacks.mcp_url.(),
+          workflow_run_id: workflow_run_id
         )
       end)
     end
