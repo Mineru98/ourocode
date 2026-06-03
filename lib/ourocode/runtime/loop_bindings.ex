@@ -20,6 +20,8 @@ defmodule Ourocode.Runtime.LoopBindings do
   """
 
   alias Ourocode.Runtime.McpDaemon
+  alias Ourocode.Plugin.UserLevel.Entry, as: UserLevelEntry
+  alias Ourocode.Plugin.UserLevel.Registry, as: UserLevelRegistry
 
   alias Ourocode.Runtime.{
     LoopBindingEventFlow,
@@ -203,6 +205,8 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   defp on_prompt_input_fun(agent, runtime) do
     fn task_request, input_event, _startup_result ->
+      task_request = refine_user_level_route(task_request, runtime)
+
       LoopBindingWorkflowDispatch.handle_prompt(
         agent,
         runtime,
@@ -272,4 +276,27 @@ defmodule Ourocode.Runtime.LoopBindings do
   defp mcp_url do
     System.get_env("OUROCODE_MCP_URL") || "http://127.0.0.1:4000/mcp"
   end
+
+  defp refine_user_level_route(task_request, runtime) do
+    if UserLevelEntry.candidate_input?(Map.get(task_request, :task_input)) do
+      UserLevelEntry.refine(task_request, user_level_capabilities(runtime))
+    else
+      task_request
+    end
+  end
+
+  defp user_level_capabilities(%{services: %{user_level_plugin_registry: pid}})
+       when is_pid(pid) do
+    pid
+    |> UserLevelRegistry.list()
+    |> Map.get(:capabilities, [])
+  rescue
+    _exception -> []
+  end
+
+  defp user_level_capabilities(%{user_level_capabilities: capabilities})
+       when is_list(capabilities),
+       do: capabilities
+
+  defp user_level_capabilities(_runtime), do: []
 end

@@ -24,6 +24,31 @@ defmodule Ourocode.Plugin.UserLevel.Entry do
   alias Ourocode.Plugin.UserLevel.Resolver
   alias Ourocode.TaskRequest
 
+  @known_ouroboros_commands MapSet.new([
+                              "auto",
+                              "interview",
+                              "pm",
+                              "seed",
+                              "run",
+                              "execute",
+                              "evolve",
+                              "ralph",
+                              "status",
+                              "evaluate",
+                              "qa",
+                              "lateral",
+                              "brownfield",
+                              "cancel",
+                              "resume_session",
+                              "resume-session",
+                              "update",
+                              "setup",
+                              "publish",
+                              "welcome",
+                              "tutorial",
+                              "help"
+                            ])
+
   @doc """
   Returns a TaskRequest whose routing_decision is rewritten to
   `:user_level_plugin` when the input targets a known plugin; otherwise
@@ -61,6 +86,30 @@ defmodule Ourocode.Plugin.UserLevel.Entry do
   end
 
   def refine(task_request, _capabilities), do: task_request
+
+  @doc """
+  Returns true when the prompt is shaped like an `ooo <plugin> ...` command
+  that may need UserLevel plugin discovery.
+
+  Built-in Ouroboros actions return false so normal interview/auto/run prompts
+  do not pay a plugin discovery cost.
+  """
+  @spec candidate_input?(String.t()) :: boolean()
+  def candidate_input?(input) when is_binary(input) do
+    input
+    |> String.trim()
+    |> String.split(~r/\s+/u, trim: true)
+    |> case do
+      [prefix, plugin_token | _rest] ->
+        String.downcase(prefix) in ["ooo", "ouroboros"] and
+          not MapSet.member?(@known_ouroboros_commands, String.downcase(plugin_token))
+
+      _other ->
+        false
+    end
+  end
+
+  def candidate_input?(_input), do: false
 
   defp plugin_id_from_input(input) do
     input

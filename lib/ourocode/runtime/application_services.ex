@@ -4,6 +4,7 @@ defmodule Ourocode.Runtime.ApplicationServices do
   """
 
   alias Ourocode.Plugin.ConfigWatcher
+  alias Ourocode.Plugin.UserLevel.Registry, as: UserLevelRegistry
   alias Ourocode.Runtime.ApplicationState
 
   @spec start(map(), Path.t(), Path.t()) ::
@@ -41,6 +42,7 @@ defmodule Ourocode.Runtime.ApplicationServices do
       agent_child(:pane_model, ApplicationState.pane_model_state()),
       agent_child(:focus_state, ApplicationState.focus_state()),
       agent_child(:plugin_registry, ApplicationState.plugin_state(context)),
+      Supervisor.child_spec({UserLevelRegistry, name: nil}, id: :user_level_plugin_registry),
       Supervisor.child_spec(
         {ConfigWatcher,
          ApplicationState.plugin_config_watcher_options(context, project_dir, journal_path)},

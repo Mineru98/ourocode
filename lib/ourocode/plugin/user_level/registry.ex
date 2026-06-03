@@ -65,7 +65,9 @@ defmodule Ourocode.Plugin.UserLevel.Registry do
       adapter_options: adapter_options
     }
 
-    case Agent.start_link(fn -> initial end, name: name) do
+    start_opts = if is_nil(name), do: [], else: [name: name]
+
+    case Agent.start_link(fn -> initial end, start_opts) do
       {:ok, pid} ->
         if eager?, do: _ = refresh(name)
         {:ok, pid}

@@ -3,6 +3,7 @@ defmodule Ourocode.Terminal.EventLoopPromptInput do
   Normalizes and dispatches natural-language prompt input events.
   """
 
+  alias Ourocode.Plugin.UserLevel.Entry, as: UserLevelEntry
   alias Ourocode.Runtime.FocusState
   alias Ourocode.TaskRequest
 
@@ -19,6 +20,7 @@ defmodule Ourocode.Terminal.EventLoopPromptInput do
       |> Map.put(:source, Map.get(options, :task_source, :dashboard))
 
     with {:ok, task_request} <- TaskRequest.parse(line, task_options) do
+      task_request = refine_user_level_route(task_request, options)
       {:ok, {task_request, input_event(task_request, Map.put_new(options, :raw_input, line))}}
     end
   end
@@ -129,12 +131,30 @@ defmodule Ourocode.Terminal.EventLoopPromptInput do
 
   @spec task_request_from_event(map()) :: {:ok, TaskRequest.t()} | {:error, term()}
   def task_request_from_event(input_event) do
-    TaskRequest.parse(input_event.task_input,
-      id: input_event.task_request_id,
-      source: input_event.payload.task_source,
-      submitted_at_ms: input_event.submitted_at_ms
-    )
+    with {:ok, task_request} <-
+           TaskRequest.parse(input_event.task_input,
+             id: input_event.task_request_id,
+             source: input_event.payload.task_source,
+             submitted_at_ms: input_event.submitted_at_ms
+           ) do
+      {:ok, restore_event_routing_decision(task_request, input_event)}
+    end
   end
+
+  defp restore_event_routing_decision(%TaskRequest{} = task_request, %{routing_decision: decision})
+       when is_map(decision) do
+    %{task_request | routing_decision: decision}
+  end
+
+  defp restore_event_routing_decision(%TaskRequest{} = task_request, _input_event),
+    do: task_request
+
+  defp refine_user_level_route(%TaskRequest{} = task_request, options) do
+    capabilities = Map.get(options, :user_level_capabilities, [])
+    UserLevelEntry.refine(task_request, capabilities)
+  end
+
+  defp refine_user_level_route(task_request, _options), do: task_request
 
   defp pane_directed_steering_message(
          target_pane_id,

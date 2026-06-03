@@ -476,7 +476,7 @@ defmodule Ourocode.CLITest do
              orderly?: true,
              supervisor_alive_before?: true,
              supervisor_stopped?: true,
-             service_count: 13,
+             service_count: 14,
              services_stopped?: true,
              released_service_ids: [
                :child_supervisor,
@@ -491,6 +491,7 @@ defmodule Ourocode.CLITest do
                :runtime_registry,
                :session_supervisor,
                :transport_supervisor,
+               :user_level_plugin_registry,
                :wonder_tool
              ],
              leaked_service_ids: [],

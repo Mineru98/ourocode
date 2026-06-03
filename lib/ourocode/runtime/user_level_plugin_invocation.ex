@@ -121,7 +121,9 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
   end
 
   defp evaluate(%PreflightResult{kind: :ambiguous}, _context), do: {:blocked, :ambiguous_match}
-  defp evaluate(%PreflightResult{kind: :unknown}, _context), do: {:blocked, :unknown_plugin_or_command}
+
+  defp evaluate(%PreflightResult{kind: :unknown}, _context),
+    do: {:blocked, :unknown_plugin_or_command}
 
   defp evaluate(%PreflightResult{kind: :not_applicable}, _context),
     do: {:blocked, :not_user_level_plugin_input}
@@ -193,7 +195,10 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
     end
   end
 
-  defp post_execution(%PreflightResult{kind: :unique_match, command: command} = preflight, context)
+  defp post_execution(
+         %PreflightResult{kind: :unique_match, command: command} = preflight,
+         context
+       )
        when not is_nil(command) do
     cwd = Map.get(context, :cwd) || File.cwd!()
 
@@ -201,9 +206,7 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
       if command.expected_artifacts == [] do
         []
       else
-        ArtifactWatcher.scan(command, cwd,
-          lstat?: Map.get(context, :artifact_lstat?, true)
-        )
+        ArtifactWatcher.scan(command, cwd, lstat?: Map.get(context, :artifact_lstat?, true))
       end
 
     continuation = Continuation.decide(preflight, artifacts)
@@ -232,7 +235,10 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
     end
   end
 
-  defp argv_for(%PreflightResult{kind: :unique_match, plugin: plugin, command: command, args: args}, _context) do
+  defp argv_for(
+         %PreflightResult{kind: :unique_match, plugin: plugin, command: command, args: args},
+         _context
+       ) do
     [plugin.plugin_id, command.name | args]
   end
 
@@ -242,7 +248,7 @@ defmodule Ourocode.Runtime.UserLevelPluginInvocation do
 
   defp runner_opts(context) do
     context
-    |> Map.take([:cwd, :env, :timeout_ms])
+    |> Map.take([:cwd, :env, :timeout_ms, :workflow_run_id])
     |> Map.new()
   end
 end

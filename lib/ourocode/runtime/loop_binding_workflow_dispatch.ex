@@ -14,9 +14,12 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     McpDaemonBinding,
     OuroborosDirectInvocation,
     OuroborosWorkflowInvocation,
+    UserLevelPluginInvocation,
     WorkflowHarness,
     WorkflowRelay
   }
+
+  alias Ourocode.Plugin.UserLevel.Registry, as: UserLevelRegistry
 
   @ouroboros_adapters %{
     {:ouroboros_workflow, :auto} => OuroborosWorkflowInvocation,
@@ -75,7 +78,8 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     :ouroboros_tutorial => OuroborosDirectInvocation,
     {:ouroboros_workflow, :help} => OuroborosDirectInvocation,
     {:ouroboros, :help} => OuroborosDirectInvocation,
-    :ouroboros_help => OuroborosDirectInvocation
+    :ouroboros_help => OuroborosDirectInvocation,
+    :user_level_plugin => UserLevelPluginInvocation
   }
 
   @type callbacks :: %{
@@ -92,7 +96,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
   @spec handle_prompt(pid(), map(), map(), map(), callbacks()) :: :ok
   def handle_prompt(agent, runtime, task_request, input_event, callbacks)
       when is_pid(agent) and is_map(callbacks) do
-    if ouroboros_route?(task_request) do
+    if dispatchable_route?(task_request) do
       parent_call_id = parent_call_id(task_request)
       workflow_run_id = "workflow-run:" <> parent_call_id
 
@@ -123,6 +127,10 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
   @spec ouroboros_route?(map()) :: boolean()
   def ouroboros_route?(%{routing_decision: %{execution_route: :ouroboros_workflow}}), do: true
   def ouroboros_route?(_task_request), do: false
+
+  @spec user_level_route?(map()) :: boolean()
+  def user_level_route?(%{routing_decision: %{execution_route: :user_level_plugin}}), do: true
+  def user_level_route?(_task_request), do: false
 
   @spec interview_task?(map()) :: boolean()
   def interview_task?(%{routing_decision: %{adapter_route: :interview}}), do: true
@@ -196,7 +204,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     model = input_event_model(input_event) || Catalog.default()
 
     context =
-      if direct_task?(task_request) do
+      if direct_task?(task_request) or user_level_route?(task_request) do
         %{
           cwd: project_dir(runtime),
           workflow_run_id: workflow_run_id
@@ -214,13 +222,16 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
 
     Dispatcher.dispatch(task_request,
       adapters: adapter_registry(),
+      external_command_runner: external_command_runner(runtime),
       context:
         context
         |> Map.merge(%{
           request_id: "req-" <> to_string(task_request.id),
           parent_call_id: parent_call_id,
           workflow_run_id: workflow_run_id,
-          cwd: project_dir(runtime)
+          cwd: project_dir(runtime),
+          capabilities: user_level_capabilities(runtime),
+          decision_journal: journal_path(runtime)
         })
         |> Map.merge(workflow_context(agent))
     )
@@ -289,4 +300,50 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
   end
 
   defp interview_payload?(_payload), do: false
+
+  defp dispatchable_route?(task_request) do
+    ouroboros_route?(task_request) or user_level_route?(task_request)
+  end
+
+  defp user_level_capabilities(%{services: %{user_level_plugin_registry: pid}})
+       when is_pid(pid) do
+    pid
+    |> UserLevelRegistry.list()
+    |> Map.get(:capabilities, [])
+  rescue
+    _exception -> []
+  end
+
+  defp user_level_capabilities(%{user_level_capabilities: capabilities})
+       when is_list(capabilities),
+       do: capabilities
+
+  defp user_level_capabilities(_runtime), do: []
+
+  defp journal_path(%{journal: %{path: path}}) when is_binary(path), do: path
+  defp journal_path(_runtime), do: nil
+
+  defp external_command_runner(%{user_level_external_command_runner: runner})
+       when is_function(runner, 3),
+       do: runner
+
+  defp external_command_runner(_runtime), do: &system_external_command_runner/3
+
+  defp system_external_command_runner(command, args, opts) do
+    system_opts =
+      []
+      |> maybe_put_system_opt(:cd, Map.get(opts, :cwd))
+      |> maybe_put_system_opt(:env, Map.get(opts, :env))
+
+    case System.cmd(command, args, system_opts) do
+      {stdout, status} -> {:ok, %{status: status, stdout: stdout, stderr: ""}}
+    end
+  rescue
+    exception in [ErlangError, File.Error, System.EnvError] ->
+      {:error, {:external_command_failed, Exception.message(exception)}}
+  end
+
+  defp maybe_put_system_opt(opts, _key, nil), do: opts
+  defp maybe_put_system_opt(opts, _key, ""), do: opts
+  defp maybe_put_system_opt(opts, key, value), do: Keyword.put(opts, key, value)
 end
