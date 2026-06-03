@@ -1,11 +1,15 @@
 defmodule Ourocode.Dashboard.ChildSessionPaneRenderer do
   @moduledoc false
 
+  alias Ourocode.Dashboard.ScrollbackLedger
+
   @spec render(map()) :: map()
   def render(%{kind: :child_session} = pane) do
     stream_entries = stream_entries(pane)
     rendered_sequences = rendered_sequences(pane, stream_entries)
     rendered_pane_state = put_rendered_sequence_ids(pane.pane_state, rendered_sequences)
+    ledger_pane = %{pane | pane_state: rendered_pane_state}
+    scrollback_ledger = ScrollbackLedger.from_child_pane(ledger_pane)
 
     rendered = %{
       id: pane.id,
@@ -20,8 +24,10 @@ defmodule Ourocode.Dashboard.ChildSessionPaneRenderer do
       stream_cursor: pane.stream_cursor,
       pane_state: rendered_pane_state,
       rendered_sequences: rendered_sequences,
+      scrollback_ledger: scrollback_ledger,
       replay_gap_error: replay_gap_error(pane),
       stream_event_count: length(stream_entries),
+      ledger_block_count: scrollback_ledger.block_count,
       last_event_seq: get_in(rendered_pane_state, [:last_event_seq]),
       updated_at_ms: pane.updated_at_ms
     }

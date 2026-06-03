@@ -3,7 +3,7 @@ defmodule Ourocode.Dashboard.LayoutRuntimeHierarchy do
   Builds and renders parent/child MCP runtime hierarchy projections.
   """
 
-  alias Ourocode.Dashboard.{ChildSessionPanes, ParentMcpPane}
+  alias Ourocode.Dashboard.{ChildSessionPanes, ParentMcpPane, ScrollbackLedger}
 
   @spec build(map(), map()) :: map()
   def build(parent_state, child_state) when is_map(parent_state) and is_map(child_state) do
@@ -87,7 +87,9 @@ defmodule Ourocode.Dashboard.LayoutRuntimeHierarchy do
       stream_cursor: pane.stream_cursor,
       pane_state: pane.pane_state,
       stream_entries: stream_entries(pane),
+      scrollback_ledger: rendered.scrollback_ledger,
       stream_event_count: rendered.stream_event_count,
+      ledger_block_count: rendered.ledger_block_count,
       updated_at_ms: pane.updated_at_ms
     }
   end
@@ -100,6 +102,7 @@ defmodule Ourocode.Dashboard.LayoutRuntimeHierarchy do
     [
       "  " <> line,
       title_segment(child),
+      ledger_segment(child),
       stream_segment(child)
     ]
     |> Enum.reject(&is_nil/1)
@@ -111,6 +114,29 @@ defmodule Ourocode.Dashboard.LayoutRuntimeHierarchy do
   end
 
   defp title_segment(_child), do: nil
+
+  defp ledger_segment(%{scrollback_ledger: %{blocks: blocks}})
+       when is_list(blocks) and blocks != [] do
+    summaries =
+      blocks
+      |> Enum.map(&ledger_block_summary/1)
+      |> Enum.reject(&(&1 == ""))
+
+    case summaries do
+      [] -> nil
+      summaries -> "ledger=[" <> Enum.join(summaries, "|") <> "]"
+    end
+  end
+
+  defp ledger_segment(_child), do: nil
+
+  defp ledger_block_summary(block) when is_map(block) do
+    block
+    |> ScrollbackLedger.render_block_line()
+    |> String.replace("|", "/")
+  end
+
+  defp ledger_block_summary(_block), do: ""
 
   defp stream_segment(%{stream_entries: entries}) when is_list(entries) and entries != [] do
     summaries =

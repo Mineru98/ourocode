@@ -35,20 +35,33 @@ defmodule Ourocode.Dashboard.ChildSessionPaneLifecycle do
       Map.put(state, :child_pane_registry, registry)
     else
       pane = ChildSessionReplay.surface_replay_cursor_gap(pane, existing_pane, pane_id)
+      pane_for_insert = ChildSessionPaneStore.merge_existing(existing_panes, pane)
 
-      working =
-        ChildSessionPaneStore.upsert(
-          working,
-          ChildSessionPaneStore.merge_existing(existing_panes, pane),
-          fn existing ->
-            ChildSessionPaneStore.merge(existing, pane)
-          end
-        )
+      {working, completed} =
+        if pane.status == :completed do
+          {
+            ChildSessionPaneStore.reject(working, pane_id),
+            ChildSessionPaneStore.upsert(
+              completed,
+              %{pane_for_insert | status: :completed},
+              fn existing ->
+                %{ChildSessionPaneStore.merge(existing, pane) | status: :completed}
+              end
+            )
+          }
+        else
+          {
+            ChildSessionPaneStore.upsert(working, pane_for_insert, fn existing ->
+              ChildSessionPaneStore.merge(existing, pane)
+            end),
+            ChildSessionPaneStore.reject(completed, pane_id)
+          }
+        end
 
       %{
         state
         | working: working,
-          completed: ChildSessionPaneStore.reject(completed, pane_id),
+          completed: completed,
           focused: focused || pane_id,
           open: ChildSessionPaneStore.append_once(open, pane_id)
       }

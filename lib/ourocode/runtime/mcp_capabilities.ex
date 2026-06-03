@@ -3,6 +3,7 @@ defmodule Ourocode.Runtime.McpCapabilities do
   Absorbs MCP tool capability graphs into the live command registry.
   """
 
+  alias Ourocode.MCP.Graph
   alias Ourocode.Runtime.Application
 
   @spec ingest(map(), [map()] | term()) :: {:ok, term()} | {:error, term()}
@@ -41,9 +42,7 @@ defmodule Ourocode.Runtime.McpCapabilities do
 
   @spec tools_from_event(term()) :: [map()]
   def tools_from_event(event) when is_map(event) do
-    event
-    |> Map.get(:payload, event)
-    |> dig_tools()
+    Graph.tools_from_event(event)
   end
 
   def tools_from_event(_event), do: []
@@ -55,11 +54,17 @@ defmodule Ourocode.Runtime.McpCapabilities do
     if is_binary(name) and name != "" do
       description = tool["description"] || tool[:description] || name
 
+      input_schema =
+        tool["inputSchema"] || tool[:inputSchema] || tool["input_schema"] || tool[:input_schema] ||
+          %{}
+
       %{
         "name" => name,
         "id" => name,
         "description" => to_string(description),
         "mcp_tool" => name,
+        "input_schema" => input_schema,
+        "args" => args_from_schema(input_schema),
         "source_id" => "ouroboros",
         "discovered_from" => "ouroboros-mcp"
       }
@@ -68,15 +73,32 @@ defmodule Ourocode.Runtime.McpCapabilities do
 
   def capability_skill(_tool), do: nil
 
-  defp dig_tools(%{} = map) do
-    cond do
-      is_list(map["tools"]) -> map["tools"]
-      is_list(map[:tools]) -> map[:tools]
-      is_map(map["result"]) -> dig_tools(map["result"])
-      is_map(map[:result]) -> dig_tools(map[:result])
-      true -> []
+  defp args_from_schema(%{} = schema) do
+    required = schema |> Map.get("required", Map.get(schema, :required, [])) |> List.wrap()
+    required = MapSet.new(required, &to_string/1)
+
+    schema
+    |> Map.get("properties", Map.get(schema, :properties, %{}))
+    |> case do
+      properties when is_map(properties) ->
+        properties
+        |> Enum.map(fn {name, definition} ->
+          name = to_string(name)
+          definition = if is_map(definition), do: definition, else: %{}
+
+          %{
+            "name" => name,
+            "required" => MapSet.member?(required, name),
+            "description" =>
+              to_string(Map.get(definition, "description", Map.get(definition, :description, "")))
+          }
+        end)
+        |> Enum.sort_by(& &1["name"])
+
+      _properties ->
+        []
     end
   end
 
-  defp dig_tools(_other), do: []
+  defp args_from_schema(_schema), do: []
 end

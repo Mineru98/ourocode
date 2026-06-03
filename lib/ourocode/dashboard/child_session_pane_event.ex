@@ -22,7 +22,7 @@ defmodule Ourocode.Dashboard.ChildSessionPaneEvent do
        %{
          id: pane_id(child_id),
          kind: :child_session,
-         status: :working,
+         status: status_for(event),
          child_id: child_id,
          parent_call_id: parent_call_id,
          runtime_source: runtime_source,
@@ -131,6 +131,42 @@ defmodule Ourocode.Dashboard.ChildSessionPaneEvent do
   defp child_pane_event?(event) do
     Map.get(event, :type) in [:parent_call_started, :parent_call_event, :parent_call_result]
   end
+
+  defp status_for(%{type: :parent_call_result} = event) do
+    if completed_result?(event), do: :completed, else: :working
+  end
+
+  defp status_for(_event), do: :working
+
+  defp completed_result?(event) do
+    event
+    |> completion_candidates()
+    |> Enum.any?(&completed_status?/1)
+  end
+
+  defp completion_candidates(event) do
+    [
+      Map.get(event, :status),
+      Map.get(event, "status"),
+      get_in(event, [:result, "status"]),
+      get_in(event, [:result, :status]),
+      get_in(event, [:raw_event, "result", "status"]),
+      get_in(event, [:raw_event, :result, :status]),
+      get_in(event, [:raw_event, "data", "result", "status"]),
+      get_in(event, [:raw_event, :data, :result, :status])
+    ]
+  end
+
+  defp completed_status?(status) when status in [:completed, :complete, :done], do: true
+
+  defp completed_status?(status) when is_binary(status) do
+    status
+    |> String.trim()
+    |> String.downcase()
+    |> then(&(&1 in ["completed", "complete", "done", "succeeded", "success"]))
+  end
+
+  defp completed_status?(_status), do: false
 
   defp pane_id(child_id), do: ChildSessionIdentity.pane_id(child_id)
 end
