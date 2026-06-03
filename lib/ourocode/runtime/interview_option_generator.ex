@@ -9,7 +9,11 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
   """
 
   alias Ourocode.Model
-  alias Ourocode.Runtime.InterviewResponse
+
+  alias Ourocode.Runtime.{
+    InterviewResponse,
+    InterviewRouter.Directive
+  }
 
   @option_re ~r/\A[-*]\s*(.+?)\s*[|｜]\s*(.+)\z/u
   @default_timeout_ms 1_500
@@ -20,13 +24,20 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
   def generate(question, model, opts \\ [])
 
   def generate(question, %Model{} = model, opts) when is_binary(question) and is_list(opts) do
-    if Model.ready?(model) do
-      timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
-      on_reason = Keyword.get(opts, :on_reason, fn _chunk -> :ok end)
+    timeout_ms = timeout_ms(opts)
 
-      run_with_timeout(model, question, timeout_ms, on_reason)
-    else
-      {:error, :model_unavailable}
+    cond do
+      not Model.ready?(model) ->
+        {:error, :model_unavailable}
+
+      timeout_ms <= 0 ->
+        {:error, :invalid_timeout}
+
+      true ->
+        on_reason =
+          Keyword.get(opts, :on_reason) || Keyword.get(opts, :on_chunk, fn _chunk -> :ok end)
+
+        run_with_timeout(model, question, timeout_ms, on_reason)
     end
   end
 
@@ -41,11 +52,24 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
         end
       end)
 
-    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:ok, options}} -> {:ok, options}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:exit, reason} -> {:error, {:generator_exited, reason}}
-      nil -> {:error, :generator_timeout}
+    trap_exit? = Process.flag(:trap_exit, true)
+
+    try do
+      case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+        {:ok, {:ok, options}} -> {:ok, options}
+        {:ok, {:error, reason}} -> {:error, reason}
+        {:exit, reason} -> {:error, {:generator_exited, reason}}
+        nil -> {:error, :generator_timeout}
+      end
+    after
+      Process.flag(:trap_exit, trap_exit?)
+    end
+  end
+
+  defp timeout_ms(opts) do
+    case Keyword.get(opts, :timeout_ms, @default_timeout_ms) do
+      value when is_integer(value) -> value
+      _other -> @default_timeout_ms
     end
   end
 
@@ -75,9 +99,10 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
   def parse(text) when is_binary(text) do
     options =
       text
-      |> String.split("\n")
-      |> Enum.map(&String.trim/1)
-      |> Enum.flat_map(&parse_line/1)
+      |> directive_or_lines()
+      |> Enum.reject(&blank_option?/1)
+      |> Enum.map(&clean_option/1)
+      |> Enum.reject(&blank_option?/1)
       |> Enum.uniq_by(& &1.label)
       |> Enum.take(4)
 
@@ -86,22 +111,39 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
 
   def parse(_text), do: {:error, :no_options}
 
+  defp directive_or_lines(text) do
+    case Directive.parse(text) do
+      {:ask_user, _prompt, options} when is_list(options) -> options
+      _other -> parse_option_lines(text)
+    end
+  end
+
+  defp parse_option_lines(text) do
+    text
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.flat_map(&parse_line/1)
+  end
+
   defp parse_line(line) do
     case Regex.run(@option_re, line) do
       [_match, label, description] ->
-        label = clean_field(label)
-        description = clean_field(description)
-
-        if usable?(label) and usable?(description) do
-          [%{label: label, description: description}]
-        else
-          []
-        end
+        [%{label: label, description: description}]
 
       _no_match ->
         []
     end
   end
+
+  defp clean_option(%{label: label, description: description}) do
+    %{label: clean_field(label), description: clean_field(description)}
+  end
+
+  defp blank_option?(%{label: label, description: description}) do
+    not usable?(label) or not usable?(description)
+  end
+
+  defp blank_option?(_option), do: true
 
   defp clean_field(text) do
     text
@@ -110,5 +152,5 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
     |> String.trim()
   end
 
-  defp usable?(text), do: is_binary(text) and String.length(text) >= 2
+  defp usable?(text), do: is_binary(text) and String.length(String.trim(text)) >= 2
 end

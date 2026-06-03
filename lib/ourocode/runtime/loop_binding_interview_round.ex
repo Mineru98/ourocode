@@ -7,6 +7,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewRound do
 
   @type action ::
           {:server_error, String.t(), String.t() | nil}
+          | {:summarize_initial_context, map(), String.t()}
           | {:complete, String.t(), map(), String.t() | nil}
           | {:question, String.t(), String.t(), map(), String.t()}
           | :missing_session_id
@@ -21,6 +22,19 @@ defmodule Ourocode.Runtime.LoopBindingInterviewRound do
     meta = InterviewResponse.meta(response)
     session_id = InterviewResponse.extract_session_id(text, meta) || current_session_id
 
+    cond do
+      initial_context_too_large?(meta) and is_binary(session_id) ->
+        {:summarize_initial_context, meta, session_id}
+
+      initial_context_too_large?(meta) ->
+        :missing_session_id
+
+      true ->
+        classify_text(text, meta, session_id)
+    end
+  end
+
+  defp classify_text(text, meta, session_id) do
     case InterviewTurn.classify_response(text) do
       {:server_error, message} ->
         {:server_error, message, session_id}
@@ -34,5 +48,9 @@ defmodule Ourocode.Runtime.LoopBindingInterviewRound do
       {:question, _question} ->
         :missing_session_id
     end
+  end
+
+  defp initial_context_too_large?(meta) do
+    InterviewResponse.meta_value(meta, "reason") == "initial_context_too_large"
   end
 end

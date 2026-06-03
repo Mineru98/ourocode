@@ -46,7 +46,7 @@ defmodule Ourocode.Runtime.Dispatcher.RouteResolutionTest do
              execution_route: :ouroboros_workflow,
              runtime_source: :ouroboros,
              transport: :auto,
-             adapter_route: :interview
+             adapter_route: :auto
            }) == :ok
 
     assert RouteResolution.validate_decision(%{

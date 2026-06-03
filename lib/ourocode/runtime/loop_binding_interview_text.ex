@@ -30,7 +30,29 @@ defmodule Ourocode.Runtime.LoopBindingInterviewText do
     if String.starts_with?(trimmed, "[from-"), do: trimmed, else: "[from-user] " <> trimmed
   end
 
+  @spec summarize_initial_context(String.t(), pos_integer()) :: String.t()
+  def summarize_initial_context(text, max_chars) when is_binary(text) and is_integer(max_chars) do
+    text
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> truncate(max(max_chars, 80))
+  end
+
+  def summarize_initial_context(_text, max_chars) when is_integer(max_chars),
+    do: summarize_initial_context("", max_chars)
+
   @spec streak_after(non_neg_integer(), atom()) :: non_neg_integer()
   def streak_after(_streak, :user), do: 0
   def streak_after(streak, _source), do: streak + 1
+
+  defp truncate(text, max_chars) do
+    if String.length(text) <= max_chars do
+      text
+    else
+      text
+      |> String.slice(0, max_chars - 3)
+      |> String.trim()
+      |> Kernel.<>("...")
+    end
+  end
 end

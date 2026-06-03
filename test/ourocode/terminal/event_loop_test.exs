@@ -486,8 +486,8 @@ defmodule Ourocode.Terminal.EventLoopTest do
     assert output =~ "/help"
     refute output =~ "[builtin/discovery]"
     assert output =~ "capabilities:"
-    assert output =~ "+-- State"
-    assert output =~ "plugins: 1 available"
+    assert output =~ "status"
+    assert output =~ "ready; 1 installed plugin"
     assert output =~ "Guided workflows"
     refute output =~ "ouroboros-plugin"
 

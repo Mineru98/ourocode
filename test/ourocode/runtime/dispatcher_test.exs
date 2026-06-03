@@ -46,6 +46,16 @@ defmodule Ourocode.Runtime.DispatcherTest do
     end
   end
 
+  defmodule OuroborosAutoAdapter do
+    @behaviour Ourocode.Runtime.Adapter
+
+    @impl true
+    def execute(task_request, context) do
+      send(context.test_pid, {:adapter_called, __MODULE__, task_request, context})
+      {:ok, {:ouroboros_auto, task_request.id}}
+    end
+  end
+
   defmodule OuroborosEvolveAdapter do
     @behaviour Ourocode.Runtime.Adapter
 
@@ -73,6 +83,16 @@ defmodule Ourocode.Runtime.DispatcherTest do
     def execute(task_request, context) do
       send(context.test_pid, {:adapter_called, __MODULE__, task_request, context})
       {:ok, {:ouroboros_run, task_request.id}}
+    end
+  end
+
+  defmodule OuroborosCancelAdapter do
+    @behaviour Ourocode.Runtime.Adapter
+
+    @impl true
+    def execute(task_request, context) do
+      send(context.test_pid, {:adapter_called, __MODULE__, task_request, context})
+      {:ok, {:ouroboros_cancel, task_request.id}}
     end
   end
 
@@ -249,6 +269,19 @@ defmodule Ourocode.Runtime.DispatcherTest do
     assert context.routing_decision.adapter_route == :ralph
   end
 
+  test "dispatches ooo auto to the auto workflow adapter" do
+    task_request = parse!("ooo auto improve startup --skip-run", id: "auto-task")
+
+    assert {:ok, {:ouroboros_auto, "auto-task"}} =
+             Dispatcher.dispatch(task_request,
+               adapters: %{ouroboros_auto: OuroborosAutoAdapter},
+               context: %{test_pid: self()}
+             )
+
+    assert_receive {:adapter_called, OuroborosAutoAdapter, ^task_request, context}
+    assert context.routing_decision.adapter_route == :auto
+  end
+
   test "dispatches ooo run to the run workflow adapter" do
     task_request = parse!("ooo run seed_abc123.yaml", id: "run-task")
 
@@ -260,6 +293,19 @@ defmodule Ourocode.Runtime.DispatcherTest do
 
     assert_receive {:adapter_called, OuroborosRunAdapter, ^task_request, context}
     assert context.routing_decision.adapter_route == :run
+  end
+
+  test "dispatches direct Ouroboros control actions to atom shorthand adapters" do
+    task_request = parse!("ooo cancel execution exec-1", id: "cancel-task")
+
+    assert {:ok, {:ouroboros_cancel, "cancel-task"}} =
+             Dispatcher.dispatch(task_request,
+               adapters: %{ouroboros_cancel: OuroborosCancelAdapter},
+               context: %{test_pid: self()}
+             )
+
+    assert_receive {:adapter_called, OuroborosCancelAdapter, ^task_request, context}
+    assert context.routing_decision.adapter_route == :cancel
   end
 
   test "dispatches MCP flow routes to MCP adapter" do

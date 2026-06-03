@@ -45,6 +45,17 @@ defmodule Ourocode.Runtime.LoopBindingInterviewTextTest do
              "[from-main] answer"
   end
 
+  test "summarize_initial_context compacts whitespace and respects max chars" do
+    text = String.duplicate("scope detail ", 20)
+
+    summary = LoopBindingInterviewText.summarize_initial_context(text, 100)
+
+    assert String.length(summary) <= 100
+    assert summary =~ "scope detail"
+    assert String.ends_with?(summary, "...")
+    refute summary =~ "  "
+  end
+
   test "streak_after resets on user answers and increments otherwise" do
     assert LoopBindingInterviewText.streak_after(3, :user) == 0
     assert LoopBindingInterviewText.streak_after(3, :model) == 4

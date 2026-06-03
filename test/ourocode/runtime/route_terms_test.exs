@@ -32,12 +32,38 @@ defmodule Ourocode.Runtime.RouteTermsTest do
 
   test "detects ouroboros workflow terms and adapter routes" do
     assert RouteTerms.ouroboros_workflow?(["please", "ouroboros:evolve"])
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "auto", "build", "it"]) == :auto
     assert RouteTerms.ouroboros_adapter_route(["ooo", "pm", "build", "onboarding"]) == :interview
     assert RouteTerms.ouroboros_adapter_route(["ooo", "run", "seed_path=seed.md"]) == :run
     assert RouteTerms.ouroboros_adapter_route(["ouroboros", "execute", "seed.md"]) == :run
     assert RouteTerms.ouroboros_adapter_route(["please", "ralph"]) == :ralph
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "qa", "file.md"]) == :qa
+    assert RouteTerms.ouroboros_adapter_route(["quality", "check"]) == :qa
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "lateral", "hacker"]) == :lateral
+    assert RouteTerms.ouroboros_adapter_route(["think", "sideways"]) == :lateral
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "brownfield", "scan"]) == :brownfield
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "cancel", "execution", "exec-1"]) == :cancel
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "resume-session"]) == :resume_session
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "update"]) == :update
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "setup"]) == :setup
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "publish", "seed.yaml"]) == :publish
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "welcome"]) == :welcome
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "tutorial"]) == :tutorial
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "help"]) == :help
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "status", "session", "sess-1"]) == :status
+    assert RouteTerms.ouroboros_adapter_route(["session", "status"]) == :status
+
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "evaluate", "session", "sess-1"]) ==
+             :evaluate
+
     assert RouteTerms.ouroboros_adapter_route(["please", "workflow"]) == :workflow
     assert RouteTerms.ouroboros_adapter_route(["please", "other"]) == :workflow
+  end
+
+  test "does not treat plain run commands as implicit Ouroboros workflow" do
+    refute RouteTerms.ouroboros_workflow?(["run", "the", "unit", "tests"])
+    refute RouteTerms.ouroboros_workflow?(["git", "status"])
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "run", "seed_path=seed.md"]) == :run
   end
 
   test "extracts transport hints from tokens" do

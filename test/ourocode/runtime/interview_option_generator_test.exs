@@ -20,6 +20,20 @@ defmodule Ourocode.Runtime.InterviewOptionGeneratorTest do
     assert Enum.map(options, & &1.label) == ["질문이 이어진다", "답변이 반영된다"]
   end
 
+  test "generates options from ASK_USER-shaped model output" do
+    model =
+      scripted_model("""
+      ASK_USER What should this clarify?
+      - User-visible failure | Describe what users see today
+      - Correct replacement | Describe the expected fixed behavior
+      """)
+
+    assert {:ok, options} =
+             InterviewOptionGenerator.generate("What should this clarify?", model)
+
+    assert Enum.map(options, & &1.label) == ["User-visible failure", "Correct replacement"]
+  end
+
   test "returns an error instead of inventing choices when the model gives no option lines" do
     model = scripted_model("ASK_USER What should happen next?")
 
@@ -27,12 +41,43 @@ defmodule Ourocode.Runtime.InterviewOptionGeneratorTest do
              InterviewOptionGenerator.generate("What should happen next?", model)
   end
 
-  defp scripted_model(reply) do
+  test "times out instead of blocking the interview picker" do
+    model =
+      %Model{
+        id: :slow_fake,
+        label: "slow fake",
+        kind: :cli,
+        status: :ready,
+        run: fn _prompt, _opts, _on_chunk -> Process.sleep(:infinity) end
+      }
+
+    assert {:error, :generator_timeout} =
+             InterviewOptionGenerator.generate("What should this clarify?", model, timeout_ms: 10)
+  end
+
+  test "does not call unavailable models" do
+    assert {:error, :model_unavailable} =
+             InterviewOptionGenerator.generate(
+               "What should this clarify?",
+               scripted_model("- A | B", :unavailable)
+             )
+  end
+
+  test "rejects invalid timeouts" do
+    assert {:error, :invalid_timeout} =
+             InterviewOptionGenerator.generate(
+               "What should this clarify?",
+               scripted_model("- A | B"),
+               timeout_ms: 0
+             )
+  end
+
+  defp scripted_model(reply, status \\ :ready) do
     %Model{
       id: :fake,
       label: "fake",
       kind: :cli,
-      status: :ready,
+      status: status,
       run: fn _prompt, _opts, on_chunk ->
         if is_function(on_chunk, 1), do: on_chunk.(reply)
         {:ok, reply}

@@ -29,6 +29,17 @@ defmodule Ourocode.Runtime.RouteClassifierTest do
   end
 
   test "classifies explicit Ouroboros workflow shortcuts with adapter route" do
+    assert RouteClassifier.routing_decision("ooo auto improve onboarding") == %{
+             kind: :ouroboros_workflow,
+             execution_route: :ouroboros_workflow,
+             runtime_source: :ouroboros,
+             transport: :auto,
+             requires_command_syntax?: false,
+             advanced_shortcut?: true,
+             reason: :explicit_ouroboros_shortcut,
+             adapter_route: :auto
+           }
+
     assert RouteClassifier.routing_decision("ooo run seed_path=seed.md") == %{
              kind: :ouroboros_workflow,
              execution_route: :ouroboros_workflow,
@@ -42,6 +53,30 @@ defmodule Ourocode.Runtime.RouteClassifierTest do
 
     assert %{adapter_route: :interview} =
              RouteClassifier.routing_decision("ooo pm build onboarding")
+
+    assert %{adapter_route: :status} =
+             RouteClassifier.routing_decision("ooo status session sess-123")
+
+    assert %{adapter_route: :evaluate} =
+             RouteClassifier.routing_decision("ooo evaluate session sess-123")
+
+    assert %{adapter_route: :qa} =
+             RouteClassifier.routing_decision("ooo qa artifact.md")
+
+    assert %{adapter_route: :lateral} =
+             RouteClassifier.routing_decision("ooo lateral hacker simplify state")
+
+    assert %{adapter_route: :brownfield} =
+             RouteClassifier.routing_decision("ooo brownfield scan")
+
+    assert %{adapter_route: :cancel} =
+             RouteClassifier.routing_decision("ooo cancel execution exec-1")
+
+    assert %{adapter_route: :resume_session} =
+             RouteClassifier.routing_decision("ooo resume-session")
+
+    assert %{adapter_route: :publish} =
+             RouteClassifier.routing_decision("ooo publish seed.yaml")
   end
 
   test "classifies natural Ouroboros workflow terms" do
@@ -78,5 +113,7 @@ defmodule Ourocode.Runtime.RouteClassifierTest do
              advanced_shortcut?: false,
              reason: :default_natural_language_runtime
            }
+
+    assert %{execution_route: :runtime} = RouteClassifier.routing_decision("git status")
   end
 end
