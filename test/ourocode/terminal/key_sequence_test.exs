@@ -44,6 +44,18 @@ defmodule Ourocode.Terminal.KeySequenceTest do
              ""
            }
 
+    assert KeySequence.csi("<0;5;6M") == {
+             :ok,
+             %{type: :mouse, key: :mouse_down, x: 5, y: 6},
+             ""
+           }
+
+    assert KeySequence.csi("<35;7;8M") == {
+             :ok,
+             %{type: :mouse, key: :mouse_move, x: 7, y: 8},
+             ""
+           }
+
     assert KeySequence.csi("<64;10") == :incomplete
   end
 

@@ -9,6 +9,7 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
   """
 
   alias Ourocode.Dashboard.Layout
+  alias Ourocode.Dashboard.ScrollbackLedger
   alias Ourocode.Terminal.LayoutSegment
 
   @terminal_width 80
@@ -114,14 +115,7 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
 
         roots ->
           Enum.map(roots, fn parent ->
-            frame =
-              Layout.render_runtime_frame(%{
-                id: :mcp_runtime_hierarchy,
-                roots: [parent],
-                orphan_children: []
-              })
-
-            "| parent " <> first_runtime_line(frame)
+            "| parent " <> parent_tree_line(parent)
           end)
       end
 
@@ -146,25 +140,97 @@ defmodule Ourocode.Terminal.ParentChildPaneArea do
           ["| child empty"]
 
         children ->
-          Enum.map(children, fn child ->
-            "| child " <> child.line <> child_title_segment(child)
+          Enum.flat_map(children, fn child ->
+            ["| child " <> child_tree_line(child)] ++ child_ledger_lines(child)
           end)
       end
 
     ([header] ++ lines) |> Enum.join("\n")
   end
 
-  defp first_runtime_line(frame) do
-    frame
-    |> String.split("\n")
-    |> Enum.find("", &String.starts_with?(&1, "["))
+  defp parent_tree_line(parent) do
+    child_count = parent |> Map.get(:children, []) |> length()
+
+    [
+      "MCP toolcall " <> parent_tool(parent),
+      status_part(parent),
+      "#{child_count} child #{plural(child_count, "pane")}",
+      event_part(parent)
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" · ")
+    |> Kernel.<>(" · parent=#{parent.parent_call_id}")
   end
 
-  defp child_title_segment(%{title: title}) when is_binary(title) and title != "" do
-    " title=" <> inspect(title)
+  defp child_tree_line(child) do
+    [
+      child.child_id,
+      status_part(child),
+      latest_child_output(child),
+      "parent=#{child.parent_call_id}"
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" · ")
   end
 
-  defp child_title_segment(_child), do: ""
+  defp parent_tool(parent) do
+    get_in(parent, [:params, :name]) ||
+      get_in(parent, [:params, "name"]) ||
+      Map.get(parent, :method) ||
+      "tools/call"
+  end
+
+  defp status_part(%{status: status}) when is_binary(status), do: status
+  defp status_part(%{status: status}) when is_atom(status), do: Atom.to_string(status)
+  defp status_part(_pane), do: "active"
+
+  defp event_part(parent) do
+    seq =
+      get_in(parent, [:stream_cursor, :event_seq]) ||
+        get_in(parent, [:pane_state, :last_event_seq])
+
+    if seq, do: "event #{seq}", else: ""
+  end
+
+  defp latest_child_output(%{stream_entries: entries} = child) when is_list(entries) do
+    entries
+    |> List.last()
+    |> stream_entry_text()
+    |> case do
+      nil -> child_title(child)
+      text -> text
+    end
+  end
+
+  defp latest_child_output(child), do: child_title(child)
+
+  defp child_ledger_lines(%{scrollback_ledger: %{blocks: blocks}})
+       when is_list(blocks) and blocks != [] do
+    blocks
+    |> Enum.take(-5)
+    |> Enum.map(fn block ->
+      "|   " <> ScrollbackLedger.render_block_line(block)
+    end)
+  end
+
+  defp child_ledger_lines(_child), do: []
+
+  defp child_title(%{title: title}) when is_binary(title) and title != "", do: title
+  defp child_title(_child), do: "stream open"
+
+  defp stream_entry_text(entry) when is_map(entry) do
+    Map.get(entry, :token) ||
+      Map.get(entry, "token") ||
+      Map.get(entry, :delta) ||
+      Map.get(entry, "delta") ||
+      Map.get(entry, :content) ||
+      Map.get(entry, "content")
+  end
+
+  defp stream_entry_text(_entry), do: nil
+
+  defp plural(1, word), do: word
+  defp plural(_count, word), do: word <> "s"
 
   defp parent_region do
     %{x: 0, y: 0, width: @terminal_width, height: @parent_height}

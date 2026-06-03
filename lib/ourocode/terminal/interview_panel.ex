@@ -6,6 +6,7 @@ defmodule Ourocode.Terminal.InterviewPanel do
   alias Ourocode.Runtime.InterviewOptionSynthesizer
   alias Ourocode.Terminal.InterviewPanel.Dialogue
   alias Ourocode.Terminal.InterviewPanel.Hints
+  alias Ourocode.Terminal.InterviewPanel.QuestionLedger
   alias Ourocode.Terminal.InterviewPanel.Status
   alias Ourocode.Terminal.InterviewPanel.Text
   alias Ourocode.Terminal.InterviewPanel.WonderPicker
@@ -170,13 +171,16 @@ defmodule Ourocode.Terminal.InterviewPanel do
         case interview_option_rows(result) do
           [] ->
             result
-            |> dialogue_rows(false)
+            |> interview_ledger_or_dialogue_rows(false)
             |> maybe_prepend_current_question(result)
             |> Kernel.++(interview_error_rows(result))
             |> Kernel.++(interview_status_rows(result, tick))
 
           option_rows ->
-            option_rows ++ interview_status_rows(result, tick)
+            result
+            |> interview_ledger_rows(include_current?: false)
+            |> Kernel.++(option_rows)
+            |> Kernel.++(interview_status_rows(result, tick))
         end
 
       rows ->
@@ -198,6 +202,19 @@ defmodule Ourocode.Terminal.InterviewPanel do
       _other ->
         []
     end
+  end
+
+  defp interview_ledger_or_dialogue_rows(result, drop_trailing_mcp?) do
+    case interview_ledger_rows(result) do
+      [] -> dialogue_rows(result, drop_trailing_mcp?)
+      rows -> rows
+    end
+  end
+
+  defp interview_ledger_rows(result, opts \\ []) do
+    result
+    |> interview_state()
+    |> QuestionLedger.rows(opts)
   end
 
   defp interview_decision_pending?(result) do
@@ -471,14 +488,17 @@ defmodule Ourocode.Terminal.InterviewPanel do
           []
         else
           rows =
-            [
-              {"Round accepted", :strong},
-              transition_question_row(interview),
-              {"Answer    " <> answer, :strong},
-              transition_phase_row(interview),
-              :rule,
-              {transition_working_line(tick, interview), :dim}
-            ]
+            (QuestionLedger.rows(interview,
+               expand_selected?: expand_transition_selection?(interview)
+             ) ++
+               [
+                 {"Round accepted", :strong},
+                 transition_question_row(interview),
+                 {"Answer    " <> answer, :strong},
+                 transition_phase_row(interview),
+                 :rule,
+                 {transition_working_line(tick, interview), :dim}
+               ])
             |> Enum.reject(&is_nil/1)
 
           rows ++ Enum.map(delayed_waiting_action_rows(result), &{&1, :dim})
@@ -495,6 +515,14 @@ defmodule Ourocode.Terminal.InterviewPanel do
   end
 
   defp transition_question_row(_interview), do: nil
+
+  defp expand_transition_selection?(interview) do
+    explicit_selected =
+      Map.get(interview, :selected_question_block_id) ||
+        Map.get(interview, "selected_question_block_id")
+
+    is_binary(explicit_selected) and String.trim(explicit_selected) != ""
+  end
 
   defp transition_phase_row(%{status: status}) when is_binary(status) do
     {"Next      " <> transition_phase_label(status), :dim}

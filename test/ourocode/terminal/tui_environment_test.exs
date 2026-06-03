@@ -26,10 +26,10 @@ defmodule Ourocode.Terminal.TuiEnvironmentTest do
     refute TuiEnvironment.interactive?(%{input: :stdio, output: :stdio})
   end
 
-  test "terminal control sequences do not enable mouse reporting" do
-    refute TuiEnvironment.terminal_enter_sequence() =~ "?1000h"
-    refute TuiEnvironment.terminal_enter_sequence() =~ "?1006h"
-    refute TuiEnvironment.terminal_exit_sequence() =~ "?1000l"
-    refute TuiEnvironment.terminal_exit_sequence() =~ "?1006l"
+  test "terminal control sequences enable SGR mouse reporting for ledger inspection" do
+    assert TuiEnvironment.terminal_enter_sequence() =~ "?1003h"
+    assert TuiEnvironment.terminal_enter_sequence() =~ "?1006h"
+    assert TuiEnvironment.terminal_exit_sequence() =~ "?1003l"
+    assert TuiEnvironment.terminal_exit_sequence() =~ "?1006l"
   end
 end

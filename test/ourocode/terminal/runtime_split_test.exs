@@ -22,6 +22,11 @@ defmodule Ourocode.Terminal.RuntimeSplitTest do
     assert parent_h + child_h + 4 <= 8
   end
 
+  test "split keeps a ledger-first main column while reserving a sidebar" do
+    assert RuntimeSplit.split_left_width(80) == 45
+    assert RuntimeSplit.split_left_width(120) == 80
+  end
+
   test "pane_lines filters empty panes and humanizes compact runtime fields" do
     body = [
       "parent empty",

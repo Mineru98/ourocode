@@ -4,6 +4,7 @@ defmodule Ourocode.Terminal.TuiInteraction do
   alias Ourocode.Terminal.{
     InterviewLiveState,
     InterviewPanel,
+    InterviewPanel.QuestionLedger,
     TuiAnswerSubmission,
     TuiState,
     WonderNavigation
@@ -11,14 +12,12 @@ defmodule Ourocode.Terminal.TuiInteraction do
 
   @spec handle_event(map(), map(), pid(), pid()) :: :ok
   def handle_event(%{key: :enter}, result, output, state) do
-    answer = String.trim(TuiState.take_buffer(state))
-
-    case TuiAnswerSubmission.submit_enter_answer(answer, result, output, state, context(result)) do
-      :handled ->
-        :ok
-
-      :not_handled ->
-        submit_selection(result, output, state)
+    if String.trim(TuiState.buffer(state)) == "" and
+         is_binary(TuiState.mcp_ledger_selected_id(state)) do
+      TuiState.push_notification(state, "tool call opened", 900)
+      :ok
+    else
+      submit_enter(result, output, state)
     end
   end
 
@@ -36,6 +35,18 @@ defmodule Ourocode.Terminal.TuiInteraction do
   end
 
   def handle_event(_event, _result, _output, _state), do: :ok
+
+  defp submit_enter(result, output, state) do
+    answer = String.trim(TuiState.take_buffer(state))
+
+    case TuiAnswerSubmission.submit_enter_answer(answer, result, output, state, context(result)) do
+      :handled ->
+        :ok
+
+      :not_handled ->
+        submit_selection(result, output, state)
+    end
+  end
 
   @spec submit_slash_answer(String.t(), map(), pid(), pid()) :: :ok
   def submit_slash_answer(answer, result, output, state) when is_binary(answer) do
@@ -78,21 +89,41 @@ defmodule Ourocode.Terminal.TuiInteraction do
 
   @spec nav_event?(map(), String.t(), map(), pid()) :: boolean()
   def nav_event?(event, buffer, result, state) do
-    WonderNavigation.nav_event?(
-      event,
-      buffer,
-      selection_detection(result),
-      TuiState.wonder_nav(state)
-    )
+    cond do
+      ledger_mouse_event?(event) and ledger_mouse_routable?(event, state) ->
+        true
+
+      true ->
+        nav_selection_event?(event, buffer, result, state)
+    end
+  end
+
+  defp nav_selection_event?(event, buffer, result, state) do
+    case selection_detection(result) do
+      nil ->
+        buffer == "" and ledger_nav_event?(event, result, state)
+
+      detection ->
+        WonderNavigation.nav_event?(event, buffer, detection, TuiState.wonder_nav(state))
+    end
   end
 
   @spec handle_nav(map(), map(), pid()) :: :ok
   def handle_nav(event, result, state) do
     detection = selection_detection(result)
 
-    case nav_after(detection, TuiState.wonder_nav(state), event) do
-      nil -> :ok
-      nav -> TuiState.put_wonder_nav(state, nav)
+    cond do
+      ledger_mouse_event?(event) ->
+        handle_ledger_mouse(event, state)
+
+      detection ->
+        case nav_after(detection, TuiState.wonder_nav(state), event) do
+          nil -> :ok
+          nav -> TuiState.put_wonder_nav(state, nav)
+        end
+
+      true ->
+        handle_ledger_nav(event, result, state)
     end
 
     :ok
@@ -134,7 +165,14 @@ defmodule Ourocode.Terminal.TuiInteraction do
   def wonder_active?(result), do: wonder_detection(result) != nil
 
   @spec selection_active?(map()) :: boolean()
-  def selection_active?(result), do: selection_detection(result) != nil
+  def selection_active?(result),
+    do: selection_detection(result) != nil or ledger_blocks(result) != []
+
+  @spec mcp_ledger_active?(pid()) :: boolean()
+  def mcp_ledger_active?(state) when is_pid(state),
+    do:
+      map_size(TuiState.mcp_ledger_hit_map(state)) > 0 or
+        is_binary(TuiState.mcp_ledger_selected_id(state))
 
   @spec interview_active?(map()) :: boolean()
   def interview_active?(result) do
@@ -226,6 +264,149 @@ defmodule Ourocode.Terminal.TuiInteraction do
     else
       _other -> nil
     end
+  end
+
+  defp ledger_nav_event?(%{key: key}, result, state) when key in [:up, :down],
+    do: ledger_blocks(result) != [] or mcp_ledger_ids(state) != []
+
+  defp ledger_nav_event?(%{key: :char, char: char}, result, state)
+       when char in ["j", "k", "+", "-"],
+       do: ledger_blocks(result) != [] or mcp_ledger_ids(state) != []
+
+  defp ledger_nav_event?(%{key: :char, char: char}, result, state) when is_binary(char),
+    do: char =~ ~r/^[1-9]$/ and (ledger_blocks(result) != [] or mcp_ledger_ids(state) != [])
+
+  defp ledger_nav_event?(_event, _result, _state), do: false
+
+  defp ledger_mouse_event?(%{type: :mouse, key: key}) when key in [:mouse_move, :mouse_down],
+    do: true
+
+  defp ledger_mouse_event?(_event), do: false
+
+  defp ledger_mouse_routable?(%{key: :mouse_down, x: x, y: y}, state),
+    do: is_binary(hit_ledger_id(state, x, y)) or is_binary(hit_mcp_ledger_id(state, x, y))
+
+  defp ledger_mouse_routable?(%{key: :mouse_move, x: x, y: y}, state) do
+    is_binary(hit_ledger_id(state, x, y)) or
+      is_binary(hit_mcp_ledger_id(state, x, y)) or
+      is_binary(TuiState.interview_ledger_hover_id(state)) or
+      is_binary(TuiState.mcp_ledger_hover_id(state))
+  end
+
+  defp ledger_mouse_routable?(_event, _state), do: false
+
+  defp handle_ledger_mouse(%{key: :mouse_move, x: x, y: y}, state) do
+    TuiState.put_interview_ledger_hover_id(state, hit_ledger_id(state, x, y))
+    TuiState.put_mcp_ledger_hover_id(state, hit_mcp_ledger_id(state, x, y))
+  end
+
+  defp handle_ledger_mouse(%{key: :mouse_down, x: x, y: y}, state) do
+    case {hit_ledger_id(state, x, y), hit_mcp_ledger_id(state, x, y)} do
+      {id, _mcp_id} when is_binary(id) ->
+        TuiState.put_mcp_ledger_hover_id(state, nil)
+        TuiState.put_interview_ledger_hover_id(state, id)
+        TuiState.put_interview_ledger_selected_id(state, id)
+        TuiState.push_notification(state, "question opened", 900)
+
+      {_interview_id, id} when is_binary(id) ->
+        TuiState.put_interview_ledger_hover_id(state, nil)
+        TuiState.put_mcp_ledger_hover_id(state, id)
+        TuiState.put_mcp_ledger_selected_id(state, id)
+        TuiState.push_notification(state, "tool call opened", 900)
+
+      _none ->
+        TuiState.put_interview_ledger_hover_id(state, nil)
+        TuiState.put_mcp_ledger_hover_id(state, nil)
+    end
+  end
+
+  defp handle_ledger_mouse(_event, _state), do: :ok
+
+  defp hit_ledger_id(state, x, y) when is_integer(x) and is_integer(y) do
+    case Map.get(TuiState.interview_ledger_hit_map(state), y) do
+      %{id: id, x1: x1, x2: x2} when x >= x1 and x <= x2 -> id
+      _none -> nil
+    end
+  end
+
+  defp hit_ledger_id(_state, _x, _y), do: nil
+
+  defp hit_mcp_ledger_id(state, x, y) when is_integer(x) and is_integer(y) do
+    case Map.get(TuiState.mcp_ledger_hit_map(state), y) do
+      %{id: id, x1: x1, x2: x2} when x >= x1 and x <= x2 -> id
+      _none -> nil
+    end
+  end
+
+  defp hit_mcp_ledger_id(_state, _x, _y), do: nil
+
+  defp handle_ledger_nav(event, result, state) do
+    blocks = ledger_blocks(result)
+    mcp_ids = mcp_ledger_ids(state)
+
+    cond do
+      mcp_ids != [] and (blocks == [] or is_binary(TuiState.mcp_ledger_selected_id(state))) ->
+        selected_id = TuiState.mcp_ledger_selected_id(state) || List.last(mcp_ids)
+        current_index = Enum.find_index(mcp_ids, &(&1 == selected_id)) || length(mcp_ids) - 1
+        next_index = ledger_next_index(event, current_index, length(mcp_ids))
+        selected = Enum.at(mcp_ids, next_index)
+
+        TuiState.put_mcp_ledger_selected_id(state, selected)
+        TuiState.put_mcp_ledger_hover_id(state, selected)
+        TuiState.put_interview_ledger_hover_id(state, nil)
+        TuiState.push_notification(state, "tool call #{next_index + 1} selected", 900)
+
+      blocks != [] ->
+        selected_id = TuiState.interview_ledger_selected_id(state) || selected_ledger_id(result)
+
+        current_index =
+          Enum.find_index(blocks, &(Map.get(&1, :id) == selected_id)) || length(blocks) - 1
+
+        next_index = ledger_next_index(event, current_index, length(blocks))
+        selected = blocks |> Enum.at(next_index) |> Map.get(:id)
+
+        TuiState.put_interview_ledger_selected_id(state, selected)
+        TuiState.push_notification(state, "question Q#{next_index + 1} selected", 900)
+    end
+  end
+
+  defp mcp_ledger_ids(state) do
+    state
+    |> TuiState.mcp_ledger_hit_map()
+    |> Enum.sort_by(fn {row, _hit} -> row end)
+    |> Enum.map(fn {_row, %{id: id}} -> id end)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  defp ledger_next_index(%{key: key}, index, count) when key in [:down],
+    do: min(index + 1, count - 1)
+
+  defp ledger_next_index(%{key: key}, index, _count) when key in [:up], do: max(index - 1, 0)
+  defp ledger_next_index(%{key: :char, char: "j"}, index, count), do: min(index + 1, count - 1)
+  defp ledger_next_index(%{key: :char, char: "+"}, index, count), do: min(index + 1, count - 1)
+  defp ledger_next_index(%{key: :char, char: "k"}, index, _count), do: max(index - 1, 0)
+  defp ledger_next_index(%{key: :char, char: "-"}, index, _count), do: max(index - 1, 0)
+
+  defp ledger_next_index(%{key: :char, char: char}, _index, count) when is_binary(char) do
+    case Integer.parse(char) do
+      {number, ""} -> max(0, min(number - 1, count - 1))
+      _other -> 0
+    end
+  end
+
+  defp selected_ledger_id(result) do
+    result
+    |> interview_state()
+    |> QuestionLedger.from_interview()
+    |> Map.get(:selected_block_id)
+  end
+
+  defp ledger_blocks(result) do
+    result
+    |> interview_state()
+    |> QuestionLedger.from_interview()
+    |> Map.get(:blocks, [])
   end
 
   defp needs_review?(result, state) do

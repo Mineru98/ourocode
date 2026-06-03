@@ -137,16 +137,18 @@ defmodule Ourocode.Terminal.KeyReaderTest do
            ]
   end
 
-  test "decodes SGR mouse wheel up/down and ignores other button reports" do
+  test "decodes SGR mouse wheel, hover, and button reports" do
     {[wheel_up], ""} = KeyReader.decode("\e[<64;10;20M")
     assert %{type: :mouse, key: :wheel_up, x: 10, y: 20} = wheel_up
 
     {[wheel_down], ""} = KeyReader.decode("\e[<65;3;4M")
     assert %{type: :mouse, key: :wheel_down} = wheel_down
 
-    # A plain left-button press is consumed but not surfaced as wheel input.
-    {[other], ""} = KeyReader.decode("\e[<0;5;6M")
-    assert other.key == :other
+    {[button], ""} = KeyReader.decode("\e[<0;5;6M")
+    assert %{type: :mouse, key: :mouse_down, x: 5, y: 6} = button
+
+    {[hover], ""} = KeyReader.decode("\e[<35;7;8M")
+    assert %{type: :mouse, key: :mouse_move, x: 7, y: 8} = hover
 
     # Wheel events still interleave correctly with text.
     {events, ""} = KeyReader.decode("a\e[<64;1;1Mb")

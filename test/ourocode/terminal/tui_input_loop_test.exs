@@ -245,6 +245,79 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
     assert_received {:redraw, "", 80, 24}
   end
 
+  test "MCP-only ledger keyboard navigation reaches interaction handler through input loop", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    first_id = "ledger:child:tool-call-1"
+    second_id = "ledger:child:tool-call-2"
+
+    TuiState.put_mcp_ledger_hit_map(state, %{
+      12 => %{id: first_id, x1: 60, x2: 110},
+      13 => %{id: second_id, x1: 60, x2: 110}
+    })
+
+    assert TuiInputLoop.handle_events(
+             [%{key: :char, char: "1"}, %{key: :down}, %{key: :enter}],
+             %{},
+             output,
+             state,
+             100,
+             30,
+             callbacks
+           ) == :continue
+
+    assert TuiState.mcp_ledger_selected_id(state) == second_id
+    assert hd(TuiState.notifications(state)) == "tool call opened"
+    assert_received {:redraw, "", 100, 30}
+  end
+
+  test "MCP-only ledger input loop supports every advertised keyboard selector", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    ids = install_mcp_ledger_hit_map(state)
+
+    steps = [
+      {%{key: :char, char: "1"}, Enum.at(ids, 0)},
+      {%{key: :char, char: "+"}, Enum.at(ids, 1)},
+      {%{key: :char, char: "j"}, Enum.at(ids, 2)},
+      {%{key: :char, char: "k"}, Enum.at(ids, 1)},
+      {%{key: :down}, Enum.at(ids, 2)},
+      {%{key: :up}, Enum.at(ids, 1)},
+      {%{key: :char, char: "-"}, Enum.at(ids, 0)},
+      {%{key: :char, char: "3"}, Enum.at(ids, 2)}
+    ]
+
+    Enum.each(steps, fn {event, expected_id} ->
+      assert TuiInputLoop.handle_events([event], %{}, output, state, 100, 30, callbacks) ==
+               :continue
+
+      assert TuiState.mcp_ledger_selected_id(state) == expected_id
+    end)
+
+    assert TuiInputLoop.handle_events([%{key: :enter}], %{}, output, state, 100, 30, callbacks) ==
+             :continue
+
+    assert hd(TuiState.notifications(state)) == "tool call opened"
+
+    Enum.each(1..9, fn number ->
+      assert TuiInputLoop.handle_events(
+               [%{key: :char, char: Integer.to_string(number)}],
+               %{},
+               output,
+               state,
+               100,
+               30,
+               callbacks
+             ) == :continue
+
+      assert TuiState.mcp_ledger_selected_id(state) == Enum.at(ids, number - 1)
+    end)
+  end
+
   test "tick does not redraw a pending cancel prefix during active interview", %{
     callbacks: callbacks,
     output: output,
@@ -287,6 +360,18 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
       end,
       test_run?: fn -> true end
     }
+  end
+
+  defp install_mcp_ledger_hit_map(state) do
+    ids = Enum.map(1..9, &"ledger:child:tool-call-#{&1}")
+
+    hit_map =
+      ids
+      |> Enum.with_index(12)
+      |> Map.new(fn {id, row} -> {row, %{id: id, x1: 60, x2: 110}} end)
+
+    TuiState.put_mcp_ledger_hit_map(state, hit_map)
+    ids
   end
 
   defp detection do

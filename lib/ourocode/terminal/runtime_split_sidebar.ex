@@ -118,11 +118,25 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
 
     lines
     |> Enum.flat_map(fn line ->
-      line
-      |> InterviewPanel.plain_line()
-      |> TextWrap.wrap(width)
+      text = item_text(line)
+
+      rows =
+        text
+        |> InterviewPanel.plain_line()
+        |> TextWrap.wrap(width)
+
+      case line do
+        %{id: id} = item when is_binary(id) ->
+          Enum.map(rows, &%{item | text: &1})
+
+        %{text: _text} = item ->
+          Enum.map(rows, &%{item | text: &1})
+
+        _line ->
+          rows
+      end
     end)
-    |> Enum.reject(&(&1 == ""))
+    |> Enum.reject(&(item_text(&1) == ""))
   end
 
   @doc false
@@ -149,7 +163,7 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
     rows =
       case lines do
         [] -> []
-        lines -> lines |> Enum.take(body_h) |> Enum.map(&{&1, line_style(&1)})
+        lines -> lines |> Enum.take(body_h) |> Enum.map(&{item_text(&1), line_style(&1)})
       end
 
     rows
@@ -200,17 +214,25 @@ defmodule Ourocode.Terminal.RuntimeSplitSidebar do
 
   defp section_status(lines, opts) do
     cond do
-      Enum.any?(lines, &(&1 =~ ~r/failed|error/i)) -> {"failed", :p_err}
+      Enum.any?(lines, &(item_text(&1) =~ ~r/failed|error/i)) -> {"failed", :p_err}
       status = Map.get(opts, :status) -> {"● " <> status, Map.get(opts, :status_style, :p_accent)}
       true -> {"● live", :p_accent}
     end
   end
 
+  defp line_style(%{style: style}) when is_atom(style), do: style
+
   defp line_style(line) do
+    line = item_text(line)
+
     cond do
       line =~ ~r/failed|error/i -> :p_err
       line == "idle" -> :p_muted
       true -> :p_dim
     end
   end
+
+  defp item_text(%{text: text}) when is_binary(text), do: text
+  defp item_text(text) when is_binary(text), do: text
+  defp item_text(item), do: InterviewPanel.plain_line(item)
 end

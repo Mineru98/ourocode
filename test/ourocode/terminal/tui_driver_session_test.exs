@@ -29,10 +29,10 @@ defmodule Ourocode.Terminal.TuiDriverSessionTest do
     assert TuiState.file_cache(state) == ["lib/a.ex", "test/a_test.exs"]
   end
 
-  test "terminal control sequences leave mouse drag selection to the host terminal" do
-    refute TuiDriverSession.enter_sequence() =~ "?1000h"
-    refute TuiDriverSession.enter_sequence() =~ "?1006h"
-    refute TuiDriverSession.exit_sequence() =~ "?1000l"
-    refute TuiDriverSession.exit_sequence() =~ "?1006l"
+  test "terminal control sequences enable SGR mouse reporting for ledger inspection" do
+    assert TuiDriverSession.enter_sequence() =~ "?1003h"
+    assert TuiDriverSession.enter_sequence() =~ "?1006h"
+    assert TuiDriverSession.exit_sequence() =~ "?1003l"
+    assert TuiDriverSession.exit_sequence() =~ "?1006l"
   end
 end

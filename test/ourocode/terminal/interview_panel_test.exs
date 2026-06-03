@@ -188,6 +188,40 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     refute text =~ "preparing interview question"
   end
 
+  test "interview block keeps previous question ledger above active picker" do
+    result = %{
+      interview: %{
+        dialogue: [
+          %{role: :mcp, text: "Current question"},
+          %{role: :user, text: "First answer"},
+          %{role: :mcp, text: "First question"}
+        ],
+        question: "Current question",
+        question_options: [
+          %{label: "Current option", description: "Answer the active prompt"}
+        ],
+        status: "waiting for your answer"
+      }
+    }
+
+    assert {"INTERVIEW", lines, ""} =
+             InterviewPanel.interview_block_lines(result, nil, 0)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    assert text =~ "- [answered] Q1 First question"
+    assert text =~ "Answer  First answer"
+    assert text =~ "Current question"
+    assert text =~ ">> [1] Current option - Answer the active prompt"
+    refute text =~ "[pending] Q"
+    refute text =~ "[pending] Q2 Current question"
+  end
+
   test "interview block hides stale options after the current question is answered" do
     result = %{
       interview: %{

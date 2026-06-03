@@ -14,11 +14,11 @@ defmodule Ourocode.Terminal.TtyDriverTest do
     assert TtyDriver.helper_path([nil, missing, existing]) == existing
   end
 
-  test "terminal control sequences leave mouse drag selection to the host terminal" do
-    refute TtyDriver.enter_sequence() =~ "?1000h"
-    refute TtyDriver.enter_sequence() =~ "?1006h"
-    refute TtyDriver.exit_sequence() =~ "?1000l"
-    refute TtyDriver.exit_sequence() =~ "?1006l"
+  test "terminal control sequences enable and disable SGR mouse reporting" do
+    assert TtyDriver.enter_sequence() =~ "?1003h"
+    assert TtyDriver.enter_sequence() =~ "?1006h"
+    assert TtyDriver.exit_sequence() =~ "?1003l"
+    assert TtyDriver.exit_sequence() =~ "?1006l"
   end
 
   test "parse_header accepts complete helper header and preserves key bytes" do

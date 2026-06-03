@@ -19,11 +19,11 @@ defmodule Ourocode.Terminal.TuiTest do
     refute Tui.interactive?(%{input: :stdio, output: :stdio})
   end
 
-  test "native terminal control leaves mouse drag selection to the host terminal" do
-    refute Tui.terminal_enter_sequence() =~ "?1000h"
-    refute Tui.terminal_enter_sequence() =~ "?1006h"
-    refute Tui.terminal_exit_sequence() =~ "?1000l"
-    refute Tui.terminal_exit_sequence() =~ "?1006l"
+  test "native terminal control enables SGR mouse reporting for ledger inspection" do
+    assert Tui.terminal_enter_sequence() =~ "?1003h"
+    assert Tui.terminal_enter_sequence() =~ "?1006h"
+    assert Tui.terminal_exit_sequence() =~ "?1003l"
+    assert Tui.terminal_exit_sequence() =~ "?1006l"
   end
 
   test "edit_input inserts and deletes at the cursor" do

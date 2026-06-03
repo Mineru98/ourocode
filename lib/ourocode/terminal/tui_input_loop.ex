@@ -56,9 +56,21 @@ defmodule Ourocode.Terminal.TuiInputLoop do
         draw.()
         cont.()
 
+      TuiInteraction.mcp_ledger_active?(state) and
+          TuiInteraction.nav_event?(event, TuiState.buffer(state), result, state) ->
+        TuiInteraction.handle_nav(event, result, state)
+        draw.()
+        cont.()
+
       TuiInteraction.capturing?(result, state) and
         match?(%{key: k} when k in [:enter, :escape], event) and
           not slash_submit?(event, state) ->
+        TuiInteraction.handle_event(event, result, output, state)
+        draw.()
+        cont.()
+
+      TuiInteraction.mcp_ledger_active?(state) and match?(%{key: :enter}, event) and
+          TuiState.buffer(state) == "" ->
         TuiInteraction.handle_event(event, result, output, state)
         draw.()
         cont.()

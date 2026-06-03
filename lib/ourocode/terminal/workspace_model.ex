@@ -1,6 +1,7 @@
 defmodule Ourocode.Terminal.WorkspaceModel do
   @moduledoc false
 
+  alias Ourocode.Command.Registry, as: CommandRegistry
   alias Ourocode.Terminal.{InterviewLiveState, PluginStatusArea, ResumeSessions}
 
   @management_commands ~w(/plugins /mcps /mcp /config /sandbox /agents /sessions /children /resume)
@@ -69,7 +70,7 @@ defmodule Ourocode.Terminal.WorkspaceModel do
   defp mcp_workspace(state) do
     area = plugin_area(state)
 
-    records =
+    plugin_records =
       Enum.map(area.items, fn item ->
         %{
           id: "mcp:" <> item.plugin_id,
@@ -89,6 +90,9 @@ defmodule Ourocode.Terminal.WorkspaceModel do
         }
       end)
 
+    topology_records = mcp_topology_records(state)
+    records = topology_records ++ plugin_records ++ mcp_tool_records(state)
+
     %{
       kind: "mcps",
       title: "Connected tools",
@@ -96,15 +100,12 @@ defmodule Ourocode.Terminal.WorkspaceModel do
       selected: selected_id(records),
       records: records,
       detail: selected_detail(records, "No connected tool configured."),
-      actions: [
-        action("plugins", "Inspect plugins", "/plugins", "p"),
-        action("verify", "Verify connections", "/verify", "v")
-      ],
+      actions: mcp_workspace_actions(topology_records),
       shortcuts: workspace_shortcuts("Enter inspect"),
       next:
         if(records == [],
           do: "Add the official tool, then reload.",
-          else: "Open /skills to inspect tools; use /verify for a health check."
+          else: "Watch live MCP calls here; /sessions shows every linked child pane."
         )
     }
   end
@@ -743,6 +744,247 @@ defmodule Ourocode.Terminal.WorkspaceModel do
     state
     |> value(:startup_result, state)
     |> PluginStatusArea.render()
+  end
+
+  defp mcp_workspace_actions([]) do
+    [
+      action("plugins", "Inspect plugins", "/plugins", "p"),
+      action("verify", "Verify connections", "/verify", "v")
+    ]
+  end
+
+  defp mcp_workspace_actions(_topology_records) do
+    [
+      action("sessions", "Show child panes", "/sessions", "s"),
+      action("agents", "Focus guided work", "/agents", "a"),
+      action("verify", "Verify connections", "/verify", "v")
+    ]
+  end
+
+  defp mcp_tool_records(state) do
+    state
+    |> command_registry()
+    |> case do
+      {:ok, registry} ->
+        registry
+        |> CommandRegistry.entries()
+        |> Enum.filter(&mcp_tool_entry?/1)
+        |> Enum.map(&mcp_tool_record/1)
+
+      :error ->
+        []
+    end
+  end
+
+  defp mcp_topology_records(state) do
+    topology = value(state, :mcp_topology, %{})
+    nodes = value(topology, :nodes, %{})
+    edges = value(topology, :edges, %{})
+
+    nodes
+    |> Map.values()
+    |> Enum.filter(&(value(&1, :kind) == :parent_call))
+    |> Enum.sort_by(&{value(&1, :latest_event_seq, 0), value(&1, :parent_call_id, "")}, :desc)
+    |> Enum.map(&mcp_topology_record(&1, edges, state))
+  end
+
+  defp mcp_topology_record(parent, edges, state) do
+    parent_call_id = text_value(parent, :parent_call_id) || "unknown-parent"
+    parent_pane = mcp_parent_pane(parent_call_id, state)
+    tool_name = mcp_parent_tool_name(parent_pane || parent)
+    child_ids = topology_child_ids(parent_call_id, edges)
+    status = parent_call_status(parent_call_id, state)
+    child_summary = child_status_summary(child_ids, state)
+
+    %{
+      id: "mcp-live:" <> parent_call_id,
+      title: "MCP toolcall " <> tool_name,
+      state: status,
+      health: "#{length(child_ids)} child #{plural(length(child_ids), "pane")}",
+      fields: %{
+        parent: parent_call_id,
+        server: text_value(parent, :runtime_source) || "mcp",
+        transport: text_value(parent, :transport) || "unknown",
+        stream: "parent pane plus linked child panes",
+        children: if(child_summary == "", do: "none linked yet", else: child_summary),
+        latest: latest_sequence(parent)
+      },
+      actions: [
+        action("sessions", "Show child panes", "/sessions", "s"),
+        action("agents", "Focus guided work", "/agents", "a"),
+        action("verify", "Verify connections", "/verify", "v")
+      ]
+    }
+  end
+
+  defp mcp_parent_pane(parent_call_id, state) do
+    (list_at(state, [:parent, :working]) ++ list_at(state, [:parent, :completed]))
+    |> Enum.find(&(text_value(&1, :parent_call_id) == parent_call_id))
+  end
+
+  defp mcp_parent_tool_name(source) when is_map(source) do
+    params = value(source, :params, %{})
+    text_value(params, :name) || text_value(source, :method) || "tools/call"
+  end
+
+  defp mcp_parent_tool_name(_source), do: "tools/call"
+
+  defp topology_child_ids(parent_call_id, edges) when is_map(edges) do
+    edges
+    |> Map.values()
+    |> Enum.filter(&(text_value(&1, :parent_call_id) == parent_call_id))
+    |> Enum.map(&text_value(&1, :child_id))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp topology_child_ids(_parent_call_id, _edges), do: []
+
+  defp parent_call_status(parent_call_id, state) do
+    cond do
+      parent_call_in?(state, [:parent, :working], parent_call_id) ->
+        "streaming"
+
+      parent_call_in?(state, [:parent, :completed], parent_call_id) ->
+        "completed"
+
+      true ->
+        "linked"
+    end
+  end
+
+  defp parent_call_in?(state, path, parent_call_id) do
+    state
+    |> get_in(path)
+    |> List.wrap()
+    |> Enum.any?(&(text_value(&1, :parent_call_id) == parent_call_id))
+  end
+
+  defp child_status_summary(child_ids, state) do
+    child_ids
+    |> Enum.map(fn child_id ->
+      status = child_status(child_id, state)
+      child_id <> " " <> status
+    end)
+    |> Enum.join(", ")
+  end
+
+  defp child_status(child_id, state) do
+    cond do
+      child_in?(state, [:child, :working], child_id) -> "streaming"
+      child_in?(state, [:child, :completed], child_id) -> "completed"
+      true -> "linked"
+    end
+  end
+
+  defp child_in?(state, path, child_id) do
+    state
+    |> list_at(path)
+    |> Enum.any?(&(text_value(&1, :child_id) == child_id))
+  end
+
+  defp list_at(map, path) when is_map(map) and is_list(path) do
+    case get_in(map, path) do
+      list when is_list(list) -> list
+      _value -> []
+    end
+  end
+
+  defp list_at(_map, _path), do: []
+
+  defp latest_sequence(parent) do
+    case value(parent, :latest_event_seq) do
+      nil -> "waiting for first event"
+      seq -> "event " <> to_string(seq)
+    end
+  end
+
+  defp plural(1, word), do: word
+  defp plural(_count, word), do: word <> "s"
+
+  defp command_registry(state) do
+    cond do
+      is_map(get_in(state, [:startup_result, :commands])) ->
+        {:ok, get_in(state, [:startup_result, :commands])}
+
+      is_map(get_in(state, [:startup_result, :runtime, :commands])) ->
+        {:ok, get_in(state, [:startup_result, :runtime, :commands])}
+
+      is_map(get_in(state, [:runtime, :commands])) ->
+        {:ok, get_in(state, [:runtime, :commands])}
+
+      true ->
+        :error
+    end
+  end
+
+  defp mcp_tool_entry?(entry) when is_map(entry) do
+    Map.get(entry, :source) == :mcp or
+      get_in(entry, [:run_spec, :kind]) == :mcp_tool or
+      (Map.get(entry, :source) == :dynamic_skill and
+         not is_nil(get_in(entry, [:metadata, :mcp_tool])))
+  end
+
+  defp mcp_tool_entry?(_entry), do: false
+
+  defp mcp_tool_record(entry) do
+    schema = get_in(entry, [:metadata, :input_schema]) || %{}
+    args = Map.get(entry, :args, [])
+
+    tool_name =
+      get_in(entry, [:metadata, :tool_name]) || get_in(entry, [:metadata, :mcp_tool]) ||
+        get_in(entry, [:run_spec, :mcp_tool]) || entry.name
+
+    server_id = get_in(entry, [:metadata, :server_id]) || Map.get(entry, :source_id, "mcp")
+
+    %{
+      id: "mcp-tool:" <> to_string(server_id) <> ":" <> to_string(tool_name),
+      title: to_string(tool_name),
+      state: "schema",
+      health: if(args == [] and schema == %{}, do: "no args", else: "#{length(args)} args"),
+      fields: %{
+        server: server_id,
+        command: Map.get(entry, :slash),
+        transport:
+          get_in(entry, [:metadata, :transport]) || get_in(entry, [:run_spec, :transport]),
+        schema: schema_summary(schema, args)
+      },
+      actions: [
+        action("invoke", "Invoke tool", Map.get(entry, :slash), "Enter"),
+        action("verify", "Test connection", "/verify", "v")
+      ]
+    }
+  end
+
+  defp schema_summary(schema, args) do
+    required =
+      schema
+      |> case do
+        schema when is_map(schema) -> Map.get(schema, "required", Map.get(schema, :required, []))
+        _schema -> []
+      end
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+
+    arg_names =
+      args
+      |> Enum.map(fn arg -> value(arg, :name, "") end)
+      |> Enum.reject(&(&1 == ""))
+
+    cond do
+      arg_names != [] and required != [] ->
+        "args " <> Enum.join(arg_names, ", ") <> "; required " <> Enum.join(required, ", ")
+
+      arg_names != [] ->
+        "args " <> Enum.join(arg_names, ", ")
+
+      required != [] ->
+        "required " <> Enum.join(required, ", ")
+
+      true ->
+        "no input schema"
+    end
   end
 
   defp plugin_record(item, type) do

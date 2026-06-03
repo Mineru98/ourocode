@@ -28,6 +28,51 @@ defmodule Ourocode.Terminal.TuiState do
   @spec put_wonder_nav(pid(), map() | nil) :: :ok
   def put_wonder_nav(state, nav), do: Agent.update(state, &%{&1 | wonder_nav: nav})
 
+  @spec interview_ledger_selected_id(pid()) :: String.t() | nil
+  def interview_ledger_selected_id(state),
+    do: Agent.get(state, &Map.get(&1, :interview_ledger_selected_id))
+
+  @spec put_interview_ledger_selected_id(pid(), String.t() | nil) :: :ok
+  def put_interview_ledger_selected_id(state, selected_id),
+    do: Agent.update(state, &Map.put(&1, :interview_ledger_selected_id, selected_id))
+
+  @spec interview_ledger_hover_id(pid()) :: String.t() | nil
+  def interview_ledger_hover_id(state),
+    do: Agent.get(state, &Map.get(&1, :interview_ledger_hover_id))
+
+  @spec put_interview_ledger_hover_id(pid(), String.t() | nil) :: :ok
+  def put_interview_ledger_hover_id(state, hover_id),
+    do: Agent.update(state, &Map.put(&1, :interview_ledger_hover_id, hover_id))
+
+  @spec interview_ledger_hit_map(pid()) :: map()
+  def interview_ledger_hit_map(state),
+    do: Agent.get(state, &Map.get(&1, :interview_ledger_hit_map, %{}))
+
+  @spec put_interview_ledger_hit_map(pid(), map()) :: :ok
+  def put_interview_ledger_hit_map(state, hit_map) when is_map(hit_map),
+    do: Agent.update(state, &Map.put(&1, :interview_ledger_hit_map, hit_map))
+
+  @spec mcp_ledger_selected_id(pid()) :: String.t() | nil
+  def mcp_ledger_selected_id(state), do: Agent.get(state, &Map.get(&1, :mcp_ledger_selected_id))
+
+  @spec put_mcp_ledger_selected_id(pid(), String.t() | nil) :: :ok
+  def put_mcp_ledger_selected_id(state, selected_id),
+    do: Agent.update(state, &Map.put(&1, :mcp_ledger_selected_id, selected_id))
+
+  @spec mcp_ledger_hover_id(pid()) :: String.t() | nil
+  def mcp_ledger_hover_id(state), do: Agent.get(state, &Map.get(&1, :mcp_ledger_hover_id))
+
+  @spec put_mcp_ledger_hover_id(pid(), String.t() | nil) :: :ok
+  def put_mcp_ledger_hover_id(state, hover_id),
+    do: Agent.update(state, &Map.put(&1, :mcp_ledger_hover_id, hover_id))
+
+  @spec mcp_ledger_hit_map(pid()) :: map()
+  def mcp_ledger_hit_map(state), do: Agent.get(state, &Map.get(&1, :mcp_ledger_hit_map, %{}))
+
+  @spec put_mcp_ledger_hit_map(pid(), map()) :: :ok
+  def put_mcp_ledger_hit_map(state, hit_map) when is_map(hit_map),
+    do: Agent.update(state, &Map.put(&1, :mcp_ledger_hit_map, hit_map))
+
   @spec force_interview_paused?(pid()) :: boolean()
   def force_interview_paused?(state),
     do: Agent.get(state, &Map.get(&1, :force_interview_paused, false))

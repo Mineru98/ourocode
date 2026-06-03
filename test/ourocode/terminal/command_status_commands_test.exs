@@ -1,6 +1,7 @@
 defmodule Ourocode.Terminal.CommandStatusCommandsTest do
   use ExUnit.Case, async: true
 
+  alias Ourocode.Command.Registry
   alias Ourocode.Terminal.CommandStatusCommands
 
   test "handles status actions only" do
@@ -57,6 +58,123 @@ defmodule Ourocode.Terminal.CommandStatusCommandsTest do
     assert text =~ "target child-alpha"
   end
 
+  test "render sessions groups parallel children under their MCP parent" do
+    {:ok, output} = StringIO.open("")
+
+    state = %{
+      output: output,
+      parent: %{
+        working: [
+          %{
+            parent_call_id: "parent-ralph-1",
+            method: "tools/call",
+            params: %{name: "ouroboros_ralph"},
+            transport: :streamable_http,
+            stream_cursor: %{event_seq: 5}
+          }
+        ],
+        completed: []
+      },
+      child: %{
+        working: [
+          %{
+            child_id: "child-beta",
+            pane_state: %{stream_entries: [%{event_seq: 4, token: "beta-start"}]}
+          },
+          %{
+            child_id: "child-charlie",
+            pane_state: %{stream_entries: [%{event_seq: 5, token: "charlie-thinking"}]}
+          }
+        ],
+        completed: [
+          %{
+            child_id: "child-alpha",
+            pane_state: %{stream_entries: [%{event_seq: 3, token: "alpha-done"}]}
+          }
+        ]
+      },
+      wonder: %{
+        child_id: "child-beta",
+        description: "Allow child beta to inspect the journal?"
+      },
+      mcp_topology: %{
+        nodes: %{
+          "mcp-parent:parent-ralph-1" => %{
+            kind: :parent_call,
+            parent_call_id: "parent-ralph-1",
+            latest_event_seq: 5
+          }
+        },
+        edges: %{
+          "mcp-parent:parent-ralph-1->child-session:child-alpha" => %{
+            parent_call_id: "parent-ralph-1",
+            child_id: "child-alpha"
+          },
+          "mcp-parent:parent-ralph-1->child-session:child-beta" => %{
+            parent_call_id: "parent-ralph-1",
+            child_id: "child-beta"
+          },
+          "mcp-parent:parent-ralph-1->child-session:child-charlie" => %{
+            parent_call_id: "parent-ralph-1",
+            child_id: "child-charlie"
+          }
+        },
+        events: []
+      }
+    }
+
+    assert {:ok, %{count: 3}} = CommandStatusCommands.render(:show_sessions, state)
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "sessions: 3 linked, 2 active"
+    assert text =~ "1 MCP parent call"
+    assert text =~ "MCP toolcall ouroboros_ralph  running  3 parallel sessions · 2 streaming"
+    assert text =~ "parent parent-ralph-1  event 5 via streamable_http"
+    assert text =~ "child-alpha  completed  alpha-done"
+
+    assert text =~
+             "child-beta  waiting permission  permission: Allow child beta to inspect the journal?"
+
+    assert text =~ "child-charlie  streaming  charlie-thinking"
+  end
+
+  test "render sessions falls back to parent and child pane state before topology arrives" do
+    {:ok, output} = StringIO.open("")
+
+    state = %{
+      output: output,
+      parent: %{
+        working: [
+          %{
+            parent_call_id: "parent-live-1",
+            params: %{name: "ouroboros_auto"},
+            transport: :stdio,
+            stream_cursor: %{event_seq: 2}
+          }
+        ],
+        completed: []
+      },
+      child: %{
+        working: [
+          %{
+            child_id: "child-live-1",
+            parent_call_id: "parent-live-1",
+            pane_state: %{stream_entries: [%{event_seq: 2, token: "drafting seed"}]}
+          }
+        ],
+        completed: []
+      }
+    }
+
+    assert {:ok, %{count: 1}} = CommandStatusCommands.render(:show_children, state)
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "sessions: 1 linked, 1 active"
+    assert text =~ "1 MCP parent call"
+    assert text =~ "MCP toolcall ouroboros_auto  running  1 parallel session · 1 streaming"
+    assert text =~ "child-live-1  streaming  drafting seed"
+  end
+
   test "render simple status commands writes product status output" do
     for {action, expected} <- [
           {:show_mcp, "Connected tools"},
@@ -77,6 +195,123 @@ defmodule Ourocode.Terminal.CommandStatusCommandsTest do
       refute text =~ "streamable_http"
       refute text =~ "plugin/runtime config"
     end
+  end
+
+  test "render mcp workspace shows discovered tool schemas from the command registry" do
+    {:ok, registry} =
+      Registry.load(
+        skill_dirs: [],
+        bundled_skill_dirs: [],
+        mcp_entries: [
+          %{
+            transport: :streamable_http,
+            server_id: "ouroboros",
+            tools: [
+              %{
+                "name" => "ouroboros_auto",
+                "description" => "Run auto",
+                "inputSchema" => %{
+                  "required" => ["goal"],
+                  "properties" => %{
+                    "goal" => %{"type" => "string", "description" => "Target outcome"}
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      )
+
+    {:ok, output} = StringIO.open("")
+
+    state = %{
+      output: output,
+      startup_result: %{
+        commands: registry,
+        runtime: %{plugins: []}
+      }
+    }
+
+    assert {:ok, %{status: :rendered, count: 1}} =
+             CommandStatusCommands.render(:show_mcp, state)
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ "Connected tools"
+    assert text =~ "ouroboros_auto schema"
+    assert text =~ "server ouroboros"
+    assert text =~ "command /ouroboros_auto"
+    assert text =~ "schema args goal; required goal"
+  end
+
+  test "render mcp workspace surfaces live parent calls and parallel child panes" do
+    {:ok, output} = StringIO.open("")
+
+    state = %{
+      output: output,
+      startup_result: %{runtime: %{plugins: []}},
+      parent: %{
+        completed: [
+          %{
+            parent_call_id: "parent-ralph-1",
+            params: %{name: "ouroboros_ralph"}
+          }
+        ],
+        working: []
+      },
+      child: %{
+        working: [%{child_id: "child-beta"}],
+        completed: [%{child_id: "child-alpha"}]
+      },
+      mcp_topology: %{
+        nodes: %{
+          "mcp-parent:parent-ralph-1" => %{
+            id: "mcp-parent:parent-ralph-1",
+            kind: :parent_call,
+            parent_call_id: "parent-ralph-1",
+            runtime_source: "ouroboros",
+            transport: :streamable_http,
+            latest_event_seq: 5
+          },
+          "child-session:child-alpha" => %{
+            id: "child-session:child-alpha",
+            kind: :child_session,
+            child_id: "child-alpha",
+            parent_call_id: "parent-ralph-1"
+          },
+          "child-session:child-beta" => %{
+            id: "child-session:child-beta",
+            kind: :child_session,
+            child_id: "child-beta",
+            parent_call_id: "parent-ralph-1"
+          }
+        },
+        edges: %{
+          "mcp-parent:parent-ralph-1->child-session:child-alpha" => %{
+            parent_call_id: "parent-ralph-1",
+            child_id: "child-alpha"
+          },
+          "mcp-parent:parent-ralph-1->child-session:child-beta" => %{
+            parent_call_id: "parent-ralph-1",
+            child_id: "child-beta"
+          }
+        },
+        events: []
+      }
+    }
+
+    assert {:ok, %{status: :rendered, count: 1}} =
+             CommandStatusCommands.render(:show_mcp, state)
+
+    {_input, text} = StringIO.contents(output)
+    assert text =~ ">> MCP toolcall ouroboros_ralph - completed · 2 child panes"
+    assert text =~ "parent parent-ralph-1"
+    assert text =~ "server ouroboros"
+    assert text =~ "transport streamable_http"
+    assert text =~ "stream parent pane plus linked child panes"
+    assert text =~ "children child-alpha completed, child-beta streaming"
+    assert text =~ "latest event 5"
+    assert text =~ "Open /sessions | /agents | /verify"
+    assert text =~ "Watch live MCP calls here; /sessions shows every linked child pane."
   end
 
   test "render sandbox shows policy, controls, and evidence" do
