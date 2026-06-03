@@ -181,11 +181,11 @@ defmodule Ourocode.CLITest do
   test "launch prints version without bootstrapping the terminal UI" do
     output =
       capture_io(fn ->
-        assert {:ok, %{mode: :version, version: "0.1.11"}} =
+        assert {:ok, %{mode: :version, version: "0.1.13"}} =
                  Ourocode.CLI.launch(["--version"], Ourocode.CLITest.TerminalBootstrapSpy)
       end)
 
-    assert output == "ourocode 0.1.11\n"
+    assert output == "ourocode 0.1.13\n"
     refute_receive {:terminal_bootstrap, _context}, 50
   end
 

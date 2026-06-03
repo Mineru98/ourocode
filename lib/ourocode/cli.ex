@@ -38,7 +38,7 @@ defmodule Ourocode.CLI do
   alias Ourocode.Runtime.LoopBindingInterviewSessionIO
   alias Ourocode.Runtime.LoopBindings
 
-  @version "0.1.11"
+  @version "0.1.13"
 
   @doc """
   Escript entry point.
