@@ -31,7 +31,7 @@ defmodule Ourocode.Terminal.RendererChromeTest do
     refute text =~ "Message ourocode"
   end
 
-  test "draw_composer uses compact placeholder on narrow terminals" do
+  test "draw_composer uses richer entry placeholder on narrow terminals" do
     text =
       60
       |> Screen.new(8)
@@ -39,7 +39,8 @@ defmodule Ourocode.Terminal.RendererChromeTest do
       |> Screen.to_lines()
       |> Enum.join("\n")
 
-    assert text =~ "Type / or ooo; Enter runs"
+    assert text =~ "[main]"
+    assert text =~ "Ask, / command, or ooo auto/pm/run"
     refute text =~ "ooo starts structure"
   end
 
@@ -57,16 +58,15 @@ defmodule Ourocode.Terminal.RendererChromeTest do
 
     text = Enum.join(lines, "\n")
 
-    assert text =~ "ready"
     assert text =~ "Esc again to clear input"
     refute text =~ "^C  exit"
   end
 
-  test "draw_status_bar does not report offline when the app is healthy" do
+  test "draw_meta_bar surfaces runtime metadata when the app is healthy" do
     lines =
       80
       |> Screen.new(4)
-      |> RendererChrome.draw_status_bar(
+      |> RendererChrome.draw_meta_bar(
         80,
         3,
         %{"runtime" => "unknown", "status" => "healthy", "transports" => "none"},
@@ -79,14 +79,15 @@ defmodule Ourocode.Terminal.RendererChromeTest do
     text = Enum.join(lines, "\n")
 
     assert text =~ "ready"
+    assert text =~ "session"
     refute text =~ "offline"
   end
 
-  test "draw_status_bar uses local instead of offline for an active terminal without transports" do
+  test "draw_meta_bar uses local instead of offline for an active terminal without transports" do
     lines =
       80
       |> Screen.new(4)
-      |> RendererChrome.draw_status_bar(
+      |> RendererChrome.draw_meta_bar(
         80,
         3,
         %{"runtime" => "?", "transports" => "none"},

@@ -65,7 +65,7 @@ defmodule Ourocode.Terminal.Renderer do
         body_activity
       end
 
-    composer_rule = height - 3
+    composer_rule = height - 4
     transcript_top = 4
     transcript_bottom = composer_rule - 2
 
@@ -78,7 +78,8 @@ defmodule Ourocode.Terminal.Renderer do
     split? =
       not workspace_active? and
         not interview_present? and
-        (RuntimeSplit.mcp_active?(sections) or reasoning != [] or mcp_activity != [])
+        (RuntimeSplit.mcp_active?(sections) or reasoning != [] or mcp_activity != [] or
+           get_in(opts, [:runtime_split, :active?]) == true)
 
     # A live picker is an intentional checkpoint: mute the rest of the body
     # and let the decision UI own the available space so it cannot be missed.
@@ -172,7 +173,8 @@ defmodule Ourocode.Terminal.Renderer do
 
     screen
     |> RendererChrome.draw_composer(width, composer_rule, prompt_buffer, mode, composer_opts)
-    |> RendererChrome.draw_status_bar(width, height - 1, kv, sections, mode, opts)
+    |> RendererChrome.draw_meta_bar(width, composer_rule, kv, sections, mode, opts)
+    |> RendererChrome.draw_status_bar(width, height - 2, kv, sections, mode, opts)
   end
 
   defp draw_transcript(

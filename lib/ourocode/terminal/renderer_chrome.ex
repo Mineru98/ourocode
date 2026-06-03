@@ -3,10 +3,10 @@ defmodule Ourocode.Terminal.RendererChrome do
   Header, composer, and status bar drawing for the terminal renderer.
   """
 
-  alias Ourocode.Terminal.{FrameSections, PromptActivityIndicator, Screen}
+  alias Ourocode.Terminal.{HudModel, PromptActivityIndicator, Screen}
 
   @left 2
-  @body 4
+  @chip_width 11
   @pulse [".", "o", "O", "o"]
 
   @spec draw_header(map(), pos_integer(), map(), map()) :: map()
@@ -31,26 +31,7 @@ defmodule Ourocode.Terminal.RendererChrome do
 
   @spec draw_composer(map(), pos_integer(), integer(), String.t(), atom(), map()) :: map()
   def draw_composer(screen, width, rule_row, prompt_buffer, mode, opts) do
-    placeholder =
-      cond do
-        Map.get(opts, :interview_paused, false) ->
-          "/answer <text> resumes; type normally to discuss"
-
-        Map.get(opts, :interview_decision, false) ->
-          ""
-
-        Map.get(opts, :wonder_focus, false) ->
-          ""
-
-        mode == :palette ->
-          "type to filter commands"
-
-        width < 64 ->
-          "Type / or ooo; Enter runs"
-
-        true ->
-          "Message ourocode, / for commands, ooo starts structured work"
-      end
+    hud = HudModel.build(%{}, [], mode, opts, width)
 
     live_activity? = Map.get(opts, :live_turn_activity, []) != []
     prompt_busy? = live_activity? or Map.get(opts, :streaming, false)
@@ -61,63 +42,59 @@ defmodule Ourocode.Terminal.RendererChrome do
           {prompt_buffer, :text}
 
         prompt_busy? ->
-          {"Queue a follow-up; Esc interrupts", :placeholder}
+          {hud.placeholder, :placeholder}
 
         true ->
-          {placeholder, :placeholder}
+          {hud.placeholder, :placeholder}
       end
 
-    {marker, body_x} =
+    marker =
       if prompt_busy? do
-        {prompt_activity_marker(Map.get(opts, :tick, 0)), @body + 4}
+        prompt_activity_marker(Map.get(opts, :tick, 0))
       else
-        {">", @body}
+        ">"
       end
+
+    chip = chip_text(hud.mode_chip)
+    marker_x = @left + @chip_width + 1
+
+    body_x = marker_x + Screen.text_width(marker) + 1
 
     screen =
       screen
       |> Screen.put_text(@left, rule_row, "", :border)
-      |> Screen.put_text(@left, rule_row + 1, marker, :accent)
+      |> Screen.put_text(@left, rule_row + 1, chip, :strong)
+      |> Screen.put_text(marker_x, rule_row + 1, marker, :accent)
 
-    put_composer_text(screen, body_x, rule_row + 1, body_text, body_style, width - body_x - @left)
+    put_composer_text(
+      screen,
+      body_x,
+      rule_row + 1,
+      body_text,
+      body_style,
+      width - body_x - @left
+    )
   end
 
   @spec draw_status_bar(map(), pos_integer(), integer(), map(), map(), atom(), map()) :: map()
-  def draw_status_bar(screen, width, row, kv, sections, mode, opts) do
-    sessions = FrameSections.session_count(sections)
-    status = Map.get(kv, "status", "")
-
-    queued = Map.get(kv, "queued", "0")
-    hooks = Map.get(kv, "hooks", "idle")
-
-    runtime = runtime_label(Map.get(kv, "runtime", "?"), status)
-
-    left =
-      [runtime]
-      |> maybe(sessions > 0, "#{sessions} active")
-      |> maybe(queued != "0", "q#{queued}")
-      |> maybe(hooks != "idle", "hooks #{hooks}")
-      |> Enum.join("   ")
-
-    notification =
-      case Map.get(opts, :notifications, []) do
-        [note | _rest] -> note
-        _none -> nil
-      end
-
-    hints =
-      cond do
-        is_binary(notification) -> notification
-        Map.get(opts, :workspace_active, false) -> workspace_hints(width)
-        mode == :palette -> "Up/Dn  Enter run  Esc"
-        true -> responsive_hints(width, sections)
-      end
-
-    hint_col = max(width - String.length(hints) - @left, @left)
-    hint_style = if Map.get(opts, :notifications, []) != [], do: :accent, else: :muted
+  @spec draw_meta_bar(map(), pos_integer(), integer(), map(), map(), atom(), map()) :: map()
+  def draw_meta_bar(screen, width, row, kv, sections, mode, opts) do
+    hud = HudModel.build(kv, sections, mode, opts, width)
+    session = "session " <> String.replace(hud.left_status, ~r/\s{2,}/, " · ")
+    segments = [session | hud.segments]
 
     screen
-    |> Screen.put_text(@left, row, fit_left(left, hint_col - @left - 2), :dim)
+    |> draw_segments(@left, row, segments, width - @left * 2)
+  end
+
+  def draw_status_bar(screen, width, row, kv, sections, mode, opts) do
+    hud = HudModel.build(kv, sections, mode, opts, width)
+    hints = hud.actions
+
+    hint_style = if hud.notification != nil, do: :accent, else: :muted
+    hint_col = @left
+
+    screen
     |> Screen.put_text(hint_col, row, hints, hint_style)
   end
 
@@ -144,12 +121,6 @@ defmodule Ourocode.Terminal.RendererChrome do
     Screen.put_text(screen, x, y, clip(text, width), style)
   end
 
-  defp runtime_label(runtime, status) when runtime in ["?", "unknown", nil] do
-    if status in ["healthy", "ready"], do: "ready", else: "main"
-  end
-
-  defp runtime_label(runtime, _status), do: runtime
-
   defp activity_dot(kv, opts) do
     if Map.get(opts, :streaming) do
       frame = Enum.at(@pulse, rem(Map.get(opts, :tick, 0), length(@pulse)))
@@ -172,42 +143,64 @@ defmodule Ourocode.Terminal.RendererChrome do
     end
   end
 
-  defp maybe(list, false, _item), do: list
-  defp maybe(list, true, item), do: list ++ [item]
-
   defp clip(text, max_width), do: Screen.truncate(text, max_width)
 
-  defp responsive_hints(width, _sections) when width < 52, do: "/  ooo  ^C"
-  defp responsive_hints(width, _sections) when width < 76, do: "/ commands  ooo work  ^C"
+  defp draw_segments(screen, _x, _row, _segments, max_width) when max_width < 10, do: screen
 
-  defp responsive_hints(_width, sections) when sections == %{},
-    do: "/ commands  ooo work  ^C"
+  defp draw_segments(screen, x, row, segments, max_width) when is_list(segments) do
+    segments
+    |> Enum.reduce_while({screen, x, max_width, 0}, fn segment, {acc, col, left, index} ->
+      text = segment_text(segment, left, index)
+      width = Screen.text_width(text)
 
-  defp responsive_hints(_width, _sections), do: "/ commands  ooo work  Up/^P history  ^C"
+      cond do
+        text == "" ->
+          {:halt, {acc, col, left, index}}
 
-  defp workspace_hints(width) when width < 52, do: "workspace  Up/Dn  Enter"
-  defp workspace_hints(width) when width < 76, do: "workspace  Up/Dn rows  Enter action"
+        width > left ->
+          {:halt, {acc, col, left, index}}
 
-  defp workspace_hints(_width),
-    do: "workspace focus  Up/Dn rows  Enter row action  type to compose"
+        true ->
+          style = segment_style(segment, index)
+          next_acc = Screen.put_text(acc, col, row, text, style)
+          {:cont, {next_acc, col + width, left - width, index + 1}}
+      end
+    end)
+    |> elem(0)
+  end
 
-  defp fit_left(_text, max_width) when max_width < 8, do: ""
+  defp segment_text(segment, left, index) do
+    prefix = if index == 0, do: "", else: " "
+    raw = prefix <> " " <> segment <> " "
 
-  defp fit_left(text, max_width) do
-    if Screen.text_width(text) <= max_width do
-      text
-    else
-      text
-      |> String.split(~r/\s{2,}/, trim: true)
-      |> Enum.reduce_while("", fn part, acc ->
-        next = if acc == "", do: part, else: acc <> "   " <> part
-
-        if Screen.text_width(next) <= max_width do
-          {:cont, next}
-        else
-          {:halt, acc}
-        end
-      end)
+    cond do
+      left < 8 -> ""
+      Screen.text_width(raw) <= left -> raw
+      true -> Screen.truncate(raw, left)
     end
+  end
+
+  defp segment_style(segment, 0) do
+    cond do
+      String.starts_with?(segment, "session ") -> :p_dim
+      String.starts_with?(segment, "run ") -> :p_title
+      String.starts_with?(segment, "mcp ") -> :p_accent
+      String.starts_with?(segment, "Q ") -> :warn
+      true -> :p_dim
+    end
+  end
+
+  defp segment_style(segment, _index) do
+    cond do
+      String.starts_with?(segment, "session ") -> :p_dim
+      String.starts_with?(segment, "mcp ") -> :p_accent
+      String.starts_with?(segment, "Q ") -> :warn
+      true -> :p_dim
+    end
+  end
+
+  defp chip_text(chip) do
+    label = "[" <> chip <> "]"
+    label <> String.duplicate(" ", max(@chip_width - Screen.text_width(label), 0))
   end
 end
