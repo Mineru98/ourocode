@@ -194,4 +194,74 @@ defmodule Ourocode.Runtime.InterviewOptionSynthesizerTest do
              "failure causes first"
            ]
   end
+
+  test "prefers quoted Korean option candidates over comma-splitting examples" do
+    options =
+      InterviewOptionSynthesizer.options(
+        [],
+        "이 연구/프로토타입 계획에서 가장 먼저 검증하고 싶은 핵심 가설은 무엇인가요: “transformer layer 없이도 성능이 유지된다”, “AI가 생성한 훈련 신호로 AI를 개선할 수 있다”, “새 레이어 구조가 더 효율적이다”, 아니면 다른 주장인가요?"
+      )
+
+    assert Enum.map(options, & &1["label"]) == [
+             "transformer layer 없이도 성능이 유지된다",
+             "AI가 생성한 훈련 신호로 AI를 개선할 수 있다",
+             "새 레이어 구조가 더 효율적이다"
+           ]
+  end
+
+  test "strips Korean example and choice-tail context from comma candidates" do
+    options =
+      InterviewOptionSynthesizer.options(
+        [],
+        "합성 데이터 패턴 학습에서 transformer baseline과 비교할 패턴을 무엇으로 고정할까요: 예를 들어 반복/복사, 괄호 짝 맞추기, 길이 일반화, 규칙 기반 시퀀스 변환 중 하나를 선택하고, 성공 기준은 정확도 기준 baseline 대비 ±N% 이내처럼 둘까요?"
+      )
+
+    assert Enum.map(options, & &1["label"]) == [
+             "반복/복사",
+             "괄호 짝 맞추기",
+             "길이 일반화",
+             "규칙 기반 시퀀스 변환"
+           ]
+  end
+
+  test "does not split explanatory comma lists without a choice signal" do
+    options =
+      InterviewOptionSynthesizer.options(
+        [],
+        "실험 설명에는 데이터 수집, 모델 학습, 평가 절차가 포함되어야 하나요?"
+      )
+
+    assert Enum.map(options, & &1["label"]) == [
+             "Define the desired outcome",
+             "Clarify the target user"
+           ]
+  end
+
+  test "creates Korean interview-flow options instead of English generic fallbacks" do
+    options =
+      InterviewOptionSynthesizer.options(
+        [],
+        "이번 라운드의 목표는 실제 기능 요구사항을 확정하는 것이 아니라, ooo interview가 질문을 정상적으로 이어가고 답변을 반영하는지 검증하는 것인가요? 그렇다면 “잘 동작한다”의 기준은 무엇인가요?"
+      )
+
+    assert Enum.map(options, & &1["label"]) == [
+             "질문이 다음 라운드로 이어진다",
+             "답변이 다음 질문에 반영된다",
+             "Seed 작성에 필요한 기준이 모인다"
+           ]
+  end
+
+  test "creates Korean success-criteria options for broad criteria prompts" do
+    options =
+      InterviewOptionSynthesizer.options(
+        [],
+        "이 기능이 잘 동작한다는 기준은 무엇인가요?"
+      )
+
+    assert Enum.map(options, & &1["label"]) == [
+             "성공 기준을 먼저 정의",
+             "검증 방법을 먼저 정의",
+             "사용자 영향을 먼저 정의"
+           ]
+  end
 end

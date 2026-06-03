@@ -3,7 +3,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIO do
   Agent/event side effects used by the loop-binding interview session.
   """
 
-  alias Ourocode.Runtime.{InterviewEvents, InterviewState}
+  alias Ourocode.Runtime.{InterviewEvents, InterviewState, WorkflowHarness}
 
   @spec merge_interview(pid(), String.t(), String.t(), map(), String.t() | nil) :: :ok
   def merge_interview(agent, parent_call_id, text, meta, session_id) do
@@ -38,8 +38,18 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIO do
 
   def push_dialogue(_agent, _role, _text), do: :ok
 
-  @spec enqueue_complete(pid(), String.t(), atom(), map()) :: :ok
-  def enqueue_complete(agent, parent_call_id, reason, callbacks) do
+  @spec enqueue_complete(pid(), String.t(), atom(), map(), keyword()) :: :ok
+  def enqueue_complete(agent, parent_call_id, reason, callbacks, opts \\ []) do
+    enqueue(
+      agent,
+      WorkflowHarness.completed_event(
+        parent_call_id,
+        reason,
+        workflow_event_opts(parent_call_id, opts)
+      ),
+      callbacks
+    )
+
     enqueue(agent, InterviewEvents.complete(parent_call_id, reason), callbacks)
 
     Agent.update(agent, fn state ->
@@ -49,8 +59,18 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIO do
     push_dialogue(agent, :mcp, "interview complete (#{reason}) — next: ooo seed")
   end
 
-  @spec enqueue_failure(pid(), String.t(), term(), map()) :: :ok
-  def enqueue_failure(agent, parent_call_id, reason, callbacks) do
+  @spec enqueue_failure(pid(), String.t(), term(), map(), keyword()) :: :ok
+  def enqueue_failure(agent, parent_call_id, reason, callbacks, opts \\ []) do
+    enqueue(
+      agent,
+      WorkflowHarness.failure_event(
+        parent_call_id,
+        reason,
+        workflow_event_opts(parent_call_id, opts)
+      ),
+      callbacks
+    )
+
     enqueue(agent, InterviewEvents.failure(parent_call_id, reason), callbacks)
 
     Agent.update(agent, fn state ->
@@ -72,4 +92,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIO do
   end
 
   def enqueue(_agent, _event, _callbacks), do: :ok
+
+  defp workflow_event_opts(parent_call_id, opts) do
+    Keyword.put_new(opts, :run_id, "workflow-run:" <> parent_call_id)
+  end
 end

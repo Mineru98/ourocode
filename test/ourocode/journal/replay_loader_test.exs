@@ -3,6 +3,7 @@ defmodule Ourocode.Journal.ReplayLoaderTest do
 
   alias Ourocode.Journal
   alias Ourocode.Journal.ReplayLoader
+  alias Ourocode.Dashboard.PaneOrchestrator
 
   test "recovers every journaled normalized event after an interrupted session without skips or duplicates" do
     path = journal_path("replay-loader-interrupted-session")
@@ -148,6 +149,70 @@ defmodule Ourocode.Journal.ReplayLoaderTest do
     assert report.persisted_record_count == length(persisted_journal_sequence)
     assert report.recovered_event_count == length(replayed_events)
     assert report.recovered_event_seqs == Enum.map(persisted_journal_sequence, & &1.event_seq)
+  end
+
+  test "replay restores one parent MCP call with multiple child session streams" do
+    path = journal_path("replay-loader-parent-multi-child-topology")
+
+    source_events = [
+      %{
+        type: :parent_call_started,
+        parent_call_id: "parent-replay-topology-1",
+        runtime_source: "ouroboros",
+        transport: :streamable_http,
+        occurred_at_ms: 3_001,
+        method: "tools/call",
+        params: %{"name" => "ouroboros_ralph"}
+      },
+      %{
+        type: :parent_call_event,
+        parent_call_id: "parent-replay-topology-1",
+        runtime_source: "ouroboros",
+        transport: :streamable_http,
+        external_ids: %{"childID" => "child-replay-alpha"},
+        occurred_at_ms: 3_002,
+        payload: %{"seq" => 1, "token" => "alpha"}
+      },
+      %{
+        type: :parent_call_event,
+        parent_call_id: "parent-replay-topology-1",
+        runtime_source: "ouroboros",
+        transport: :streamable_http,
+        external_ids: %{"childID" => "child-replay-beta"},
+        occurred_at_ms: 3_003,
+        payload: %{"seq" => 1, "token" => "beta"}
+      }
+    ]
+
+    Enum.each(source_events, fn event ->
+      assert {:ok, _persisted_event} = Journal.append_returning_event(path, event)
+    end)
+
+    assert {:ok, %{events: replayed_events, report: %{status: :ok}}} = ReplayLoader.load(path)
+
+    assert {:ok, relationship_index} = Journal.load_relationship_recovery_index(path)
+
+    assert {:ok, parent_mapping} =
+             Journal.RelationshipRecoveryIndex.parent(
+               relationship_index,
+               "parent-replay-topology-1"
+             )
+
+    assert parent_mapping.child_ids == ["child-replay-alpha", "child-replay-beta"]
+
+    orchestrated = PaneOrchestrator.from_events(replayed_events)
+
+    assert [%{parent_call_id: "parent-replay-topology-1"}] = orchestrated.parents.working
+
+    assert Enum.map(orchestrated.children.working, & &1.child_id) == [
+             "child-replay-alpha",
+             "child-replay-beta"
+           ]
+
+    assert Enum.map(PaneOrchestrator.graph(orchestrated).edges, & &1.child_id) == [
+             "child-replay-alpha",
+             "child-replay-beta"
+           ]
   end
 
   test "rejects replay streams that would skip a persisted event sequence" do

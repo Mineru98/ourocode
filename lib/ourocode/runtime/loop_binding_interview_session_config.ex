@@ -13,6 +13,9 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfig do
       model: Keyword.fetch!(opts, :model),
       project_dir: project_dir,
       parent_call_id: Keyword.fetch!(opts, :parent_call_id),
+      workflow_run_id:
+        Keyword.get(opts, :workflow_run_id) ||
+          "workflow-run:" <> Keyword.fetch!(opts, :parent_call_id),
       payload: Keyword.fetch!(opts, :initial_payload),
       round: 1,
       max_rounds: Keyword.get(opts, :max_rounds, Keyword.fetch!(defaults, :max_rounds)),

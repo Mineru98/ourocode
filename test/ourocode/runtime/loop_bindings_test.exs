@@ -1046,6 +1046,98 @@ defmodule Ourocode.Runtime.LoopBindingsTest do
     assert Process.alive?(loop) == false
   end
 
+  test "user-routed followup asks main session to generate answer choices" do
+    {:ok, agent} = LoopBindings.start_link()
+    test_pid = self()
+
+    {:ok, calls} =
+      Agent.start_link(fn ->
+        [
+          parent_result(%{
+            "result" => %{
+              "content" => [
+                %{"type" => "text", "text" => "(ambiguity: 0.80) Which scope should we pick?"}
+              ],
+              "meta" => %{"session_id" => "iv-main-options"}
+            }
+          }),
+          parent_result(%{
+            "result" => %{
+              "content" => [
+                %{
+                  "type" => "text",
+                  "text" => "(ambiguity: 0.70) 이번 라운드는 질문/답변 반영이 잘 되는지 검증하면 될까요?"
+                }
+              ],
+              "meta" => %{"session_id" => "iv-main-options"}
+            }
+          })
+        ]
+      end)
+
+    pcf = fn payload ->
+      send(test_pid, {:followup, payload})
+      {:ok, Agent.get_and_update(calls, fn [h | t] -> {h, t} end)}
+    end
+
+    model =
+      scripted_model([
+        """
+        ASK_USER Which scope should we pick?
+        - Narrow fix | Target one concrete bug first
+        - Broader UX | Improve the whole interview surface
+        """,
+        """
+        - 질문이 이어진다 | 답변 뒤 다음 질문과 선택지가 생성되는지 확인
+        - 답변이 반영된다 | 이전 답변이 다음 질문 문맥에 반영되는지 확인
+        """
+      ])
+
+    loop =
+      spawn(fn ->
+        LoopBindings.run_interview_session(agent,
+          parent_call_id: "parent-main-option-generator",
+          initial_payload: %{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}},
+          parent_call_fun: pcf,
+          model: model,
+          project_dir: File.cwd!()
+        )
+      end)
+
+    assert_receive {:followup, _initial}, 1_000
+
+    wait_for(fn ->
+      iv = LoopBindings.pane_snapshot(agent).interview
+      iv && iv.question =~ "Which scope"
+    end)
+
+    assert {:ok, decision} = LoopBindings.answer_wonder(agent, 1)
+    assert decision.selected_label == "Narrow fix"
+
+    assert_receive {:followup, followup}, 1_000
+    assert followup["params"]["arguments"]["answer"] =~ "[from-user] Narrow fix"
+
+    wait_for(fn ->
+      iv = LoopBindings.pane_snapshot(agent).interview
+      (iv && iv.question =~ "질문/답변 반영") and Map.has_key?(iv, :question_options)
+    end)
+
+    snap = LoopBindings.pane_snapshot(agent)
+
+    assert Enum.map(snap.interview.question_options, & &1["label"]) == [
+             "질문이 이어진다",
+             "답변이 반영된다"
+           ]
+
+    assert Enum.any?(
+             snap.interview.router,
+             &String.contains?(&1, "main session generated 2 answer choices")
+           )
+
+    assert {:ok, _cancelled} = LoopBindings.cancel_wonder(agent, "cancel")
+    Process.exit(loop, :kill)
+  end
+
   test "interview session loop: ASK_USER routes to answer_interview handoff" do
     {:ok, agent} = LoopBindings.start_link()
     test_pid = self()

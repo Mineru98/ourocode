@@ -3,7 +3,8 @@ defmodule Ourocode.Runtime.LoopBindingState do
   Owns the live state shape and renderer snapshot refresh for loop bindings.
   """
 
-  alias Ourocode.Dashboard.{ChildSessionPanes, ParentMcpPane}
+  alias Ourocode.ACP.Projection, as: AcpProjection
+  alias Ourocode.Dashboard.{ChildSessionPanes, PaneOrchestrator, ParentMcpPane}
   alias Ourocode.Runtime.{ActivitySnapshot, OuroborosLogTailer, OuroborosSessionReasoning}
 
   @spec initial() :: map()
@@ -12,6 +13,8 @@ defmodule Ourocode.Runtime.LoopBindingState do
       inbox: :queue.new(),
       parent: ParentMcpPane.new(),
       child: ChildSessionPanes.new(),
+      acp: AcpProjection.new(),
+      mcp_topology: PaneOrchestrator.new_topology(),
       wonder: nil,
       interview: nil,
       interview_session: nil,
@@ -63,7 +66,13 @@ defmodule Ourocode.Runtime.LoopBindingState do
         refresh_ouroboros_session_reasoning(state, session_reasoning, session_reasoning_state)
 
       %{
-        runtime: %{parent_panes: state.parent, child_panes: state.child},
+        runtime: %{
+          parent_panes: state.parent,
+          child_panes: state.child,
+          acp: Map.get(state, :acp, AcpProjection.new()),
+          workflow: Map.get(state, :workflow, %{}),
+          mcp_topology: Map.get(state, :mcp_topology, PaneOrchestrator.new_topology())
+        },
         wonder_tool: state.wonder,
         interview: state.interview,
         interview_session: state.interview_session,

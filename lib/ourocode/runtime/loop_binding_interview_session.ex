@@ -6,6 +6,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   alias Ourocode.Runtime.{
     InterviewEvents,
     InterviewProgress,
+    InterviewOptionGenerator,
     LoopBindingQuestionRouter,
     InterviewResponse,
     InterviewState,
@@ -52,7 +53,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
 
   defp interview_round(agent, %{round: round, max_rounds: max, parent_call_id: pcid} = st)
        when round > max do
-    SessionIO.enqueue_complete(agent, pcid, :max_rounds, st.callbacks)
+    SessionIO.enqueue_complete(agent, pcid, :max_rounds, st.callbacks, run_id: st.workflow_run_id)
     :ok
   end
 
@@ -101,7 +102,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
           agent,
           st.parent_call_id,
           :seed_ready,
-          st.callbacks
+          st.callbacks,
+          run_id: st.workflow_run_id
         )
 
         :ok
@@ -132,22 +134,22 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       :missing_session_id ->
         enqueue_failure(
           agent,
-          st.parent_call_id,
-          :interview_session_id_missing,
-          st.callbacks
+          st,
+          :interview_session_id_missing
         )
 
         :ok
 
       {:transport_failed, reason} ->
-        enqueue_failure(agent, st.parent_call_id, {:transport_failed, reason}, st.callbacks)
+        enqueue_failure(agent, st, {:transport_failed, reason})
         :ok
     end
   end
 
   defp optimistic_interview_round(agent, st) do
     prompt = optimistic_prompt(st.payload)
-    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, [])
+    options = generated_question_options(agent, st, prompt, [])
+    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, options)
 
     SessionIO.push_dialogue(agent, :main, "→ asking you: " <> prompt)
     SessionIO.enqueue(agent, event, st.callbacks)
@@ -194,7 +196,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
         end
 
       {:DOWN, ref, :process, _pid, reason} when ref == task.ref ->
-        enqueue_failure(agent, st.parent_call_id, {:transport_failed, reason}, st.callbacks)
+        enqueue_failure(agent, st, {:transport_failed, reason})
         :ok
     after
       120_000 ->
@@ -202,9 +204,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
 
         enqueue_failure(
           agent,
-          st.parent_call_id,
-          :interview_initial_question_timeout,
-          st.callbacks
+          st,
+          :interview_initial_question_timeout
         )
 
         :ok
@@ -214,7 +215,11 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   defp handle_optimistic_answer(agent, st, task, {:done, text}) do
     Task.shutdown(task, :brutal_kill)
     SessionIO.push_dialogue(agent, :user, text)
-    SessionIO.enqueue_complete(agent, st.parent_call_id, :user_done, st.callbacks)
+
+    SessionIO.enqueue_complete(agent, st.parent_call_id, :user_done, st.callbacks,
+      run_id: st.workflow_run_id
+    )
+
     :ok
   end
 
@@ -229,7 +234,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
 
       {:error, reason} ->
         unless cancelled?(agent, st.parent_call_id) do
-          enqueue_failure(agent, st.parent_call_id, {:transport_failed, reason}, st.callbacks)
+          enqueue_failure(agent, st, {:transport_failed, reason})
         end
 
         :ok
@@ -281,7 +286,11 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       {:complete, text, meta, session_id} ->
         SessionIO.merge_interview(agent, st.parent_call_id, text, meta, session_id)
         SessionIO.push_dialogue(agent, :user, user_text)
-        SessionIO.enqueue_complete(agent, st.parent_call_id, :seed_ready, st.callbacks)
+
+        SessionIO.enqueue_complete(agent, st.parent_call_id, :seed_ready, st.callbacks,
+          run_id: st.workflow_run_id
+        )
+
         :ok
 
       {:server_error, message, session_id} ->
@@ -289,11 +298,11 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
         :ok
 
       :missing_session_id ->
-        enqueue_failure(agent, st.parent_call_id, :interview_session_id_missing, st.callbacks)
+        enqueue_failure(agent, st, :interview_session_id_missing)
         :ok
 
       {:transport_failed, reason} ->
-        enqueue_failure(agent, st.parent_call_id, {:transport_failed, reason}, st.callbacks)
+        enqueue_failure(agent, st, {:transport_failed, reason})
         :ok
     end
   end
@@ -423,7 +432,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
 
       {:error, reason} ->
         unless cancelled?(agent, st.parent_call_id) do
-          enqueue_failure(agent, st.parent_call_id, {:router_failed, reason}, st.callbacks)
+          enqueue_failure(agent, st, {:router_failed, reason})
         end
 
         :ok
@@ -439,6 +448,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   end
 
   defp ask_live_user(agent, st, prompt, options) do
+    options = generated_question_options(agent, st, prompt, options)
+
     SessionIO.push_dialogue(
       agent,
       :main,
@@ -452,7 +463,11 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, event_options(event)) do
       {:done, text} ->
         SessionIO.push_dialogue(agent, :user, text)
-        SessionIO.enqueue_complete(agent, st.parent_call_id, :user_done, st.callbacks)
+
+        SessionIO.enqueue_complete(agent, st.parent_call_id, :user_done, st.callbacks,
+          run_id: st.workflow_run_id
+        )
+
         :ok
 
       {:answer, user_text} ->
@@ -477,6 +492,30 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     |> case do
       [%{"options" => options} | _rest] when is_list(options) -> options
       _other -> []
+    end
+  end
+
+  defp generated_question_options(_agent, _st, _prompt, [_first | _rest] = options), do: options
+
+  defp generated_question_options(agent, st, prompt, _options) do
+    timeout_ms = min(max(st.router_decision_timeout_ms, 250), 1_500)
+
+    case InterviewOptionGenerator.generate(prompt, st.model, timeout_ms: timeout_ms) do
+      {:ok, options} ->
+        SessionIO.push_router_trace(
+          agent,
+          "main session generated #{length(options)} answer choices"
+        )
+
+        options
+
+      {:error, reason} ->
+        SessionIO.push_router_trace(
+          agent,
+          "answer choices fallback: #{inspect(reason)}"
+        )
+
+        []
     end
   end
 
@@ -505,16 +544,27 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       {:error, reason} ->
         enqueue_failure(
           agent,
-          st.parent_call_id,
-          {:followup_payload_failed, reason},
-          st.callbacks
+          st,
+          {:followup_payload_failed, reason}
         )
 
         :ok
     end
   end
 
+  defp enqueue_failure(
+         agent,
+         %{parent_call_id: parent_call_id, callbacks: callbacks} = st,
+         reason
+       ) do
+    SessionIO.enqueue_failure(agent, parent_call_id, reason, callbacks,
+      run_id: st.workflow_run_id
+    )
+  end
+
   defp enqueue_failure(agent, parent_call_id, reason, callbacks) do
-    SessionIO.enqueue_failure(agent, parent_call_id, reason, callbacks)
+    SessionIO.enqueue_failure(agent, parent_call_id, reason, callbacks,
+      run_id: "workflow-run:" <> parent_call_id
+    )
   end
 end
