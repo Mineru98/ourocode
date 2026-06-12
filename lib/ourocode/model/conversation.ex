@@ -112,6 +112,16 @@ defmodule Ourocode.Model.Conversation do
   defp input_item(role, type, text),
     do: %{"role" => role, "content" => [%{"type" => type, "text" => text}]}
 
+  @doc """
+  The budgeted history as `{user, assistant}` tuples, for providers that
+  build their own message shape (e.g. the Anthropic Messages API).
+  """
+  @spec budgeted_pairs(t()) :: [{String.t(), String.t()}]
+  def budgeted_pairs(%__MODULE__{} = conversation) do
+    {turns, _elided} = budgeted_turns(conversation)
+    Enum.map(turns, fn %{user: user, assistant: assistant} -> {user, assistant} end)
+  end
+
   # Newest-first walk under the byte budget; the newest turn always survives
   # and the walk halts at the first turn that no longer fits, so the kept
   # history is always a contiguous recent window.

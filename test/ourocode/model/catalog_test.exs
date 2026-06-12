@@ -8,13 +8,14 @@ defmodule Ourocode.Model.CatalogTest do
     fn bin -> if bin in installed, do: "/usr/bin/#{bin}", else: nil end
   end
 
-  test "lists codex first, then only installed CLI backends" do
+  test "lists direct-API providers first, then only installed CLI backends" do
     models =
-      Catalog.list(codex_signed_in: false, which: which(["claude"]))
+      Catalog.list(codex_signed_in: false, anthropic_signed_in: false, which: which(["claude"]))
 
-    assert hd(models).id == :codex
+    assert [%{id: :codex}, %{id: :claude_api} | _] = models
     ids = Enum.map(models, & &1.id)
     assert :codex in ids
+    assert :claude_api in ids
     assert :claude in ids
     assert :codex_cli in ids
     assert :gemini in ids
@@ -23,6 +24,43 @@ defmodule Ourocode.Model.CatalogTest do
     gemini = Catalog.fetch(models, :gemini)
     assert claude.status == :ready
     assert gemini.status == :unavailable
+  end
+
+  test "claude_api status reflects Anthropic sign-in and stays selectable" do
+    out =
+      Catalog.fetch(
+        Catalog.list(codex_signed_in: false, anthropic_signed_in: false, which: which([])),
+        :claude_api
+      )
+
+    assert out.status == {:needs_auth, "/login-claude"}
+    assert Model.needs_auth?(out)
+
+    inn =
+      Catalog.fetch(
+        Catalog.list(codex_signed_in: false, anthropic_signed_in: true, which: which([])),
+        :claude_api
+      )
+
+    assert inn.status == :ready
+    assert Model.ready?(inn)
+  end
+
+  test "default prefers the direct Claude API over the claude CLI when signed in" do
+    assert Catalog.default(
+             codex_signed_in: false,
+             anthropic_signed_in: true,
+             which: which(["claude"]),
+             ouroboros_backend: "claude"
+           ).id == :claude_api
+
+    # Not signed in to the subscription: fall back to the installed CLI.
+    assert Catalog.default(
+             codex_signed_in: false,
+             anthropic_signed_in: false,
+             which: which(["claude"]),
+             ouroboros_backend: "claude"
+           ).id == :claude
   end
 
   test "codex status reflects sign-in state and stays selectable" do

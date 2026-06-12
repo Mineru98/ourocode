@@ -62,9 +62,9 @@ defmodule Ourocode.Terminal.TuiModelSelection do
         log.(output, "model: #{selected_model.label}")
         redraw.(result, output, state, "", cols, rows)
 
-      selected_model.id == :codex ->
-        TuiState.put_model_id(state, :codex)
-        login.(result, output, state, cols, rows, redraw)
+      Model.needs_auth?(selected_model) ->
+        TuiState.put_model_id(state, selected_model.id)
+        login.(selected_model.id, result, output, state, cols, rows, redraw)
 
       true ->
         log.(output, "#{selected_model.label} is not ready.")

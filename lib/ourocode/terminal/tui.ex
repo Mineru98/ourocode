@@ -128,7 +128,7 @@ defmodule Ourocode.Terminal.Tui do
   defp choose_model(result, output, state, cols, rows) do
     TuiModelSelection.choose(result, output, state, cols, rows,
       redraw: &redraw/6,
-      login: &TuiLogin.start/6
+      login: &TuiLogin.start/7
     )
   end
 

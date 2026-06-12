@@ -22,7 +22,7 @@ defmodule Ourocode.Terminal.TuiModelSelectionTest do
     TuiModelSelection.choose(%{}, output, state, 80, 24,
       models: [model(:alpha, "alpha"), model(:bravo, "bravo")],
       redraw: fn _result, _output, _state, _buffer, _cols, _rows -> :ok end,
-      login: fn _result, _output, _state, _cols, _rows, _redraw -> :ok end
+      login: fn _provider, _result, _output, _state, _cols, _rows, _redraw -> :ok end
     )
 
     {_input, captured} = StringIO.contents(output)
@@ -34,22 +34,24 @@ defmodule Ourocode.Terminal.TuiModelSelectionTest do
     assert current.pidx == 0
   end
 
-  test "choose delegates codex auth-needed model to login flow" do
-    state = TuiState.start_link()
-    TuiState.put_mode(state, :model)
-    {:ok, output} = StringIO.open("")
-    parent = self()
+  test "choose delegates any auth-needed model to its login flow with the provider id" do
+    for {id, hint} <- [{:codex, "/login"}, {:claude_api, "/login-claude"}] do
+      state = TuiState.start_link()
+      TuiState.put_mode(state, :model)
+      {:ok, output} = StringIO.open("")
+      parent = self()
 
-    TuiModelSelection.choose(%{}, output, state, 80, 24,
-      models: [model(:codex, "codex", {:needs_auth, "/login"})],
-      redraw: fn _result, _output, _state, _buffer, _cols, _rows -> :ok end,
-      login: fn _result, _output, _state, cols, rows, _redraw ->
-        send(parent, {:login_started, cols, rows})
-      end
-    )
+      TuiModelSelection.choose(%{}, output, state, 80, 24,
+        models: [model(id, to_string(id), {:needs_auth, hint})],
+        redraw: fn _result, _output, _state, _buffer, _cols, _rows -> :ok end,
+        login: fn provider, _result, _output, _state, cols, rows, _redraw ->
+          send(parent, {:login_started, provider, cols, rows})
+        end
+      )
 
-    assert_receive {:login_started, 80, 24}
-    assert Agent.get(state, & &1.model_id) == :codex
+      assert_receive {:login_started, ^id, 80, 24}
+      assert Agent.get(state, & &1.model_id) == id
+    end
   end
 
   defp model(id, label, status \\ :ready) do

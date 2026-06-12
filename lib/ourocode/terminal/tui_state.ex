@@ -167,6 +167,14 @@ defmodule Ourocode.Terminal.TuiState do
   @spec put_login(pid(), map() | nil) :: :ok
   def put_login(state, login), do: Agent.update(state, &%{&1 | login: login, model_cache: nil})
 
+  @doc "Pending paste-based login (e.g. Claude): the next submitted line is the code."
+  @spec pending_login(pid()) :: map() | nil
+  def pending_login(state), do: Agent.get(state, &Map.get(&1, :pending_login))
+
+  @spec put_pending_login(pid(), map() | nil) :: :ok
+  def put_pending_login(state, pending),
+    do: Agent.update(state, &Map.put(&1, :pending_login, pending))
+
   @spec streaming?(pid()) :: boolean()
   def streaming?(state), do: Agent.get(state, & &1.streaming)
 

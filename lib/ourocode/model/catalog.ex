@@ -14,6 +14,9 @@ defmodule Ourocode.Model.Catalog do
   alias Ourocode.Model
   alias Ourocode.Model.Cli
   alias Ourocode.Model.Conversation
+  alias Ourocode.Provider.Anthropic
+  alias Ourocode.Provider.Anthropic.Client, as: AnthropicClient
+  alias Ourocode.Provider.Anthropic.Messages, as: AnthropicMessages
   alias Ourocode.Provider.Codex
   alias Ourocode.Provider.Codex.Client
 
@@ -25,13 +28,14 @@ defmodule Ourocode.Model.Catalog do
     gemini: "gemini cli"
   }
 
-  @doc "All backends with detected status, Codex first then installed CLIs."
+  @doc "All backends with detected status: direct-API providers, then CLIs."
   @spec list(keyword()) :: [Model.t()]
   def list(opts \\ []) do
     which = Keyword.get(opts, :which, &System.find_executable/1)
-    signed_in? = Keyword.get_lazy(opts, :codex_signed_in, &Codex.signed_in?/0)
+    codex_signed_in? = Keyword.get_lazy(opts, :codex_signed_in, &Codex.signed_in?/0)
+    anthropic_signed_in? = Keyword.get_lazy(opts, :anthropic_signed_in, &Anthropic.signed_in?/0)
 
-    [codex_model(signed_in?) | cli_models(which)]
+    [codex_model(codex_signed_in?), claude_api_model(anthropic_signed_in?) | cli_models(which)]
   end
 
   @doc """
@@ -79,6 +83,30 @@ defmodule Ourocode.Model.Catalog do
           end
 
         Client.stream(prompt, opts, on_chunk)
+      end
+    }
+  end
+
+  defp claude_api_model(signed_in?) do
+    %Model{
+      id: :claude_api,
+      label: "claude  (Claude Pro/Max)",
+      kind: :oauth,
+      status: if(signed_in?, do: :ready, else: {:needs_auth, "/login-claude"}),
+      run: fn prompt, opts, on_chunk ->
+        {conversation, opts} = Keyword.pop(opts, :history)
+
+        opts =
+          case conversation do
+            %Conversation{} ->
+              turns = Conversation.budgeted_pairs(conversation)
+              Keyword.put(opts, :input, AnthropicMessages.messages(turns, prompt))
+
+            _none ->
+              opts
+          end
+
+        AnthropicClient.stream(prompt, opts, on_chunk)
       end
     }
   end
@@ -239,8 +267,8 @@ defmodule Ourocode.Model.Catalog do
 
   defp backend_model_ids("codex"), do: [:codex, :codex_cli]
   defp backend_model_ids("codex_cli"), do: [:codex, :codex_cli]
-  defp backend_model_ids("claude"), do: [:claude]
-  defp backend_model_ids("claude_cli"), do: [:claude]
+  defp backend_model_ids("claude"), do: [:claude_api, :claude]
+  defp backend_model_ids("claude_cli"), do: [:claude_api, :claude]
   defp backend_model_ids("gemini"), do: [:gemini]
   defp backend_model_ids("gemini_cli"), do: [:gemini]
   defp backend_model_ids(_backend), do: []

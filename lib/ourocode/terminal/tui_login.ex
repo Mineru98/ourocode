@@ -1,13 +1,39 @@
 defmodule Ourocode.Terminal.TuiLogin do
   @moduledoc false
 
+  alias Ourocode.Provider.Anthropic
   alias Ourocode.Provider.Codex
   alias Ourocode.Terminal.TuiState
 
   @max_login_polls 80
 
-  @spec start(map(), pid(), pid(), pos_integer(), pos_integer(), function()) :: :ok
-  def start(result, output, state, cols, rows, redraw) when is_function(redraw, 6) do
+  @doc """
+  Starts login for the chosen backend. Codex uses the device-code flow with
+  a live card; Claude (Anthropic) opens the browser authorization URL and
+  arms a paste-the-code step handled by the next submitted line.
+  """
+  @spec start(atom(), map(), pid(), pid(), pos_integer(), pos_integer(), function()) :: :ok
+  def start(provider, result, output, state, cols, rows, redraw)
+
+  def start(:claude_api, result, output, state, cols, rows, redraw)
+      when is_function(redraw, 6) do
+    pkce = Anthropic.generate_pkce()
+    login_state = Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+    url = Anthropic.authorize_url(pkce.challenge, login_state)
+
+    TuiState.put_pending_login(state, %{
+      provider: :claude_api,
+      verifier: pkce.verifier,
+      state: login_state
+    })
+
+    log(output, "Open this URL, approve, then paste the code back here:")
+    log(output, url)
+    log(output, "(paste the authorization code and press Enter; /cancel to abort)")
+    redraw.(result, output, state, "", cols, rows)
+  end
+
+  def start(_codex, result, output, state, cols, rows, redraw) when is_function(redraw, 6) do
     case Codex.start_device_login() do
       {:ok, dev} ->
         TuiState.put_login(state, %{code: dev.user_code, url: dev.verification_uri})
@@ -71,6 +97,54 @@ defmodule Ourocode.Terminal.TuiLogin do
     do: status in [408, 429] or status >= 500
 
   def transient_poll_error?(_transport_error), do: true
+
+  @doc """
+  Completes a pending paste-based login with the code the user submitted.
+  Returns `:handled` (login attempt consumed the line) or `:not_pending`.
+  """
+  @spec complete_paste(String.t(), pid(), pid()) :: :handled | :not_pending
+  def complete_paste(line, output, state) do
+    case TuiState.pending_login(state) do
+      %{provider: :claude_api, verifier: verifier, state: login_state} ->
+        TuiState.put_pending_login(state, nil)
+        code = line |> String.trim() |> strip_url_to_code()
+
+        case Anthropic.exchange(code, verifier, login_state) do
+          {:ok, tokens} ->
+            TuiState.put_model_id(state, :claude_api)
+            who = tokens.email || tokens.account_id || "your Claude account"
+            log(output, "Signed in as #{who}. model: claude (Claude Pro/Max).")
+
+          {:error, reason} ->
+            log(output, "Claude login failed: #{inspect(reason)}")
+        end
+
+        :handled
+
+      _none ->
+        :not_pending
+    end
+  end
+
+  # Accept either a bare code or the full redirect URL the browser landed on.
+  defp strip_url_to_code(text) do
+    case URI.parse(text) do
+      %URI{query: query} when is_binary(query) ->
+        case URI.decode_query(query) do
+          %{"code" => code} = params ->
+            case params["state"] do
+              s when is_binary(s) and s != "" -> code <> "#" <> s
+              _none -> code
+            end
+
+          _no_code ->
+            text
+        end
+
+      _not_a_url ->
+        text
+    end
+  end
 
   defp wait_or_cancel(state, deadline) do
     remaining = deadline - System.monotonic_time(:millisecond)

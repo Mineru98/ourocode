@@ -19,7 +19,11 @@ defmodule Ourocode.Terminal.TuiSubmit do
   def handle("", _result, _output, _state, _cols, _rows, _callbacks), do: :continue
 
   def handle("/login", result, output, state, cols, rows, callbacks) do
-    TuiLogin.start(result, output, state, cols, rows, redraw(callbacks))
+    # Open the backend picker so the user chooses what to sign into; picking
+    # a not-ready OAuth backend (Codex or Claude) starts its login.
+    TuiState.put_mode(state, :model)
+    TuiState.put_pidx(state, 0)
+    redraw(callbacks).(result, output, state, "", cols, rows)
     :continue
   end
 
@@ -86,6 +90,17 @@ defmodule Ourocode.Terminal.TuiSubmit do
   end
 
   def handle(prompt, result, output, state, cols, rows, callbacks) do
+    case TuiLogin.complete_paste(prompt, output, state) do
+      :handled ->
+        redraw(callbacks).(result, output, state, "", cols, rows)
+        :continue
+
+      :not_pending ->
+        chat(prompt, result, output, state, cols, rows, callbacks)
+    end
+  end
+
+  defp chat(prompt, result, output, state, cols, rows, callbacks) do
     TuiState.put_workspace(state, nil)
 
     TuiChat.chat(
