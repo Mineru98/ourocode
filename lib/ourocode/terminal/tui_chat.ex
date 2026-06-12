@@ -43,22 +43,19 @@ defmodule Ourocode.Terminal.TuiChat do
     end
   end
 
+  @tick_ms 120
+
   defp stream_chat(model, prompt, result, output, state, cols, rows, redraw) do
     log(output, "you> #{prompt}")
     IO.write(output, "ourocode> ")
     TuiState.set_streaming(state, true)
     redraw.(result, output, state, "", cols, rows)
 
-    on_chunk = fn chunk ->
-      IO.write(output, chunk)
-      redraw.(result, output, state, "", cols, rows)
-    end
-
     model_prompt = maybe_paused_interview_prompt(result, prompt)
     conversation = conversation(result, state)
     stream_opts = [session_id: session_id(result), history: conversation]
 
-    case Model.stream(model, model_prompt, stream_opts, on_chunk) do
+    case run_turn(model, model_prompt, stream_opts, result, output, state, cols, rows, redraw) do
       {:ok, full} ->
         # Remember the exchange as the user typed it (not the paused-interview
         # wrapper) so follow-up turns read as a clean dialogue.
@@ -67,6 +64,9 @@ defmodule Ourocode.Terminal.TuiChat do
         ConversationStore.save(ConversationStore.project_dir(result), conversation)
         IO.write(output, "\n")
         maybe_handoff_paused_interview_answer(result, output, full)
+
+      :cancelled ->
+        log(output, "\n-- turn cancelled")
 
       {:error, :not_signed_in} ->
         log(output, "\nNot connected. /login for ChatGPT.")
@@ -77,6 +77,82 @@ defmodule Ourocode.Terminal.TuiChat do
 
     TuiState.set_streaming(state, false)
     redraw.(result, output, state, "", cols, rows)
+  end
+
+  # The turn runs in a monitored process so the UI stays alive while the
+  # backend is silent: ticks keep the "thinking" indicator animating even
+  # when no chunk has arrived yet, chunks render as they stream in, a bare
+  # Esc or Ctrl+C cancels the turn, and keystrokes typed during the turn are
+  # re-buffered for the input loop instead of being dropped.
+  defp run_turn(model, model_prompt, stream_opts, result, output, state, cols, rows, redraw) do
+    caller = self()
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        outcome =
+          Model.stream(model, model_prompt, stream_opts, fn chunk ->
+            send(caller, {:chat_chunk, chunk})
+          end)
+
+        send(caller, {:chat_outcome, self(), outcome})
+      end)
+
+    await_turn(pid, ref, TuiState.port(state), result, output, state, cols, rows, redraw)
+  end
+
+  defp await_turn(pid, ref, port, result, output, state, cols, rows, redraw) do
+    receive do
+      {:chat_chunk, chunk} ->
+        IO.write(output, chunk)
+        redraw.(result, output, state, "", cols, rows)
+        await_turn(pid, ref, port, result, output, state, cols, rows, redraw)
+
+      {:chat_outcome, ^pid, outcome} ->
+        Process.demonitor(ref, [:flush])
+        outcome
+
+      {:DOWN, ^ref, :process, ^pid, reason} ->
+        {:error, {:chat_crashed, reason}}
+
+      {^port, {:data, data}} ->
+        if cancel_request?(data) do
+          stop_turn(pid, ref)
+          :cancelled
+        else
+          rebuffer_input(state, data)
+          await_turn(pid, ref, port, result, output, state, cols, rows, redraw)
+        end
+
+      {^port, {:exit_status, _status}} ->
+        stop_turn(pid, ref)
+        :cancelled
+    after
+      @tick_ms ->
+        redraw.(result, output, state, "", cols, rows)
+        await_turn(pid, ref, port, result, output, state, cols, rows, redraw)
+    end
+  end
+
+  defp stop_turn(pid, ref) do
+    Process.exit(pid, :kill)
+    Process.demonitor(ref, [:flush])
+    drain_chat_chunks()
+  end
+
+  defp drain_chat_chunks do
+    receive do
+      {:chat_chunk, _chunk} -> drain_chat_chunks()
+    after
+      0 -> :ok
+    end
+  end
+
+  # A bare Esc or a Ctrl+C cancels the turn; longer escape sequences (arrow
+  # keys and friends) are ordinary input and must not abort the stream.
+  defp cancel_request?(data), do: data == <<27>> or String.contains?(data, <<3>>)
+
+  defp rebuffer_input(state, data) do
+    TuiState.put_inbuf(state, TuiState.take_inbuf(state) <> data)
   end
 
   defp maybe_paused_interview_prompt(result, prompt) do

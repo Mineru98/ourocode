@@ -98,6 +98,54 @@ defmodule Ourocode.Terminal.TuiChatTest do
     assert_received {:history, %Conversation{turns: [%{user: "ping", assistant: "pong"}]}}
   end
 
+  test "a bare Esc cancels the in-flight turn without polluting the conversation" do
+    state = TuiState.start_link()
+    {:ok, output} = StringIO.open("")
+
+    model = %Model{
+      id: :fake,
+      label: "fake",
+      kind: :cli,
+      status: :ready,
+      run: fn _prompt, _opts, _on_chunk -> Process.sleep(:infinity) end
+    }
+
+    # Pre-queue the keystroke the tty port would deliver (the port is nil in
+    # tests, matching the `{^port, {:data, ...}}` clause).
+    send(self(), {nil, {:data, <<27>>}})
+
+    redraw = fn _result, _output, _state, _buffer, _cols, _rows -> :ok end
+    TuiChat.chat("ping", %{}, output, state, 80, 24, fn _state -> model end, redraw)
+
+    {_in, text} = StringIO.contents(output)
+    assert text =~ "turn cancelled"
+    assert Conversation.empty?(TuiState.conversation(state))
+  end
+
+  test "keystrokes typed during a turn are re-buffered for the input loop" do
+    state = TuiState.start_link()
+    {:ok, output} = StringIO.open("")
+
+    model = %Model{
+      id: :fake,
+      label: "fake",
+      kind: :cli,
+      status: :ready,
+      run: fn _prompt, _opts, on_chunk ->
+        on_chunk.("pong")
+        {:ok, "pong"}
+      end
+    }
+
+    send(self(), {nil, {:data, "a"}})
+
+    redraw = fn _result, _output, _state, _buffer, _cols, _rows -> :ok end
+    TuiChat.chat("ping", %{}, output, state, 80, 24, fn _state -> model end, redraw)
+
+    assert TuiState.take_inbuf(state) == "a"
+    assert TuiState.conversation(state).turns == [%{user: "ping", assistant: "pong"}]
+  end
+
   test "a failed turn leaves the conversation unchanged" do
     state = TuiState.start_link()
     # The state agent is linked to the test process and dies with it.
