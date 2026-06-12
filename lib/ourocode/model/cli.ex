@@ -10,6 +10,13 @@ defmodule Ourocode.Model.Cli do
 
   @bins %{claude: "claude", codex_cli: "codex", gemini: "gemini"}
 
+  # Replay-safe retry only: a CLI that exits non-zero before emitting any
+  # chunk can be relaunched without the user seeing duplicate output. Once a
+  # chunk has reached the renderer — or the run timed out after streaming —
+  # the failure surfaces immediately.
+  @max_attempts 3
+  @retry_base_delay_ms 1_000
+
   @doc "Known CLI backend ids keyed to their binary name."
   @spec specs() :: %{atom() => String.t()}
   def specs, do: @bins
@@ -45,8 +52,34 @@ defmodule Ourocode.Model.Cli do
     bin = Map.fetch!(@bins, id)
 
     case which.(bin) do
-      nil -> {:error, {:not_installed, bin}}
-      path -> run(id, path, args(id, prompt), on_chunk)
+      nil ->
+        {:error, {:not_installed, bin}}
+
+      path ->
+        delay = Keyword.get(opts, :retry_base_delay_ms, @retry_base_delay_ms)
+        run_with_retry(id, path, args(id, prompt), on_chunk, delay, 1)
+    end
+  end
+
+  defp run_with_retry(id, path, args, on_chunk, delay, attempt) do
+    emitted = :counters.new(1, [])
+
+    counted_chunk = fn chunk ->
+      :counters.add(emitted, 1, 1)
+      on_chunk.(chunk)
+    end
+
+    case run(id, path, args, counted_chunk) do
+      {:error, {:exit, _status}} = error ->
+        if :counters.get(emitted, 1) == 0 and attempt < @max_attempts do
+          Process.sleep(delay * Integer.pow(2, attempt - 1))
+          run_with_retry(id, path, args, on_chunk, delay, attempt + 1)
+        else
+          error
+        end
+
+      other ->
+        other
     end
   end
 
