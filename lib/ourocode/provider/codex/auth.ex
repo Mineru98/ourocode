@@ -13,6 +13,11 @@ defmodule Ourocode.Provider.Codex.Auth do
   @user_agent "ourocode/0.1.0"
   @originator "ourocode"
 
+  # Refresh ahead of expiry so a call never starts with an access token about
+  # to lapse mid-request. A refresh that fails transiently inside this window
+  # falls back to the still-valid stored token instead of signing out.
+  @refresh_skew_ms 5 * 60_000
+
   @type tokens :: %{
           required(:access) => String.t(),
           required(:refresh) => String.t(),
@@ -183,11 +188,13 @@ defmodule Ourocode.Provider.Codex.Auth do
   end
 
   defp valid_authorization_tokens(tokens) do
+    now = now_ms()
+
     tokens =
-      if Token.expired?(tokens, now_ms()) do
+      if Token.expired?(tokens, now + @refresh_skew_ms) do
         case refresh(tokens) do
           {:ok, refreshed} -> refreshed
-          {:error, _reason} -> nil
+          {:error, reason} -> after_failed_refresh(tokens, reason, now)
         end
       else
         tokens
@@ -201,6 +208,43 @@ defmodule Ourocode.Provider.Codex.Auth do
         :error
     end
   end
+
+  # A revoked/invalid refresh token can never succeed again: clear the store
+  # so the UI reports a clean signed-out state instead of retrying a doomed
+  # refresh on every call. Any other failure (network blip, 5xx) keeps the
+  # stored access token as long as it is still inside its real lifetime.
+  defp after_failed_refresh(tokens, reason, now) do
+    cond do
+      definitive_refresh_failure?(reason) ->
+        Store.clear()
+        nil
+
+      Token.expired?(tokens, now) ->
+        nil
+
+      true ->
+        tokens
+    end
+  end
+
+  @doc false
+  @spec definitive_refresh_failure?(term()) :: boolean()
+  def definitive_refresh_failure?({:token_refresh_failed, status, _body})
+      when status in [401, 403],
+      do: true
+
+  def definitive_refresh_failure?({:token_refresh_failed, 400, body}) do
+    error =
+      case body do
+        %{"error" => %{"type" => type}} when is_binary(type) -> type
+        %{"error" => error} when is_binary(error) -> error
+        _other -> ""
+      end
+
+    error in ["invalid_grant", "invalid_token", "invalid_client", "unauthorized_client"]
+  end
+
+  def definitive_refresh_failure?(_reason), do: false
 
   defp parse_int(value, _default) when is_integer(value), do: value
 

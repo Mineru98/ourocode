@@ -6,8 +6,22 @@ defmodule Ourocode.Provider.Codex.AuthTest do
 
   test "authorization returns stored unexpired access token metadata" do
     with_tmp_home(fn ->
-      expires = System.system_time(:millisecond) + 60_000
+      # Outside the predictive-refresh window, so no refresh attempt is made.
+      expires = System.system_time(:millisecond) + 10 * 60_000
       tokens = %{access: "ac", refresh: "rf", expires: expires, account_id: "acc"}
+
+      assert :ok = Store.save(tokens)
+      assert Auth.authorization() == {:ok, %{access: "ac", account_id: "acc"}}
+    end)
+  end
+
+  test "authorization keeps a still-valid access token when refresh is unavailable" do
+    with_tmp_home(fn ->
+      # Inside the predictive-refresh window but before the real expiry:
+      # the refresh fails (no refresh token), and the stored access token
+      # must still be served instead of signing the user out.
+      expires = System.system_time(:millisecond) + 60_000
+      tokens = %{access: "ac", refresh: "", expires: expires, account_id: "acc"}
 
       assert :ok = Store.save(tokens)
       assert Auth.authorization() == {:ok, %{access: "ac", account_id: "acc"}}
@@ -21,6 +35,25 @@ defmodule Ourocode.Provider.Codex.AuthTest do
       assert :ok = Store.save(tokens)
       assert Auth.authorization() == :error
     end)
+  end
+
+  test "definitive_refresh_failure? separates revoked grants from transient errors" do
+    assert Auth.definitive_refresh_failure?(
+             {:token_refresh_failed, 400, %{"error" => "invalid_grant"}}
+           )
+
+    assert Auth.definitive_refresh_failure?(
+             {:token_refresh_failed, 400, %{"error" => %{"type" => "invalid_grant"}}}
+           )
+
+    assert Auth.definitive_refresh_failure?({:token_refresh_failed, 401, %{}})
+    assert Auth.definitive_refresh_failure?({:token_refresh_failed, 403, %{}})
+
+    refute Auth.definitive_refresh_failure?({:token_refresh_failed, 400, %{"raw" => "oops"}})
+    refute Auth.definitive_refresh_failure?({:token_refresh_failed, 500, %{}})
+    refute Auth.definitive_refresh_failure?({:token_refresh_failed, 429, %{}})
+    refute Auth.definitive_refresh_failure?({:http_error, :timeout})
+    refute Auth.definitive_refresh_failure?(:no_refresh_token)
   end
 
   test "api_headers include Codex auth, origin, session, and optional account id" do
