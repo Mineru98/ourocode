@@ -16,6 +16,21 @@ defmodule Ourocode.Provider.Codex.ResponsesTest do
            ]
   end
 
+  test "request_body_for_input carries prepared multi-turn input verbatim" do
+    input = [
+      %{"role" => "user", "content" => [%{"type" => "input_text", "text" => "ping"}]},
+      %{"role" => "assistant", "content" => [%{"type" => "output_text", "text" => "pong"}]},
+      %{"role" => "user", "content" => [%{"type" => "input_text", "text" => "again"}]}
+    ]
+
+    body = Responses.request_body_for_input(input, "gpt-5.3-codex", "sys")
+
+    assert body["input"] == input
+    assert body["instructions"] == "sys"
+    assert body["stream"] == true
+    assert body["store"] == false
+  end
+
   test "text_delta extracts only output_text deltas" do
     assert Responses.text_delta(%{"type" => "response.output_text.delta", "delta" => "Hi"}) ==
              "Hi"

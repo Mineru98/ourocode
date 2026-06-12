@@ -22,6 +22,20 @@ defmodule Ourocode.Terminal.TuiState do
     pid
   end
 
+  # `nil` means "not loaded yet"; the chat lane restores the persisted
+  # dialogue on first use. A cleared conversation is stored as an explicit
+  # empty value so it is not re-loaded from disk.
+  @spec conversation(pid()) :: Ourocode.Model.Conversation.t() | nil
+  def conversation(state), do: Agent.get(state, &Map.get(&1, :conversation))
+
+  @spec put_conversation(pid(), Ourocode.Model.Conversation.t()) :: :ok
+  def put_conversation(state, %Ourocode.Model.Conversation{} = conversation),
+    do: Agent.update(state, &Map.put(&1, :conversation, conversation))
+
+  @spec clear_conversation(pid()) :: :ok
+  def clear_conversation(state),
+    do: Agent.update(state, &Map.put(&1, :conversation, Ourocode.Model.Conversation.new()))
+
   @spec wonder_nav(pid()) :: map() | nil
   def wonder_nav(state), do: Agent.get(state, & &1.wonder_nav)
 

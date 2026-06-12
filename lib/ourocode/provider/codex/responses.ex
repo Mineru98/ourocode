@@ -10,15 +10,29 @@ defmodule Ourocode.Provider.Codex.Responses do
   """
   @spec request_body(String.t(), String.t(), String.t()) :: map()
   def request_body(prompt, model, instructions) do
-    %{
-      "model" => model,
-      "instructions" => instructions,
-      "input" => [
+    request_body_for_input(
+      [
         %{
           "role" => "user",
           "content" => [%{"type" => "input_text", "text" => prompt}]
         }
       ],
+      model,
+      instructions
+    )
+  end
+
+  @doc """
+  Builds the request body from prepared input items (multi-turn history
+  plus the current message). Instructions stay a separate stable field so
+  the provider-side prompt prefix is byte-identical across turns.
+  """
+  @spec request_body_for_input([map()], String.t(), String.t()) :: map()
+  def request_body_for_input(input, model, instructions) when is_list(input) do
+    %{
+      "model" => model,
+      "instructions" => instructions,
+      "input" => input,
       "stream" => true,
       "store" => false
     }

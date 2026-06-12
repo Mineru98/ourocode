@@ -13,6 +13,7 @@ defmodule Ourocode.Model.Catalog do
 
   alias Ourocode.Model
   alias Ourocode.Model.Cli
+  alias Ourocode.Model.Conversation
   alias Ourocode.Provider.Codex
   alias Ourocode.Provider.Codex.Client
 
@@ -65,7 +66,20 @@ defmodule Ourocode.Model.Catalog do
       label: "codex  (ChatGPT)",
       kind: :oauth,
       status: if(signed_in?, do: :ready, else: {:needs_auth, "/login"}),
-      run: fn prompt, opts, on_chunk -> Client.stream(prompt, opts, on_chunk) end
+      run: fn prompt, opts, on_chunk ->
+        {conversation, opts} = Keyword.pop(opts, :history)
+
+        opts =
+          case conversation do
+            %Conversation{} ->
+              Keyword.put(opts, :input, Conversation.input_items(conversation, prompt))
+
+            _none ->
+              opts
+          end
+
+        Client.stream(prompt, opts, on_chunk)
+      end
     }
   end
 
@@ -82,6 +96,14 @@ defmodule Ourocode.Model.Catalog do
         kind: :cli,
         status: if(installed?, do: :ready, else: :unavailable),
         run: fn prompt, opts, on_chunk ->
+          {conversation, opts} = Keyword.pop(opts, :history)
+
+          prompt =
+            case conversation do
+              %Conversation{} -> Conversation.render_prompt(conversation, prompt)
+              _none -> prompt
+            end
+
           Cli.stream(id, prompt, Keyword.put(opts, :which, which), on_chunk)
         end
       }

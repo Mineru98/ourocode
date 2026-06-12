@@ -29,7 +29,19 @@ defmodule Ourocode.Provider.Codex.Client do
       {:ok, %{access: access, account_id: account_id}} ->
         session_id = Keyword.get(opts, :session_id, "ourocode-main")
         model = Keyword.get(opts, :model, @default_model)
-        body = request_body(prompt, model, Keyword.get(opts, :instructions, @instructions))
+        instructions = Keyword.get(opts, :instructions, @instructions)
+
+        # `opts[:input]` carries prepared multi-turn input items (history +
+        # current message); without it the prompt is a single user turn.
+        body =
+          case Keyword.get(opts, :input) do
+            input when is_list(input) and input != [] ->
+              Responses.request_body_for_input(input, model, instructions)
+
+            _none ->
+              request_body(prompt, model, instructions)
+          end
+
         headers = httpc_headers(Codex.api_headers(access, account_id, session_id))
 
         do_stream(headers, body, on_chunk)

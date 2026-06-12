@@ -2,7 +2,15 @@ defmodule Ourocode.Terminal.TuiChat do
   @moduledoc false
 
   alias Ourocode.Model
-  alias Ourocode.Terminal.{InterviewHandoff, InterviewPanel, TuiInteraction, TuiState}
+  alias Ourocode.Model.Conversation
+
+  alias Ourocode.Terminal.{
+    ConversationStore,
+    InterviewHandoff,
+    InterviewPanel,
+    TuiInteraction,
+    TuiState
+  }
 
   @spec chat(
           String.t(),
@@ -47,9 +55,16 @@ defmodule Ourocode.Terminal.TuiChat do
     end
 
     model_prompt = maybe_paused_interview_prompt(result, prompt)
+    conversation = conversation(result, state)
+    stream_opts = [session_id: session_id(result), history: conversation]
 
-    case Model.stream(model, model_prompt, [session_id: session_id(result)], on_chunk) do
+    case Model.stream(model, model_prompt, stream_opts, on_chunk) do
       {:ok, full} ->
+        # Remember the exchange as the user typed it (not the paused-interview
+        # wrapper) so follow-up turns read as a clean dialogue.
+        conversation = Conversation.add_turn(conversation, prompt, full)
+        TuiState.put_conversation(state, conversation)
+        ConversationStore.save(ConversationStore.project_dir(result), conversation)
         IO.write(output, "\n")
         maybe_handoff_paused_interview_answer(result, output, full)
 
@@ -101,6 +116,20 @@ defmodule Ourocode.Terminal.TuiChat do
       log(output, "-- interview answered from main session")
     else
       _other -> :ok
+    end
+  end
+
+  # nil state means "not loaded yet": the first chat of a run restores the
+  # project's persisted dialogue, so the conversation survives restarts.
+  defp conversation(result, state) do
+    case TuiState.conversation(state) do
+      %Conversation{} = conversation ->
+        conversation
+
+      nil ->
+        conversation = ConversationStore.load(ConversationStore.project_dir(result))
+        TuiState.put_conversation(state, conversation)
+        conversation
     end
   end
 

@@ -4,6 +4,7 @@ defmodule Ourocode.Terminal.TuiSubmit do
   alias Ourocode.Provider.Codex
 
   alias Ourocode.Terminal.{
+    ConversationStore,
     TuiChat,
     TuiInteraction,
     TuiLogin,
@@ -32,6 +33,8 @@ defmodule Ourocode.Terminal.TuiSubmit do
   def handle("/clear", result, output, state, cols, rows, callbacks) do
     clear_captured_output(output)
     TuiState.put_workspace(state, nil)
+    TuiState.clear_conversation(state)
+    ConversationStore.clear(ConversationStore.project_dir(result))
     redraw(callbacks).(result, output, state, "", cols, rows)
     :continue
   end
