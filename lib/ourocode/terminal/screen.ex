@@ -137,7 +137,8 @@ defmodule Ourocode.Terminal.Screen do
   Emits ANSI updates only for rows that changed since `previous`.
 
   Returns `{iodata, screen}`; the returned screen is `current` and should
-  be passed back as `previous` on the next diff.
+  be passed back as `previous` on the next diff. The iodata is `[]` when
+  no row changed, so callers can skip the terminal write entirely.
   """
   @spec diff(t() | nil, t()) :: {iodata(), t()}
   def diff(nil, current), do: {to_ansi(current), current}
@@ -147,17 +148,23 @@ defmodule Ourocode.Terminal.Screen do
     {to_ansi(current), current}
   end
 
-  def diff(previous, %{height: height} = current) do
+  def diff(%{rows: previous_rows}, %{height: height, rows: current_rows} = current) do
     changes =
       Enum.reduce(0..(height - 1), [], fn y, acc ->
-        if render_row(previous, y) == render_row(current, y) do
+        # Equal cell maps render identically (same width in this clause), so
+        # an unchanged row costs one map comparison instead of rendering both
+        # frames' rows to strings.
+        if Map.get(previous_rows, y, %{}) == Map.get(current_rows, y, %{}) do
           acc
         else
           [["\e[", Integer.to_string(y + 1), ";1H\e[2K", render_row(current, y)] | acc]
         end
       end)
 
-    {[Enum.reverse(changes), ScreenStyles.reset()], current}
+    case changes do
+      [] -> {[], current}
+      changes -> {[Enum.reverse(changes), ScreenStyles.reset()], current}
+    end
   end
 
   @doc """

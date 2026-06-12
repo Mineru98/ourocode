@@ -90,8 +90,19 @@ defmodule Ourocode.Terminal.TuiFrame do
     {iodata, screen} = Screen.diff(previous_screen, screen)
     TuiState.put_prev_screen(state, screen)
     TuiState.put_render_theme(state, theme)
-    TuiDriverSession.write(state, iodata)
+    write_frame(state, iodata)
     cursor_to_prompt(state, rows, columns, prompt_buffer, view_opts)
+  end
+
+  # An unchanged frame writes nothing to the tty. A changed frame is wrapped
+  # in synchronized-output marks (CSI ?2026) so the terminal presents the row
+  # patch atomically instead of tearing mid-frame; terminals without the mode
+  # ignore the private sequences and the tty helper passes them through
+  # verbatim.
+  defp write_frame(_state, []), do: :ok
+
+  defp write_frame(state, iodata) do
+    TuiDriverSession.write(state, ["\e[?2026h", iodata, "\e[?2026l"])
   end
 
   @doc false

@@ -65,8 +65,9 @@ defmodule Ourocode.Terminal.ScreenTest do
       |> Screen.put_text(0, 0, "row0")
       |> Screen.put_text(0, 2, "row2")
 
-    {empty, ^base} = Screen.diff(base, base)
-    assert IO.iodata_to_binary(empty) |> String.replace("\e[0m", "") == ""
+    # An identical frame yields no iodata at all, so the caller can skip
+    # the terminal write entirely.
+    assert {[], ^base} = Screen.diff(base, base)
 
     changed = Screen.put_text(base, 0, 2, "ROW2")
     {iodata, ^changed} = Screen.diff(base, changed)
