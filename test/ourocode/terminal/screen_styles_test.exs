@@ -15,14 +15,27 @@ defmodule Ourocode.Terminal.ScreenStylesTest do
     assert ScreenStyles.styled?(:warn)
   end
 
-  test "theme defaults to light unless explicitly set to dark" do
+  test "explicit OUROCODE_THEME wins over terminal detection" do
     assert ScreenStyles.theme(%{"OUROCODE_THEME" => "light"}) == :light
     assert ScreenStyles.theme(%{"OUROCODE_THEME" => "white"}) == :light
     assert ScreenStyles.theme(%{"OUROCODE_THEME" => "dark"}) == :dark
-    assert ScreenStyles.theme(%{"COLORFGBG" => "15;0"}) == :light
+    # Override beats a conflicting COLORFGBG.
+    assert ScreenStyles.theme(%{"OUROCODE_THEME" => "light", "COLORFGBG" => "15;0"}) == :light
+  end
+
+  test "theme follows the terminal background from COLORFGBG" do
+    # Last field is the background colour index: 0-6,8 dark; 7,9-15 light.
+    assert ScreenStyles.theme(%{"COLORFGBG" => "15;0"}) == :dark
     assert ScreenStyles.theme(%{"COLORFGBG" => "0;15"}) == :light
-    assert ScreenStyles.theme(%{}) == :light
-    assert ScreenStyles.theme(%{"COLORFGBG" => ""}) == :light
+    assert ScreenStyles.theme(%{"COLORFGBG" => "1;7"}) == :light
+    assert ScreenStyles.theme(%{"COLORFGBG" => "15;default;0"}) == :dark
+  end
+
+  test "theme defaults to dark when the terminal background is unknown" do
+    # A dark surface reads on any terminal; a white box does not. Default dark.
+    assert ScreenStyles.theme(%{}) == :dark
+    assert ScreenStyles.theme(%{"COLORFGBG" => ""}) == :dark
+    assert ScreenStyles.theme(%{"COLORFGBG" => "garbage"}) == :dark
   end
 
   test "light theme surfaces stay light-toned and dark theme surfaces stay dark-toned" do

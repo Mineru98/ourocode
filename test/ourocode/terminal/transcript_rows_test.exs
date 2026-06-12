@@ -7,13 +7,13 @@ defmodule Ourocode.Terminal.TranscriptRowsTest do
     rows = TranscriptRows.rows(["you> hello", "still user", "ourocode> hi", "still assistant"])
 
     assert [
-             %{rail: nil, text: "Answer", text_style: :label},
+             %{rail: nil, text: "Answer", text_style: :accent},
              %{rail: "│", rail_style: :accent, text: "hello", text_style: :strong},
              %{rail: "│", rail_style: :accent, text: "still user", text_style: :strong},
              %{rail: nil, text: "", text_style: :text},
-             %{rail: nil, text: "OUROCODE", text_style: :label},
-             %{rail: "│", rail_style: :dim, text: "hi", text_style: :text},
-             %{rail: "│", rail_style: :dim, text: "still assistant", text_style: :text}
+             %{rail: nil, text: "OUROCODE", text_style: :brand},
+             %{rail: "│", rail_style: :brand, text: "hi", text_style: :text},
+             %{rail: "│", rail_style: :brand, text: "still assistant", text_style: :text}
            ] = rows
   end
 

@@ -248,6 +248,15 @@ defmodule Ourocode.Terminal.TranscriptRows do
 
   defp render_row(:sep), do: %{rail: nil, rail_style: :text, text: "", text_style: :text}
 
+  # Speaker colour identity: the user reads in amber (accent), the assistant
+  # in teal (brand). The coloured rail + coloured label make the dialectic
+  # legible at a glance instead of two near-identical grey blocks.
+  defp render_row({{:label, :user}, text}),
+    do: %{rail: nil, rail_style: :text, text: text, text_style: :accent}
+
+  defp render_row({{:label, :assistant}, text}),
+    do: %{rail: nil, rail_style: :text, text: text, text_style: :brand}
+
   defp render_row({{:label, _role}, text}),
     do: %{rail: nil, rail_style: :text, text: text, text_style: :label}
 
@@ -255,7 +264,7 @@ defmodule Ourocode.Terminal.TranscriptRows do
     do: %{rail: "│", rail_style: :accent, text: text, text_style: :strong}
 
   defp render_row({{:body, :assistant}, text}),
-    do: %{rail: "│", rail_style: :dim, text: text, text_style: :text}
+    do: %{rail: "│", rail_style: :brand, text: text, text_style: :text}
 
   defp render_row({:system, text}),
     do: %{rail: nil, rail_style: :text, text: "• " <> humanize(text), text_style: :muted}

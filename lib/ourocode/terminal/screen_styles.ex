@@ -94,13 +94,39 @@ defmodule Ourocode.Terminal.ScreenStyles do
 
   @spec theme(map()) :: :dark | :light
   def theme(env) when is_map(env) do
-    env
-    |> Map.get("OUROCODE_THEME", "")
-    |> String.downcase()
-    |> case do
+    case env |> Map.get("OUROCODE_THEME", "") |> String.downcase() do
       value when value in ["light", "white"] -> :light
       "dark" -> :dark
-      _other -> :light
+      _unset -> detect_theme(env)
+    end
+  end
+
+  # No explicit override: read the terminal's own background from COLORFGBG
+  # so a dark terminal gets the dark surface instead of a white box, and a
+  # light terminal keeps the light surface. Default dark when unknown — most
+  # developer terminals are dark, and the dark surface (near-black) reads
+  # acceptably on any background while a white surface does not.
+  defp detect_theme(env) do
+    case env |> Map.get("COLORFGBG", "") |> terminal_background() do
+      :light -> :light
+      :dark -> :dark
+      :unknown -> :dark
+    end
+  end
+
+  # COLORFGBG is "fg;bg" or "fg;extra;bg"; the last field is the background
+  # ANSI colour index. 0-6 and 8 are dark; 7 and 9-15 are light.
+  defp terminal_background(colorfgbg) do
+    case colorfgbg |> String.split(";") |> List.last() do
+      nil ->
+        :unknown
+
+      field ->
+        case Integer.parse(String.trim(field)) do
+          {index, ""} when index in [0, 1, 2, 3, 4, 5, 6, 8] -> :dark
+          {index, ""} when index in [7, 9, 10, 11, 12, 13, 14, 15] -> :light
+          _other -> :unknown
+        end
     end
   end
 
