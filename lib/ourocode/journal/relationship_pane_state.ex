@@ -7,6 +7,12 @@ defmodule Ourocode.Journal.RelationshipPaneState do
   preserving stream entries without duplicating replayed events.
   """
 
+  # In-memory pane state keeps only the newest stream entries; the journal
+  # file on disk remains the full history. Live pane merges and recovery
+  # merges share this cap so a recovered pane holds the same window the live
+  # pane held when it was journaled.
+  @max_stream_entries 500
+
   @spec merge(map() | nil, map() | nil) :: map()
   def merge(existing, incoming) when is_map(existing) and is_map(incoming) do
     stream_entries =
@@ -14,6 +20,7 @@ defmodule Ourocode.Journal.RelationshipPaneState do
       |> pane_stream_entries()
       |> Kernel.++(pane_stream_entries(incoming))
       |> dedupe_stream_entries()
+      |> cap_stream_entries()
 
     existing
     |> Map.merge(incoming)
@@ -22,6 +29,11 @@ defmodule Ourocode.Journal.RelationshipPaneState do
   end
 
   def merge(existing, incoming), do: Map.merge(existing || %{}, incoming || %{})
+
+  @doc "Most-recent-window cap shared by live and recovery pane-state merges."
+  @spec cap_stream_entries([term()]) :: [term()]
+  def cap_stream_entries(entries) when is_list(entries),
+    do: Enum.take(entries, -@max_stream_entries)
 
   defp pane_stream_entries(pane_state) when is_map(pane_state) do
     case Map.get(pane_state, :stream_entries) || Map.get(pane_state, "stream_entries") do

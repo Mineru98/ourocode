@@ -5,6 +5,7 @@ defmodule Ourocode.Dashboard.ChildSessionPaneStore do
 
   alias Ourocode.Dashboard.ChildSessionMetadata
   alias Ourocode.Dashboard.ChildSessionPaneRenderer
+  alias Ourocode.Journal.RelationshipPaneState
 
   @spec distinct([map()]) :: [map()]
   def distinct(panes) when is_list(panes) do
@@ -77,7 +78,9 @@ defmodule Ourocode.Dashboard.ChildSessionPaneStore do
       |> Map.merge(mergeable_pane_state(existing.pane_state, pane.pane_state))
       |> Map.put(
         :stream_entries,
-        dedupe_stream_entries(stream_entries(existing) ++ stream_entries(pane))
+        (stream_entries(existing) ++ stream_entries(pane))
+        |> dedupe_stream_entries()
+        |> RelationshipPaneState.cap_stream_entries()
       )
     )
   end

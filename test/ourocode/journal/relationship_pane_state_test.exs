@@ -62,6 +62,22 @@ defmodule Ourocode.Journal.RelationshipPaneStateTest do
            } = RelationshipPaneState.merge(existing, incoming)
   end
 
+  test "caps merged stream entries to the newest window" do
+    existing = %{
+      stream_entries: Enum.map(1..490, &%{child_event_id: "event-#{&1}", token: "t#{&1}"})
+    }
+
+    incoming = %{
+      stream_entries: Enum.map(491..520, &%{child_event_id: "event-#{&1}", token: "t#{&1}"})
+    }
+
+    %{stream_entries: merged} = RelationshipPaneState.merge(existing, incoming)
+
+    assert length(merged) == 500
+    assert hd(merged).child_event_id == "event-21"
+    assert List.last(merged).child_event_id == "event-520"
+  end
+
   test "handles nil pane snapshots as empty maps" do
     assert RelationshipPaneState.merge(nil, %{"status" => "working"}) == %{"status" => "working"}
     assert RelationshipPaneState.merge(%{"status" => "working"}, nil) == %{"status" => "working"}
