@@ -50,12 +50,27 @@ defmodule Ourocode.Terminal.TuiLogin do
             poll(dev, polls + 1, result, output, state, cols, rows, redraw)
 
           {:error, reason} ->
-            TuiState.put_login(state, nil)
-            log(output, "Login failed: #{inspect(reason)}")
-            redraw.(result, output, state, "", cols, rows)
+            if transient_poll_error?(reason) do
+              redraw.(result, output, state, "", cols, rows)
+              poll(dev, polls + 1, result, output, state, cols, rows, redraw)
+            else
+              TuiState.put_login(state, nil)
+              log(output, "Login failed: #{inspect(reason)}")
+              redraw.(result, output, state, "", cols, rows)
+            end
         end
     end
   end
+
+  # One blip while the user is still typing the code must not abort the
+  # login: transport errors and retryable statuses (408/429/5xx) keep polling
+  # inside the @max_login_polls budget; only a definitive 4xx aborts.
+  @doc false
+  @spec transient_poll_error?(term()) :: boolean()
+  def transient_poll_error?({:device_poll_failed, status, _body}) when is_integer(status),
+    do: status in [408, 429] or status >= 500
+
+  def transient_poll_error?(_transport_error), do: true
 
   defp wait_or_cancel(state, deadline) do
     remaining = deadline - System.monotonic_time(:millisecond)
