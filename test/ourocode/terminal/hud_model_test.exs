@@ -14,6 +14,24 @@ defmodule Ourocode.Terminal.HudModelTest do
     assert hud.center_status == ""
   end
 
+  test "left status leads with the active model and its last-turn latency" do
+    hud =
+      HudModel.build(
+        %{"runtime" => "?", "status" => "healthy"},
+        [],
+        :normal,
+        %{model_status: "codex  (ChatGPT) · 1.2s"},
+        100
+      )
+
+    assert hud.left_status == "codex  (ChatGPT) · 1.2s   ready"
+  end
+
+  test "model status is omitted when absent so the strip stays compact" do
+    hud = HudModel.build(%{"runtime" => "?", "status" => "healthy"}, [], :normal, %{}, 100)
+    refute hud.left_status =~ "·"
+  end
+
   test "projects workflow and MCP state as a compact operator strip" do
     sections = runtime_sections()
 

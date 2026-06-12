@@ -146,6 +146,30 @@ defmodule Ourocode.Terminal.TuiChatTest do
     assert TuiState.conversation(state).turns == [%{user: "ping", assistant: "pong"}]
   end
 
+  test "the first streamed chunk records time-to-first-token for the footer" do
+    state = TuiState.start_link()
+    {:ok, output} = StringIO.open("")
+
+    model = %Model{
+      id: :fake,
+      label: "fake",
+      kind: :cli,
+      status: :ready,
+      run: fn _prompt, _opts, on_chunk ->
+        on_chunk.("pong")
+        {:ok, "pong"}
+      end
+    }
+
+    assert TuiState.last_turn_ms(state) == nil
+
+    redraw = fn _result, _output, _state, _buffer, _cols, _rows -> :ok end
+    TuiChat.chat("ping", %{}, output, state, 80, 24, fn _state -> model end, redraw)
+
+    ms = TuiState.last_turn_ms(state)
+    assert is_integer(ms) and ms >= 0
+  end
+
   test "a failed turn leaves the conversation unchanged" do
     state = TuiState.start_link()
     # The state agent is linked to the test process and dies with it.

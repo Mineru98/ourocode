@@ -148,6 +148,7 @@ defmodule Ourocode.Terminal.TuiFrame do
       scroll: TuiState.scroll_off(state),
       pidx: TuiState.pidx(state),
       auth: auth_label.(state),
+      model_status: model_status(state),
       notifications: TuiState.notifications(state),
       ooo_commands:
         if mode == :normal and Suggestions.ooo_prompt?(TuiState.buffer(state)) do
@@ -171,6 +172,21 @@ defmodule Ourocode.Terminal.TuiFrame do
       file_mentions: TuiCompletions.file_mention_suggestions(state, mode, false)
     }
   end
+
+  # Footer readout: which backend is active and how fast the last turn's
+  # first token arrived (a CLI subprocess is multi-second; a direct API call
+  # is ~1s). Latency shows only after a real turn has been timed.
+  defp model_status(state) do
+    label = TuiModelSelection.active_model(state, 2_000).label
+
+    case TuiState.last_turn_ms(state) do
+      ms when is_integer(ms) -> "#{label} · #{format_latency(ms)}"
+      _none -> label
+    end
+  end
+
+  defp format_latency(ms) when ms < 1_000, do: "#{ms}ms"
+  defp format_latency(ms), do: "#{Float.round(ms / 1_000, 1)}s"
 
   defp interview_block_lines(result, nav, tick) do
     Ourocode.Terminal.InterviewPanel.interview_block_lines(result, nav, tick)

@@ -27,7 +27,7 @@ defmodule Ourocode.Terminal.HudModel do
     %{
       mode_chip: mode_chip(mode, opts),
       placeholder: placeholder(mode, opts, width),
-      left_status: left_status(kv, sections),
+      left_status: left_status(kv, sections, opts),
       center_status: center_status(sections, opts, width),
       segments: segments(sections, opts, width),
       actions: actions(mode, opts, width, notification),
@@ -79,19 +79,25 @@ defmodule Ourocode.Terminal.HudModel do
     end
   end
 
-  defp left_status(kv, sections) do
+  defp left_status(kv, sections, opts) do
     sessions = FrameSections.session_count(sections)
     status = Map.get(kv, "status", "")
     queued = Map.get(kv, "queued", "0")
     hooks = Map.get(kv, "hooks", "idle")
     runtime = runtime_label(Map.get(kv, "runtime", "?"), status)
+    model_status = model_status(opts)
 
-    [runtime]
+    []
+    |> maybe(is_binary(model_status) and model_status != "", model_status)
+    |> Kernel.++([runtime])
     |> maybe(sessions > 0, "#{sessions} active")
     |> maybe(queued != "0", "q#{queued}")
     |> maybe(hooks != "idle", "hooks #{hooks}")
     |> Enum.join("   ")
   end
+
+  defp model_status(%{model_status: status}) when is_binary(status), do: status
+  defp model_status(_opts), do: nil
 
   defp center_status(sections, opts, width) do
     sections

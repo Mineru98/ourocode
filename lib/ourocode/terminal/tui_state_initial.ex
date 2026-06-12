@@ -21,6 +21,7 @@ defmodule Ourocode.Terminal.TuiStateInitial do
       pidx: 0,
       login: nil,
       pending_login: nil,
+      last_turn_ms: nil,
       streaming: false,
       key_help: false,
       live_turn_event: nil,

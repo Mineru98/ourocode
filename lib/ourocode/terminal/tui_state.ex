@@ -143,6 +143,13 @@ defmodule Ourocode.Terminal.TuiState do
   @spec put_model_id(pid(), atom()) :: :ok
   def put_model_id(state, id), do: Agent.update(state, &%{&1 | model_id: id, model_cache: nil})
 
+  @doc "Time to first token of the last completed chat turn, in ms."
+  @spec last_turn_ms(pid()) :: non_neg_integer() | nil
+  def last_turn_ms(state), do: Agent.get(state, &Map.get(&1, :last_turn_ms))
+
+  @spec put_last_turn_ms(pid(), non_neg_integer() | nil) :: :ok
+  def put_last_turn_ms(state, ms), do: Agent.update(state, &Map.put(&1, :last_turn_ms, ms))
+
   @spec size(pid()) :: {pos_integer(), pos_integer()}
   def size(state), do: Agent.get(state, & &1.size)
 

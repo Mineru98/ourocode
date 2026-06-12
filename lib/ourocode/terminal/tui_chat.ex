@@ -54,8 +54,9 @@ defmodule Ourocode.Terminal.TuiChat do
     model_prompt = maybe_paused_interview_prompt(result, prompt)
     conversation = conversation(result, state)
     stream_opts = [session_id: session_id(result), history: conversation]
+    started = System.monotonic_time(:millisecond)
 
-    case run_turn(model, model_prompt, stream_opts, result, output, state, cols, rows, redraw) do
+    case run_turn(model, model_prompt, stream_opts, started, result, output, state, cols, rows, redraw) do
       {:ok, full} ->
         # Remember the exchange as the user typed it (not the paused-interview
         # wrapper) so follow-up turns read as a clean dialogue.
@@ -84,7 +85,7 @@ defmodule Ourocode.Terminal.TuiChat do
   # when no chunk has arrived yet, chunks render as they stream in, a bare
   # Esc or Ctrl+C cancels the turn, and keystrokes typed during the turn are
   # re-buffered for the input loop instead of being dropped.
-  defp run_turn(model, model_prompt, stream_opts, result, output, state, cols, rows, redraw) do
+  defp run_turn(model, model_prompt, stream_opts, started, result, output, state, cols, rows, redraw) do
     caller = self()
 
     {pid, ref} =
@@ -97,15 +98,20 @@ defmodule Ourocode.Terminal.TuiChat do
         send(caller, {:chat_outcome, self(), outcome})
       end)
 
-    await_turn(pid, ref, TuiState.port(state), result, output, state, cols, rows, redraw)
+    await_turn(pid, ref, started, TuiState.port(state), result, output, state, cols, rows, redraw)
   end
 
-  defp await_turn(pid, ref, port, result, output, state, cols, rows, redraw) do
+  defp await_turn(pid, ref, started, port, result, output, state, cols, rows, redraw) do
     receive do
       {:chat_chunk, chunk} ->
+        # Stamp time-to-first-token once, for the footer latency readout.
+        if TuiState.streaming?(state) and started != nil do
+          TuiState.put_last_turn_ms(state, System.monotonic_time(:millisecond) - started)
+        end
+
         IO.write(output, chunk)
         redraw.(result, output, state, "", cols, rows)
-        await_turn(pid, ref, port, result, output, state, cols, rows, redraw)
+        await_turn(pid, ref, nil, port, result, output, state, cols, rows, redraw)
 
       {:chat_outcome, ^pid, outcome} ->
         Process.demonitor(ref, [:flush])
@@ -120,7 +126,7 @@ defmodule Ourocode.Terminal.TuiChat do
           :cancelled
         else
           rebuffer_input(state, data)
-          await_turn(pid, ref, port, result, output, state, cols, rows, redraw)
+          await_turn(pid, ref, started, port, result, output, state, cols, rows, redraw)
         end
 
       {^port, {:exit_status, _status}} ->
@@ -129,7 +135,7 @@ defmodule Ourocode.Terminal.TuiChat do
     after
       @tick_ms ->
         redraw.(result, output, state, "", cols, rows)
-        await_turn(pid, ref, port, result, output, state, cols, rows, redraw)
+        await_turn(pid, ref, started, port, result, output, state, cols, rows, redraw)
     end
   end
 
