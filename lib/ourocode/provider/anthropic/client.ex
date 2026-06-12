@@ -42,7 +42,9 @@ defmodule Ourocode.Provider.Anthropic.Client do
             _none -> [%{"role" => "user", "content" => [%{"type" => "text", "text" => prompt}]}]
           end
 
-        body = Messages.request_body(input, model, max_tokens)
+        # The first system block must stay the Claude Code instruction for
+        # OAuth inference; ourocode's identity follows as extra system text.
+        body = Messages.request_body(input, model, max_tokens, Ourocode.Prompt.system())
         do_stream(access, body, on_chunk)
 
       :error ->

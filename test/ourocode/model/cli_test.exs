@@ -59,6 +59,21 @@ defmodule Ourocode.Model.CliTest do
     assert "--include-partial-messages" in args
   end
 
+  test "claude args inject the ourocode identity via --append-system-prompt" do
+    args = Cli.args(:claude, "hi", "You are ourocode.")
+
+    assert "--append-system-prompt" in args
+    idx = Enum.find_index(args, &(&1 == "--append-system-prompt"))
+    assert Enum.at(args, idx + 1) == "You are ourocode."
+    # The prompt stays last so the system text is a flag, not the message.
+    assert List.last(args) == "hi"
+  end
+
+  test "codex and gemini args ignore the system prompt (no equivalent flag)" do
+    refute "--append-system-prompt" in Cli.args(:codex_cli, "hi", "You are ourocode.")
+    refute "--append-system-prompt" in Cli.args(:gemini, "hi", "You are ourocode.")
+  end
+
   test "claude stream surfaces text deltas and ignores system noise" do
     tmp_dir = tmp_dir!()
     claude_path = Path.join(tmp_dir, "claude")

@@ -14,7 +14,6 @@ defmodule Ourocode.Provider.Codex.Client do
 
   @endpoint "https://chatgpt.com/backend-api/codex/responses"
   @default_model "gpt-5.3-codex"
-  @instructions "You are ourocode, a terminal-native engineering agent. Be concise and precise."
 
   @doc """
   Streams `prompt`, invoking `on_chunk.(text)` for each output delta.
@@ -29,7 +28,7 @@ defmodule Ourocode.Provider.Codex.Client do
       {:ok, %{access: access, account_id: account_id}} ->
         session_id = Keyword.get(opts, :session_id, "ourocode-main")
         model = Keyword.get(opts, :model, @default_model)
-        instructions = Keyword.get(opts, :instructions, @instructions)
+        instructions = Keyword.get(opts, :instructions, Ourocode.Prompt.system())
 
         # `opts[:input]` carries prepared multi-turn input items (history +
         # current message); without it the prompt is a single user turn.

@@ -21,22 +21,30 @@ defmodule Ourocode.Model.Cli do
   @spec specs() :: %{atom() => String.t()}
   def specs, do: @bins
 
-  @doc "Non-interactive argv for a one-shot prompt, per CLI."
-  @spec args(atom(), String.t()) :: [String.t()]
-  def args(:claude, prompt),
-    do: [
-      "-p",
-      "--verbose",
-      "--output-format",
-      "stream-json",
-      "--include-partial-messages",
-      prompt
-    ]
+  @doc """
+  Non-interactive argv for a one-shot prompt, per CLI. `system` is the
+  ourocode identity prompt; claude takes it via --append-system-prompt so the
+  CLI answers as ourocode. codex/gemini have no equivalent flag and prefer
+  the direct-API path for identity, so they ignore it here.
+  """
+  @spec args(atom(), String.t(), String.t() | nil) :: [String.t()]
+  def args(id, prompt, system \\ nil)
 
-  def args(:codex_cli, prompt),
+  def args(:claude, prompt, system) do
+    append =
+      case system do
+        text when is_binary(text) and text != "" -> ["--append-system-prompt", text]
+        _none -> []
+      end
+
+    ["-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages"] ++
+      append ++ [prompt]
+  end
+
+  def args(:codex_cli, prompt, _system),
     do: ["exec", "--json", "--color", "never", "--ephemeral", "--skip-git-repo-check", prompt]
 
-  def args(:gemini, prompt), do: ["-p", prompt]
+  def args(:gemini, prompt, _system), do: ["-p", prompt]
 
   @doc "Absolute path of a CLI backend's binary, or nil if not installed."
   @spec resolve(atom(), (String.t() -> String.t() | nil)) :: String.t() | nil
@@ -65,7 +73,8 @@ defmodule Ourocode.Model.Cli do
 
       path ->
         delay = Keyword.get(opts, :retry_base_delay_ms, @retry_base_delay_ms)
-        run_with_retry(id, path, args(id, prompt), on_chunk, delay, 1)
+        system = Keyword.get(opts, :system, Ourocode.Prompt.system())
+        run_with_retry(id, path, args(id, prompt, system), on_chunk, delay, 1)
     end
   end
 
