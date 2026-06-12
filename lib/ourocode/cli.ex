@@ -61,6 +61,9 @@ defmodule Ourocode.CLI do
       "--detect" in args ->
         print_detection(detect_output_format(args))
 
+      "--acp" in args ->
+        Ourocode.Acp.Server.run()
+
       true ->
         result = main(args, terminal_application)
         run_launch_flow(result, options)
