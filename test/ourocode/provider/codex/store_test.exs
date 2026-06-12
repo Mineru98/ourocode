@@ -45,6 +45,19 @@ defmodule Ourocode.Provider.Codex.StoreTest do
     end)
   end
 
+  test "signed_in? rejects an expired credential with no refresh token" do
+    with_tmp_home(fn ->
+      # An expired access token without a refresh token can never recover;
+      # treating it as signed in would route turns onto a dead backend.
+      assert :ok = Store.save(%{access: "ac", refresh: "", expires: 0})
+      assert Store.signed_in?() == false
+
+      live = System.system_time(:millisecond) + 600_000
+      assert :ok = Store.save(%{access: "ac", refresh: "", expires: live})
+      assert Store.signed_in?() == true
+    end)
+  end
+
   defp with_tmp_home(fun) do
     tmp_home =
       Path.join(

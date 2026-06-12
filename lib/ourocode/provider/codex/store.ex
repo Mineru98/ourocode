@@ -48,10 +48,13 @@ defmodule Ourocode.Provider.Codex.Store do
     :ok
   end
 
-  @doc "True when a credential file with a Codex access token exists."
+  @doc "True when the stored Codex credential can still serve a call."
   @spec signed_in?() :: boolean()
   def signed_in? do
-    match?({:ok, %{access: access}} when is_binary(access) and access != "", load())
+    case load() do
+      {:ok, tokens} -> Token.usable?(tokens, System.system_time(:millisecond))
+      :error -> false
+    end
   end
 
   defp home_dir do

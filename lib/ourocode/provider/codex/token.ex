@@ -82,6 +82,20 @@ defmodule Ourocode.Provider.Codex.Token do
 
   def expired?(_tokens, _now_ms), do: true
 
+  @doc """
+  True when the stored credential can still serve a call: a live access
+  token, or an expired one with a refresh token to mint a replacement.
+  An expired token without a refresh token can never recover and must not
+  count as signed in.
+  """
+  @spec usable?(tokens(), integer()) :: boolean()
+  def usable?(%{access: access} = tokens, now_ms) when is_binary(access) and access != "" do
+    not expired?(tokens, now_ms) or
+      match?(%{refresh: refresh} when is_binary(refresh) and refresh != "", tokens)
+  end
+
+  def usable?(_tokens, _now_ms), do: false
+
   @spec atomize(map()) :: tokens()
   def atomize(%{} = tokens) do
     %{
