@@ -23,7 +23,15 @@ defmodule Ourocode.Model.Cli do
 
   @doc "Non-interactive argv for a one-shot prompt, per CLI."
   @spec args(atom(), String.t()) :: [String.t()]
-  def args(:claude, prompt), do: ["-p", prompt]
+  def args(:claude, prompt),
+    do: [
+      "-p",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-partial-messages",
+      prompt
+    ]
 
   def args(:codex_cli, prompt),
     do: ["exec", "--json", "--color", "never", "--ephemeral", "--skip-git-repo-check", prompt]
@@ -140,15 +148,36 @@ defmodule Ourocode.Model.Cli do
     {acc, partial}
   end
 
+  defp handle_output(:claude, data, acc, on_chunk) do
+    {lines, partial} = complete_lines(data)
+
+    acc =
+      Enum.reduce(lines, acc, fn line, acc ->
+        case claude_stream_text(line) do
+          nil ->
+            acc
+
+          {:delta, text} ->
+            on_chunk.(text)
+            [text | acc]
+
+          {:result, text} ->
+            [{:result, text} | acc]
+        end
+      end)
+
+    {acc, partial}
+  end
+
   defp handle_output(_id, data, acc, on_chunk) do
     on_chunk.(data)
     {[data | acc], ""}
   end
 
-  defp flush_output(:codex_cli, "", acc, _on_chunk), do: {acc, ""}
+  defp flush_output(id, "", acc, _on_chunk) when id in [:codex_cli, :claude], do: {acc, ""}
 
-  defp flush_output(:codex_cli, partial, acc, on_chunk),
-    do: handle_output(:codex_cli, partial <> "\n", acc, on_chunk)
+  defp flush_output(id, partial, acc, on_chunk) when id in [:codex_cli, :claude],
+    do: handle_output(id, partial <> "\n", acc, on_chunk)
 
   defp flush_output(_id, partial, acc, on_chunk) do
     if partial != "" do
@@ -160,7 +189,43 @@ defmodule Ourocode.Model.Cli do
   end
 
   defp final_text(:codex_cli, [latest | _rest]), do: latest
+
+  # Streamed text deltas are the answer; the final `result` event is a
+  # fallback for runs that produced no partial chunks.
+  defp final_text(:claude, acc) do
+    deltas = acc |> Enum.reject(&match?({:result, _}, &1)) |> Enum.reverse()
+
+    case IO.iodata_to_binary(deltas) do
+      "" -> Enum.find_value(acc, "", &result_text/1)
+      text -> text
+    end
+  end
+
   defp final_text(_id, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp result_text({:result, text}), do: text
+  defp result_text(_entry), do: nil
+
+  defp claude_stream_text(line) do
+    case Ourocode.Json.decode(line) do
+      {:ok,
+       %{
+         "type" => "stream_event",
+         "event" => %{
+           "type" => "content_block_delta",
+           "delta" => %{"type" => "text_delta", "text" => text}
+         }
+       }}
+      when is_binary(text) ->
+        {:delta, text}
+
+      {:ok, %{"type" => "result", "result" => text}} when is_binary(text) ->
+        {:result, text}
+
+      _other ->
+        nil
+    end
+  end
 
   defp complete_lines(data) do
     parts = String.split(data, "\n")

@@ -115,25 +115,25 @@ defmodule Ourocode.Model.CatalogTest do
     on_exit(fn -> File.rm_rf!(dir) end)
     File.mkdir_p!(dir)
 
-    # Echoes its prompt argument back, standing in for `claude -p <prompt>`.
-    script = Path.join(dir, "claude")
+    # Echoes its prompt argument back, standing in for `gemini -p <prompt>`.
+    script = Path.join(dir, "gemini")
     File.write!(script, "#!/bin/sh\nprintf '%s' \"$2\"\n")
     File.chmod!(script, 0o755)
 
-    which = fn bin -> if bin == "claude", do: script, else: nil end
-    claude = Catalog.fetch(Catalog.list(codex_signed_in: false, which: which), :claude)
+    which = fn bin -> if bin == "gemini", do: script, else: nil end
+    gemini = Catalog.fetch(Catalog.list(codex_signed_in: false, which: which), :gemini)
 
     conversation = Conversation.add_turn(Conversation.new(), "first question", "first answer")
 
     assert {:ok, echoed} =
-             Model.stream(claude, "follow-up", [history: conversation], fn _chunk -> :ok end)
+             Model.stream(gemini, "follow-up", [history: conversation], fn _chunk -> :ok end)
 
     assert echoed =~ "user: first question\nassistant: first answer"
     assert echoed =~ "## Current message\nfollow-up"
 
     # An empty conversation leaves the first turn byte-identical.
     assert {:ok, "plain"} =
-             Model.stream(claude, "plain", [history: Conversation.new()], fn _chunk -> :ok end)
+             Model.stream(gemini, "plain", [history: Conversation.new()], fn _chunk -> :ok end)
   end
 
   test "stream dispatches through the model's runner" do

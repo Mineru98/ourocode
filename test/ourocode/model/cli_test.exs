@@ -50,24 +50,85 @@ defmodule Ourocode.Model.CliTest do
     refute_received {:chunk, "startup noise\n"}
   end
 
-  test "retries a run that fails before emitting any output" do
+  test "claude args request streamed partial messages" do
+    args = Cli.args(:claude, "Return ready")
+
+    assert List.last(args) == "Return ready"
+    assert "--output-format" in args
+    assert "stream-json" in args
+    assert "--include-partial-messages" in args
+  end
+
+  test "claude stream surfaces text deltas and ignores system noise" do
     tmp_dir = tmp_dir!()
-    marker = Path.join(tmp_dir, "ran-once")
     claude_path = Path.join(tmp_dir, "claude")
 
-    # Fails silently on the first launch, echoes the prompt on the second.
+    # Recorded shapes from `claude -p --output-format stream-json
+    # --include-partial-messages --verbose`.
     File.write!(claude_path, """
     #!/bin/sh
-    if [ -f "#{marker}" ]; then printf '%s' "$2"; else touch "#{marker}"; exit 1; fi
+    printf '%s\\n' '{"type":"system","subtype":"init","cwd":"/tmp"}'
+    printf '%s\\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}'
+    printf '%s\\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi! "}}}'
+    printf '%s\\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"there"}}}'
+    printf '%s\\n' '{"type":"result","subtype":"success","result":"Hi! there"}'
     """)
 
     File.chmod!(claude_path, 0o755)
 
-    assert {:ok, "hello"} =
+    parent = self()
+
+    assert {:ok, "Hi! there"} =
              Cli.stream(
                :claude,
+               "say hi",
+               [which: fn "claude" -> claude_path end],
+               fn chunk -> send(parent, {:chunk, chunk}) end
+             )
+
+    assert_received {:chunk, "Hi! "}
+    assert_received {:chunk, "there"}
+    refute_received {:chunk, _other}
+  end
+
+  test "claude stream falls back to the result event when no deltas arrived" do
+    tmp_dir = tmp_dir!()
+    claude_path = Path.join(tmp_dir, "claude")
+
+    File.write!(claude_path, """
+    #!/bin/sh
+    printf '%s\\n' '{"type":"result","subtype":"success","result":"only the result"}'
+    """)
+
+    File.chmod!(claude_path, 0o755)
+
+    assert {:ok, "only the result"} =
+             Cli.stream(
+               :claude,
+               "say hi",
+               [which: fn "claude" -> claude_path end],
+               fn _chunk -> :ok end
+             )
+  end
+
+  test "retries a run that fails before emitting any output" do
+    tmp_dir = tmp_dir!()
+    marker = Path.join(tmp_dir, "ran-once")
+    gemini_path = Path.join(tmp_dir, "gemini")
+
+    # Fails silently on the first launch, echoes the prompt on the second.
+    File.write!(gemini_path, """
+    #!/bin/sh
+    if [ -f "#{marker}" ]; then printf '%s' "$2"; else touch "#{marker}"; exit 1; fi
+    """)
+
+    File.chmod!(gemini_path, 0o755)
+
+    assert {:ok, "hello"} =
+             Cli.stream(
+               :gemini,
                "hello",
-               [which: fn "claude" -> claude_path end, retry_base_delay_ms: 1],
+               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1],
                fn _chunk -> :ok end
              )
 
@@ -77,22 +138,22 @@ defmodule Ourocode.Model.CliTest do
   test "does not retry once output has reached the renderer" do
     tmp_dir = tmp_dir!()
     count = Path.join(tmp_dir, "count")
-    claude_path = Path.join(tmp_dir, "claude")
+    gemini_path = Path.join(tmp_dir, "gemini")
 
-    File.write!(claude_path, """
+    File.write!(gemini_path, """
     #!/bin/sh
     echo run >> "#{count}"
     printf 'partial '
     exit 1
     """)
 
-    File.chmod!(claude_path, 0o755)
+    File.chmod!(gemini_path, 0o755)
 
     assert {:error, {:exit, 1}} =
              Cli.stream(
-               :claude,
+               :gemini,
                "hello",
-               [which: fn "claude" -> claude_path end, retry_base_delay_ms: 1],
+               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1],
                fn _chunk -> :ok end
              )
 
@@ -102,21 +163,21 @@ defmodule Ourocode.Model.CliTest do
   test "a persistent silent failure surfaces after the retry budget" do
     tmp_dir = tmp_dir!()
     count = Path.join(tmp_dir, "count")
-    claude_path = Path.join(tmp_dir, "claude")
+    gemini_path = Path.join(tmp_dir, "gemini")
 
-    File.write!(claude_path, """
+    File.write!(gemini_path, """
     #!/bin/sh
     echo run >> "#{count}"
     exit 7
     """)
 
-    File.chmod!(claude_path, 0o755)
+    File.chmod!(gemini_path, 0o755)
 
     assert {:error, {:exit, 7}} =
              Cli.stream(
-               :claude,
+               :gemini,
                "hello",
-               [which: fn "claude" -> claude_path end, retry_base_delay_ms: 1],
+               [which: fn "gemini" -> gemini_path end, retry_base_delay_ms: 1],
                fn _chunk -> :ok end
              )
 
