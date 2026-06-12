@@ -3,6 +3,15 @@ defmodule Ourocode.Runtime.InterviewRouter.Prompt do
 
   @max_turns 6
 
+  # The router loop re-sends every accumulated observation on each turn, so
+  # an old tool output is paid for again on every remaining turn. Beyond this
+  # budget the newest observations stay verbatim and older oversized ones
+  # collapse to a pruned marker; the model can re-run the tool when it still
+  # needs the content. Observations at or under the floor are always kept —
+  # pruning them saves almost nothing but loses routing evidence.
+  @observations_budget_bytes 24_576
+  @prune_floor_bytes 512
+
   @doc false
   @spec max_turns() :: pos_integer()
   def max_turns, do: @max_turns
@@ -27,10 +36,33 @@ defmodule Ourocode.Runtime.InterviewRouter.Prompt do
   defp observations_block(observations) do
     body =
       observations
+      |> prune_to_budget()
       |> Enum.map(fn {label, out} -> "### #{label}\n#{out}" end)
       |> Enum.join("\n\n")
 
     "## Tool observations so far\n#{body}\n"
+  end
+
+  # Newest-first walk under the byte budget; the newest observation always
+  # survives in full (it is what the model just asked for).
+  defp prune_to_budget(observations) do
+    {kept, _used} =
+      observations
+      |> Enum.reverse()
+      |> Enum.map_reduce(0, fn {label, out}, used ->
+        size = byte_size(out)
+
+        if used == 0 or size <= @prune_floor_bytes or
+             used + size <= @observations_budget_bytes do
+          {{label, out}, used + size}
+        else
+          {{label,
+            "[pruned #{size}-byte output to keep this prompt small; " <>
+              "re-run the tool if you still need it]"}, used}
+        end
+      end)
+
+    Enum.reverse(kept)
   end
 
   defp system_rules do

@@ -11,6 +11,29 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandboxTest do
     assert body =~ "Demo.MixProject"
   end
 
+  test "read keeps head and tail of an oversized file with an elision marker" do
+    root = sandbox_dir!()
+    content = "HEAD_MARK\n" <> String.duplicate("x", 60_000) <> "\nTAIL_MARK"
+    File.write!(Path.join(root, "big.txt"), content)
+
+    assert {"READ big.txt", body} = ToolSandbox.run(:read, "big.txt", root)
+    assert body =~ "HEAD_MARK"
+    assert body =~ "TAIL_MARK"
+    assert body =~ "bytes elided"
+    assert byte_size(body) < byte_size(content)
+  end
+
+  test "read truncation never splits a multibyte character" do
+    root = sandbox_dir!()
+    # "a" prefix shifts the 3-byte Hangul run so both the head cut and the
+    # tail cut land mid-character unless the cap is boundary-aware.
+    File.write!(Path.join(root, "wide.txt"), "a" <> String.duplicate("가", 20_000))
+
+    assert {"READ wide.txt", body} = ToolSandbox.run(:read, "wide.txt", root)
+    assert String.valid?(body)
+    assert body =~ "bytes elided"
+  end
+
   test "read rejects unsafe path literals" do
     root = sandbox_dir!()
 

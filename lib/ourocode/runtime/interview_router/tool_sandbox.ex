@@ -11,7 +11,7 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandbox do
     case safe_path(rel, root) do
       {:ok, abs} ->
         case File.read(abs) do
-          {:ok, bin} -> {"READ #{rel}", cap_bytes(bin, @max_read_bytes)}
+          {:ok, bin} -> {"READ #{rel}", cap_middle(bin, @max_read_bytes)}
           {:error, reason} -> {"READ #{rel}", "error: #{:file.format_error(reason)}"}
         end
 
@@ -144,6 +144,45 @@ defmodule Ourocode.Runtime.InterviewRouter.ToolSandbox do
   defp cap_bytes(bin, limit) when byte_size(bin) <= limit, do: bin
 
   defp cap_bytes(bin, limit) do
-    binary_part(bin, 0, limit) <> "\n...[truncated at #{limit} bytes]"
+    utf8_prefix(bin, limit) <> "\n...[truncated at #{limit} bytes]"
+  end
+
+  # Keep the head AND the tail of an oversized file instead of head-only:
+  # imports/attributes live at the top, but what a follow-up question needs
+  # (main clauses, exports, config blocks) is often at the bottom.
+  defp cap_middle(bin, limit) when byte_size(bin) <= limit, do: bin
+
+  defp cap_middle(bin, limit) do
+    head = utf8_prefix(bin, div(limit * 3, 4))
+    tail = utf8_suffix(bin, limit - div(limit * 3, 4))
+    elided = byte_size(bin) - byte_size(head) - byte_size(tail)
+    head <> "\n...[#{elided} bytes elided]...\n" <> tail
+  end
+
+  # Byte-limit cuts must not split a multibyte character: the observation is
+  # embedded in a prompt string, so it has to stay valid UTF-8. A cut lands
+  # at most 3 bytes inside a sequence; after that the content was not UTF-8
+  # to begin with and is returned as-is (same as an undersized binary read).
+  defp utf8_prefix(bin, limit) do
+    trim_invalid(binary_part(bin, 0, limit), :back, 3)
+  end
+
+  defp utf8_suffix(bin, limit) do
+    trim_invalid(binary_part(bin, byte_size(bin) - limit, limit), :front, 3)
+  end
+
+  defp trim_invalid(part, _side, attempts_left)
+       when attempts_left < 0 or byte_size(part) == 0,
+       do: part
+
+  defp trim_invalid(part, side, attempts_left) do
+    if String.valid?(part) do
+      part
+    else
+      case side do
+        :back -> trim_invalid(binary_part(part, 0, byte_size(part) - 1), side, attempts_left - 1)
+        :front -> trim_invalid(binary_part(part, 1, byte_size(part) - 1), side, attempts_left - 1)
+      end
+    end
   end
 end

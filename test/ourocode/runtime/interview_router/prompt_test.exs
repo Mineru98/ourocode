@@ -29,4 +29,42 @@ defmodule Ourocode.Runtime.InterviewRouter.PromptTest do
     assert prompt =~ "### READ mix.exs\ndef project do"
     assert prompt =~ "### GREP main_module\nmain_module: Ourocode.CLI"
   end
+
+  test "build prunes an older oversized observation but keeps the newest verbatim" do
+    old = String.duplicate("a", 30_000)
+
+    prompt =
+      Prompt.build(
+        "What is the entrypoint?",
+        [
+          {"READ big.txt", old},
+          {"GREP main_module", "main_module: Ourocode.CLI"}
+        ],
+        3
+      )
+
+    refute prompt =~ old
+    assert prompt =~ "### READ big.txt\n[pruned 30000-byte output"
+    assert prompt =~ "### GREP main_module\nmain_module: Ourocode.CLI"
+  end
+
+  test "build keeps the newest observation and small older ones even over budget" do
+    huge = String.duplicate("b", 30_000)
+
+    prompt =
+      Prompt.build(
+        "Q",
+        [
+          {"READ small.txt", "old but tiny"},
+          {"READ huge.txt", huge}
+        ],
+        2
+      )
+
+    # The newest observation always survives in full; pruning a tiny older
+    # one would save nothing, so it survives too.
+    assert prompt =~ huge
+    assert prompt =~ "### READ small.txt\nold but tiny"
+    refute prompt =~ "[pruned"
+  end
 end
