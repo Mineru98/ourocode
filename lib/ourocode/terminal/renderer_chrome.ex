@@ -7,7 +7,10 @@ defmodule Ourocode.Terminal.RendererChrome do
 
   @left 2
   @chip_width 11
-  @pulse [".", "o", "O", "o"]
+  # Braille spinner for the "thinking" state: a smooth rotation reads as live
+  # work, where the old .oOo pulse looked like a stutter. Matches the unicode
+  # vocabulary already used by the prompt activity frames.
+  @spinner ~w(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 
   @spec draw_header(map(), pos_integer(), map(), map()) :: map()
   def draw_header(screen, width, kv, opts) do
@@ -123,12 +126,15 @@ defmodule Ourocode.Terminal.RendererChrome do
 
   defp activity_dot(kv, opts) do
     if Map.get(opts, :streaming) do
-      frame = Enum.at(@pulse, rem(Map.get(opts, :tick, 0), length(@pulse)))
-      {frame, :accent}
+      {spinner_frame(Map.get(opts, :tick, 0)), :accent}
     else
       health_indicator(kv)
     end
   end
+
+  @doc false
+  @spec spinner_frame(non_neg_integer()) :: String.t()
+  def spinner_frame(tick), do: Enum.at(@spinner, rem(tick, length(@spinner)))
 
   defp prompt_activity_marker(tick) do
     PromptActivityIndicator.frame(tick)

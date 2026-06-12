@@ -3,6 +3,25 @@ defmodule Ourocode.Terminal.RendererChromeTest do
 
   alias Ourocode.Terminal.{RendererChrome, Screen}
 
+  test "spinner_frame cycles through the braille rotation" do
+    assert RendererChrome.spinner_frame(0) == "⠋"
+    assert RendererChrome.spinner_frame(1) == "⠙"
+    assert RendererChrome.spinner_frame(10) == "⠋"
+    assert Screen.text_width(RendererChrome.spinner_frame(3)) == 1
+  end
+
+  test "the thinking state shows the spinner instead of the status word's dot" do
+    lines =
+      90
+      |> Screen.new(4)
+      |> RendererChrome.draw_header(90, %{"status" => "healthy"}, %{streaming: true, tick: 2})
+      |> Screen.to_lines()
+
+    text = Enum.join(lines, "\n")
+    assert text =~ "thinking"
+    assert text =~ RendererChrome.spinner_frame(2)
+  end
+
   test "draw_header uses product-facing subtitle" do
     lines =
       90
