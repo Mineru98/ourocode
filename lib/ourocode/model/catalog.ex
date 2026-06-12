@@ -121,10 +121,26 @@ defmodule Ourocode.Model.Catalog do
   end
 
   defp preferred_ouroboros_model(models, opts) do
-    opts
-    |> ouroboros_backend()
-    |> backend_model_ids()
-    |> Enum.find_value(fn id ->
+    candidates = opts |> ouroboros_backend() |> backend_model_ids()
+
+    ready_candidate(models, candidates) || selectable_candidate(models, candidates)
+  end
+
+  # Candidates are ordered fastest-first (direct API before CLI subprocess:
+  # a spawned CLI pays multi-second startup on every turn for the same
+  # provider account), so the first ready candidate wins. When none is
+  # ready, fall back to the first selectable one so auth hints still show.
+  defp ready_candidate(models, candidates) do
+    Enum.find_value(candidates, fn id ->
+      case fetch(models, id) do
+        %Model{} = model -> if Model.ready?(model), do: model
+        nil -> nil
+      end
+    end)
+  end
+
+  defp selectable_candidate(models, candidates) do
+    Enum.find_value(candidates, fn id ->
       case fetch(models, id) do
         %Model{status: :unavailable} -> nil
         %Model{} = model -> model
@@ -221,8 +237,8 @@ defmodule Ourocode.Model.Catalog do
 
   defp normalize_backend(_value), do: nil
 
-  defp backend_model_ids("codex"), do: [:codex_cli, :codex]
-  defp backend_model_ids("codex_cli"), do: [:codex_cli, :codex]
+  defp backend_model_ids("codex"), do: [:codex, :codex_cli]
+  defp backend_model_ids("codex_cli"), do: [:codex, :codex_cli]
   defp backend_model_ids("claude"), do: [:claude]
   defp backend_model_ids("claude_cli"), do: [:claude]
   defp backend_model_ids("gemini"), do: [:gemini]

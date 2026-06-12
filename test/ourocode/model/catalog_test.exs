@@ -61,6 +61,14 @@ defmodule Ourocode.Model.CatalogTest do
              ouroboros_backend: "codex"
            ).id == :codex_cli
 
+    # Signed in to ChatGPT: the direct-API transport beats spawning the
+    # codex CLI on every turn for the same account.
+    assert Catalog.default(
+             codex_signed_in: true,
+             which: which(["claude", "codex"]),
+             ouroboros_backend: "codex"
+           ).id == :codex
+
     assert Catalog.default(
              codex_signed_in: false,
              which: which(["claude"]),
