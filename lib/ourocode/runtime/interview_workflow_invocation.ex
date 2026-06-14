@@ -13,8 +13,16 @@ defmodule Ourocode.Runtime.InterviewWorkflowInvocation do
   alias Ourocode.TaskRequest
 
   @default_mcp_tool "ouroboros_interview"
+  @pm_mcp_tool "ouroboros_pm_interview"
   @default_method "tools/call"
   @default_transport :streamable_http
+
+  # Adapter routes served by this invocation. `:interview` and `:pm` are the
+  # two Socratic interview flavours (different MCP tool, same session
+  # contract). `:workflow` is the conservative absorption of the explicit
+  # `ooo workflow` shortcut: with no dedicated workflow tool exposed, the
+  # request is clarified through a regular interview.
+  @interview_adapter_routes [:interview, :pm, :workflow]
 
   @type json_rpc_payload :: %{
           required(String.t()) => term()
@@ -102,6 +110,36 @@ defmodule Ourocode.Runtime.InterviewWorkflowInvocation do
   def build_followup_request_payload(_session_id, _answer, _context),
     do: {:error, :invalid_followup_request}
 
+  @doc """
+  Constructs the streamable HTTP MCP tools/call payload that reopens an
+  in-flight interview session without recording an answer.
+
+  Ouroboros interview handlers use this shape to re-display the current
+  unanswered question after reconnects or delegated status payloads.
+  """
+  @spec build_resume_request_payload(String.t(), map() | keyword()) ::
+          {:ok, json_rpc_payload()} | {:error, term()}
+  def build_resume_request_payload(session_id, context \\ %{})
+
+  def build_resume_request_payload(session_id, context)
+      when is_binary(session_id) and session_id != "" do
+    context = Map.new(context)
+
+    {:ok,
+     %{
+       "jsonrpc" => "2.0",
+       "id" => followup_request_id(session_id, context),
+       "method" => @default_method,
+       "params" => %{
+         "name" => mcp_tool(context),
+         "arguments" => %{"session_id" => session_id}
+       }
+     }}
+  end
+
+  def build_resume_request_payload(_session_id, _context),
+    do: {:error, :invalid_resume_request}
+
   defp followup_request_id(session_id, context) do
     context
     |> Map.get(:request_id, "interview-followup-" <> session_id)
@@ -117,9 +155,10 @@ defmodule Ourocode.Runtime.InterviewWorkflowInvocation do
          routing_decision: %{
            execution_route: :ouroboros_workflow,
            runtime_source: :ouroboros,
-           adapter_route: :interview
+           adapter_route: adapter_route
          }
-       }) do
+       })
+       when adapter_route in @interview_adapter_routes do
     :ok
   end
 
@@ -140,11 +179,20 @@ defmodule Ourocode.Runtime.InterviewWorkflowInvocation do
     |> to_string()
   end
 
+  # Explicit `:mcp_tool` context (e.g. the session loop threading the tool of
+  # an in-flight session into followup/resume payloads) wins; otherwise the
+  # tool is derived from the dispatch `:adapter_route` so `ooo pm` calls
+  # `ouroboros_pm_interview` while every other interview-shaped route keeps
+  # the default `ouroboros_interview`.
   defp mcp_tool(context) do
-    context
-    |> Map.get(:mcp_tool, @default_mcp_tool)
-    |> to_string()
+    case Map.get(context, :mcp_tool) do
+      nil -> default_mcp_tool(Map.get(context, :adapter_route))
+      tool -> to_string(tool)
+    end
   end
+
+  defp default_mcp_tool(:pm), do: @pm_mcp_tool
+  defp default_mcp_tool(_adapter_route), do: @default_mcp_tool
 
   defp interview_arguments(prompt_text, context) do
     %{"initial_context" => prompt_text}

@@ -77,6 +77,40 @@ defmodule Ourocode.Dashboard.ChildSessionStreamEntryTest do
     assert entry.payload["childID"] == "child-1"
   end
 
+  test "entries_for_event supports cursorless ouroboros child stream payloads" do
+    event = %{
+      type: :parent_call_event,
+      runtime_source: "ouroboros",
+      notification: %{
+        "params" => %{"child_id" => "job-1", "parent_call_id" => "parent-1"}
+      }
+    }
+
+    assert [entry] = ChildSessionStreamEntry.entries_for_event(event, 3, 30)
+    assert entry.payload["child_id"] == "job-1"
+  end
+
+  test "entries_for_event supports cursorless ouroboros atom-key child payloads" do
+    event = %{
+      type: :parent_call_event,
+      runtime_source: "ouroboros",
+      params: %{child_id: "job-2", parent_call_id: "parent-2"}
+    }
+
+    assert [entry] = ChildSessionStreamEntry.entries_for_event(event, 4, 40)
+    assert entry.payload[:child_id] == "job-2"
+  end
+
+  test "entries_for_event still drops cursorless payloads from other runtimes" do
+    event = %{
+      type: :parent_call_event,
+      runtime_source: "codex",
+      params: %{"child_id" => "child-9"}
+    }
+
+    assert ChildSessionStreamEntry.entries_for_event(event, 5, 50) == []
+  end
+
   test "entries_for_event ignores events without stream payloads" do
     assert ChildSessionStreamEntry.entries_for_event(%{type: :parent_call_started}, 1, 10) == []
   end

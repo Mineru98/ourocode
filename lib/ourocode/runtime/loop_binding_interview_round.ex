@@ -7,6 +7,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewRound do
 
   @type action ::
           {:server_error, String.t(), String.t() | nil}
+          | {:waiting, String.t(), map(), String.t() | nil}
           | {:summarize_initial_context, map(), String.t()}
           | {:complete, String.t(), map(), String.t() | nil}
           | {:question, String.t(), String.t(), map(), String.t()}
@@ -38,6 +39,9 @@ defmodule Ourocode.Runtime.LoopBindingInterviewRound do
     case InterviewTurn.classify_response(text) do
       {:server_error, message} ->
         {:server_error, message, session_id}
+
+      {:waiting, message} ->
+        {:waiting, message, meta, session_id}
 
       :complete ->
         {:complete, text, meta, session_id}

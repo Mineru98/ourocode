@@ -31,9 +31,14 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfigTest do
              parent_call_id: "parent-1",
              workflow_run_id: "workflow-run:parent-1",
              payload: %{"goal" => "ship"},
+             initial_context: "",
+             mcp_tool: nil,
              round: 1,
              max_rounds: 3,
              router_decision_timeout_ms: 250,
+             max_status_polls: 8,
+             status_poll_delay_ms: 1_000,
+             status_poll_count: 0,
              streak: 0,
              user_routed?: false,
              session_id: nil
@@ -56,6 +61,33 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfigTest do
 
     assert state.max_rounds == 7
     assert state.router_decision_timeout_ms == 900
+    assert state.max_status_polls == 8
+    assert state.status_poll_delay_ms == 1_000
+    assert state.status_poll_count == 0
     assert is_binary(state.project_dir)
+  end
+
+  test "build pins the MCP tool from the initial tools/call payload" do
+    build = fn payload ->
+      LoopBindingInterviewSessionConfig.build(
+        [
+          parent_call_id: "parent-3",
+          initial_payload: payload,
+          parent_call_fun: fn p -> {:ok, p} end,
+          model: "gpt-5"
+        ],
+        callbacks: %{},
+        max_rounds: 7,
+        router_decision_timeout_ms: 900
+      )
+    end
+
+    assert build.(%{"params" => %{"name" => "ouroboros_pm_interview", "arguments" => %{}}}).mcp_tool ==
+             "ouroboros_pm_interview"
+
+    assert build.(%{"params" => %{"name" => "ouroboros_interview", "arguments" => %{}}}).mcp_tool ==
+             "ouroboros_interview"
+
+    assert build.(%{}).mcp_tool == nil
   end
 end

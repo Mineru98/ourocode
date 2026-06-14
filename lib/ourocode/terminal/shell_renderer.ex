@@ -33,7 +33,7 @@ defmodule Ourocode.Terminal.ShellRenderer do
       "  ooo auto <goal>      plan, verify, then execute",
       "",
       "Ready:",
-      "  model: codex cli",
+      "  model: codex  (ChatGPT)",
       "  #{plugin_summary(startup_result)}",
       "  live verify: ourocode --verify --format json --project-dir .",
       "  safety preview: /preflight <command>",

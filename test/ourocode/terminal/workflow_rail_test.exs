@@ -3,7 +3,7 @@ defmodule Ourocode.Terminal.WorkflowRailTest do
 
   alias Ourocode.Terminal.{FrameSections, WorkflowRail}
 
-  test "summarizes the compact deep-interview-plan-execute-verify-evidence method" do
+  test "summarizes the compact socratic-plan-execute-verify-evidence method" do
     sections =
       FrameSections.parse("""
       +-- Parent/Child Sessions region=runtime_panes layout=terminal_split
@@ -16,7 +16,7 @@ defmodule Ourocode.Terminal.WorkflowRailTest do
       """)
 
     assert WorkflowRail.rows(sections, ["ambiguity 0.12"], []) == [
-             "● deep-interview live",
+             "● socratic live",
              "● plan warming",
              "● execute live",
              "● verify active",
@@ -37,7 +37,7 @@ defmodule Ourocode.Terminal.WorkflowRailTest do
     }
 
     assert WorkflowRail.rows([], [], [], workflow) == [
-             "● deep-interview ready",
+             "● socratic ready",
              "● plan ready",
              "● execute done",
              "● verify ready",

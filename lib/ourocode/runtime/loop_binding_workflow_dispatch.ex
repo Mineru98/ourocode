@@ -5,6 +5,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
 
   alias Ourocode.Model
   alias Ourocode.Model.Catalog
+  alias Ourocode.Model.Profile
 
   alias Ourocode.Runtime.{
     Dispatcher,
@@ -28,6 +29,14 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     {:ouroboros_workflow, :interview} => InterviewWorkflowInvocation,
     {:ouroboros, :interview} => InterviewWorkflowInvocation,
     :ouroboros_interview => InterviewWorkflowInvocation,
+    {:ouroboros_workflow, :pm} => InterviewWorkflowInvocation,
+    {:ouroboros, :pm} => InterviewWorkflowInvocation,
+    :ouroboros_pm => InterviewWorkflowInvocation,
+    # Explicit `ooo workflow ...` requests have no dedicated workflow tool on
+    # the live server, so they are safely absorbed into the interview flow
+    # (default `ouroboros_interview` tool) instead of dispatch-failing.
+    {:ouroboros_workflow, :workflow} => InterviewWorkflowInvocation,
+    {:ouroboros, :workflow} => InterviewWorkflowInvocation,
     {:ouroboros_workflow, :seed} => OuroborosWorkflowInvocation,
     {:ouroboros, :seed} => OuroborosWorkflowInvocation,
     :ouroboros_seed => OuroborosWorkflowInvocation,
@@ -99,10 +108,14 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     if dispatchable_route?(task_request) do
       parent_call_id = parent_call_id(task_request)
       workflow_run_id = "workflow-run:" <> parent_call_id
+      profile = workflow_profile(task_request, input_event)
 
       LoopBindingEventFlow.enqueue(
         agent,
-        WorkflowHarness.run_started_event(parent_call_id, task_request, run_id: workflow_run_id)
+        WorkflowHarness.run_started_event(parent_call_id, task_request,
+          run_id: workflow_run_id,
+          model_profile: Profile.event_fields(profile)
+        )
       )
 
       if interview_task?(task_request),
@@ -116,6 +129,7 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
           input_event,
           parent_call_id,
           workflow_run_id,
+          profile,
           callbacks
         )
       end)
@@ -132,8 +146,18 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
   def user_level_route?(%{routing_decision: %{execution_route: :user_level_plugin}}), do: true
   def user_level_route?(_task_request), do: false
 
+  # Routes that run the live interview session loop: `:interview` and `:pm`
+  # (PM flavour calling `ouroboros_pm_interview`), plus `:workflow`, which is
+  # absorbed into the interview flow because no dedicated workflow tool is
+  # exposed by the server.
+  @interview_adapter_routes [:interview, :pm, :workflow]
+  @interview_tool_names ["ouroboros_interview", "ouroboros_pm_interview"]
+
   @spec interview_task?(map()) :: boolean()
-  def interview_task?(%{routing_decision: %{adapter_route: :interview}}), do: true
+  def interview_task?(%{routing_decision: %{adapter_route: adapter_route}})
+      when adapter_route in @interview_adapter_routes,
+      do: true
+
   def interview_task?(_task_request), do: false
 
   @spec direct_task?(map()) :: boolean()
@@ -186,6 +210,28 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
   def input_event_model(%{"active_model" => %Model{} = model}), do: model
   def input_event_model(_event), do: nil
 
+  @spec workflow_profile(map(), map()) :: Profile.t() | nil
+  def workflow_profile(task_request, input_event) do
+    if direct_task?(task_request) or user_level_route?(task_request) do
+      nil
+    else
+      route =
+        task_request
+        |> Map.get(:routing_decision, %{})
+        |> Map.get(:adapter_route)
+
+      Profile.for_route(route, active_model: input_event_model(input_event))
+    end
+  end
+
+  @spec workflow_model(map(), map()) :: Model.t()
+  def workflow_model(task_request, input_event) do
+    case workflow_profile(task_request, input_event) do
+      %{model: %Model{} = model} -> model
+      nil -> input_event_model(input_event) || Catalog.default()
+    end
+  end
+
   @spec project_dir(map() | term()) :: Path.t()
   def project_dir(runtime) when is_map(runtime),
     do: Map.get(runtime, :project_dir) || File.cwd!()
@@ -199,9 +245,14 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
          input_event,
          parent_call_id,
          workflow_run_id,
+         profile,
          callbacks
        ) do
-    model = input_event_model(input_event) || Catalog.default()
+    model =
+      case profile do
+        %{model: %Model{} = model} -> model
+        _none -> input_event_model(input_event) || Catalog.default()
+      end
 
     context =
       if direct_task?(task_request) or user_level_route?(task_request) do
@@ -295,8 +346,10 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatch do
     end
   end
 
+  # Both interview tools must enter the interactive interview session loop;
+  # anything else (start_*, status, ...) is a one-shot `WorkflowRelay` call.
   defp interview_payload?(payload) when is_map(payload) do
-    get_in(payload, ["params", "name"]) == "ouroboros_interview"
+    get_in(payload, ["params", "name"]) in @interview_tool_names
   end
 
   defp interview_payload?(_payload), do: false

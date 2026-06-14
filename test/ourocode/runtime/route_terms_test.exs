@@ -33,7 +33,9 @@ defmodule Ourocode.Runtime.RouteTermsTest do
   test "detects ouroboros workflow terms and adapter routes" do
     assert RouteTerms.ouroboros_workflow?(["please", "ouroboros:evolve"])
     assert RouteTerms.ouroboros_adapter_route(["ooo", "auto", "build", "it"]) == :auto
-    assert RouteTerms.ouroboros_adapter_route(["ooo", "pm", "build", "onboarding"]) == :interview
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "interview", "clarify", "it"]) == :interview
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "pm", "build", "onboarding"]) == :pm
+    assert RouteTerms.ouroboros_adapter_route(["please", "ouroboros:pm"]) == :pm
     assert RouteTerms.ouroboros_adapter_route(["ooo", "run", "seed_path=seed.md"]) == :run
     assert RouteTerms.ouroboros_adapter_route(["ouroboros", "execute", "seed.md"]) == :run
     assert RouteTerms.ouroboros_adapter_route(["please", "ralph"]) == :ralph
@@ -57,7 +59,11 @@ defmodule Ourocode.Runtime.RouteTermsTest do
              :evaluate
 
     assert RouteTerms.ouroboros_adapter_route(["please", "workflow"]) == :workflow
-    assert RouteTerms.ouroboros_adapter_route(["please", "other"]) == :workflow
+
+    # No explicit action token: ambiguous goals fall back to the Socratic
+    # interview instead of the previously unmapped :workflow route.
+    assert RouteTerms.ouroboros_adapter_route(["please", "other"]) == :interview
+    assert RouteTerms.ouroboros_adapter_route(["ooo", "build", "me", "a", "thing"]) == :interview
   end
 
   test "does not treat plain run commands as implicit Ouroboros workflow" do

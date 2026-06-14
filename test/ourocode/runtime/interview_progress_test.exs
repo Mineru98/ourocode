@@ -27,7 +27,7 @@ defmodule Ourocode.Runtime.InterviewProgressTest do
     assert state.interview_session.round == 0
   end
 
-  test "opens an optimistic PM picker before the transport is ready" do
+  test "does not open an optimistic PM picker before the transport is ready" do
     {:ok, agent} =
       Agent.start_link(fn ->
         %{interview: nil, interview_session: nil, wonder: nil, paused: true}
@@ -42,15 +42,10 @@ defmodule Ourocode.Runtime.InterviewProgressTest do
     )
 
     state = Agent.get(agent, & &1)
-    assert state.wonder.request_id == "parent-fast-ask-1"
-    assert [%{question: question, options: options}] = state.wonder.request.questions
-    assert question =~ "What outcome should this PM interview produce for build onboarding"
-
-    assert Enum.map(options, & &1.label) == [
-             "Define the target user",
-             "Define the activation outcome",
-             "Audit the existing flow"
-           ]
+    assert state.wonder == nil
+    assert state.interview.waiting == true
+    assert state.interview.status == "starting interview session"
+    assert state.interview.question == ""
   end
 
   test "marks interview waiting rounds with stable status text" do

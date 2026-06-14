@@ -79,6 +79,16 @@ defmodule Ourocode.Runtime.Dispatcher do
   `:pane_directed_steering_message`. This function is the runtime dispatch
   boundary: it resolves that message against the current pane model and hands a
   JSON wire payload to the configured child-pane dispatcher.
+
+  Production wiring status: the builtin `/interrupt` and `/cancel` actions are
+  wired end-to-end (`LoopBindings.attach/1` injects
+  `ChildSessionCancelDispatcher` via `:command_dispatch_options`), but no
+  production caller invokes this free-text steering function yet — the
+  terminal currently only echoes steering text into the local pane model
+  (`Ourocode.Terminal.SteeringPane`), and the live Ouroboros MCP server
+  exposes no tool that accepts steering text for a running job. The seam stays
+  here so a future server-side steering tool only needs a
+  `:child_pane_dispatcher` option.
   """
   @spec dispatch_steering_message(map(), keyword() | map()) ::
           {:ok, map()} | {:error, term()}

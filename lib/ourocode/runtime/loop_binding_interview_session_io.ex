@@ -12,6 +12,13 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionIO do
     end)
   end
 
+  @spec merge_status(pid(), String.t(), String.t(), map(), String.t() | nil) :: :ok
+  def merge_status(agent, parent_call_id, status, meta, session_id) do
+    Agent.update(agent, fn state ->
+      InterviewState.merge_status(state, parent_call_id, status, meta, session_id)
+    end)
+  end
+
   @spec push_router_trace(pid(), String.t()) :: :ok
   def push_router_trace(agent, line) when is_binary(line) do
     Agent.update(agent, fn state ->

@@ -6,6 +6,7 @@ defmodule Ourocode.Terminal.HudModel do
   workflow, MCP, interview, and runtime state.
   """
 
+  alias Ourocode.Model.Profile
   alias Ourocode.Terminal.{FrameSections, Screen, WorkflowRail}
 
   @type t :: %{
@@ -109,6 +110,7 @@ defmodule Ourocode.Terminal.HudModel do
     parts =
       []
       |> maybe(workflow_summary(sections, opts, width))
+      |> maybe(profile_summary(opts))
       |> maybe(mcp_summary(opts))
       |> maybe(interview_summary(opts))
 
@@ -191,7 +193,7 @@ defmodule Ourocode.Terminal.HudModel do
 
   defp ready_row?(row), do: String.ends_with?(row, " ready")
 
-  defp compact_stage_label("deep-interview " <> status), do: "interview " <> status
+  defp compact_stage_label("socratic " <> status), do: "socratic " <> status
   defp compact_stage_label("execute " <> status), do: "exec " <> status
   defp compact_stage_label("evidence recorded"), do: "evidence recorded"
   defp compact_stage_label("evidence " <> status), do: "evidence " <> status
@@ -225,7 +227,7 @@ defmodule Ourocode.Terminal.HudModel do
     |> Enum.map(fn row ->
       cond do
         row == "ready" -> "ready"
-        String.contains?(row, "deep-interview") -> stage_token("interview", row)
+        String.contains?(row, "socratic") -> stage_token("socratic", row)
         String.contains?(row, "plan") -> stage_token("plan", row)
         String.contains?(row, "execute") -> stage_token("exec", row)
         String.contains?(row, "verify") -> stage_token("verify", row)
@@ -273,6 +275,35 @@ defmodule Ourocode.Terminal.HudModel do
         nil
     end
   end
+
+  defp profile_summary(opts) do
+    opts
+    |> Map.get(:workflow, %{})
+    |> latest_run()
+    |> run_profile()
+    |> case do
+      %{label: label, model_label: model_label} ->
+        Profile.display_label(%{label: label, model_label: model_label})
+
+      %{"label" => label, "model_label" => model_label} ->
+        Profile.display_label(%{"label" => label, "model_label" => model_label})
+
+      _none ->
+        nil
+    end
+  end
+
+  defp latest_run(%{latest_run_id: id, runs: runs}) when is_binary(id) and is_map(runs),
+    do: Map.get(runs, id)
+
+  defp latest_run(%{"latest_run_id" => id, "runs" => runs}) when is_binary(id) and is_map(runs),
+    do: Map.get(runs, id)
+
+  defp latest_run(_workflow), do: nil
+
+  defp run_profile(%{model_profile: profile}) when is_map(profile), do: profile
+  defp run_profile(%{"model_profile" => profile}) when is_map(profile), do: profile
+  defp run_profile(_run), do: nil
 
   defp mcp_counts(parent_count, child_count, block_count) do
     [

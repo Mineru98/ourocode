@@ -6,8 +6,8 @@ defmodule Ourocode.Runtime.McpDaemonBindingTest do
 
   test "maps selected models to MCP LLM backend identifiers" do
     assert McpDaemonBinding.llm_backend(model(:codex)) == "codex"
-    assert McpDaemonBinding.llm_backend(model(:codex_cli)) == "codex"
-    assert McpDaemonBinding.llm_backend(model(:claude)) == "claude_code"
+    assert McpDaemonBinding.llm_backend(model(:claude_api)) == "claude_code"
+    assert McpDaemonBinding.llm_backend(model(:gemini)) == "gemini"
   end
 
   test "reuses external daemons and matching backend handles" do

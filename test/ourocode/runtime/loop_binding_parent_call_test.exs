@@ -35,4 +35,44 @@ defmodule Ourocode.Runtime.LoopBindingParentCallTest do
     assert {:ok, ^event} = poll.(%{})
     assert :none = poll.(%{})
   end
+
+  test "build returns a transport error when the worker exceeds the hard timeout" do
+    {:ok, agent} = Agent.start_link(&LoopBindingState.initial/0)
+    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
+
+    test_pid = self()
+
+    parent_call =
+      LoopBindingParentCall.build(agent, %{}, "parent-timeout-1", "http://127.0.0.1:4000/mcp",
+        execute_parent_call: fn _opts, _payload ->
+          send(test_pid, {:worker_started, self()})
+
+          receive do
+            :never -> :ok
+          end
+        end,
+        flush: fn _agent -> :ok end,
+        timeout: 20
+      )
+
+    assert {:error, {:parent_call_timeout, 20}} = parent_call.(%{"name" => "ooo.interview"})
+    assert_receive {:worker_started, worker}, 100
+    Process.sleep(10)
+    refute Process.alive?(worker)
+  end
+
+  test "build returns a transport error when the worker exits before sending a result" do
+    {:ok, agent} = Agent.start_link(&LoopBindingState.initial/0)
+    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
+
+    parent_call =
+      LoopBindingParentCall.build(agent, %{}, "parent-exit-1", "http://127.0.0.1:4000/mcp",
+        execute_parent_call: fn _opts, _payload -> Process.exit(self(), :boom) end,
+        flush: fn _agent -> :ok end,
+        timeout: 1_000
+      )
+
+    assert {:error, {:parent_call_worker_exit, :boom}} =
+             parent_call.(%{"name" => "ooo.interview"})
+  end
 end

@@ -40,6 +40,38 @@ defmodule Ourocode.Runtime.LoopBindingInterviewRoundTest do
              LoopBindingInterviewRound.action({:ok, parent_result("Which workflow?")}, "existing")
   end
 
+  test "delegated subagent status payloads stay in waiting state instead of becoming questions" do
+    text =
+      Ourocode.Json.encode!(%{
+        status: "delegatedtosubagent",
+        sessionid: "interview_456",
+        pendingquestion: false,
+        nextaction: "wait for OpenCode child interview"
+      })
+      |> IO.iodata_to_binary()
+
+    assert {:waiting, "wait for OpenCode child interview", meta, "interview_456"} =
+             LoopBindingInterviewRound.action({:ok, parent_result(text)}, nil)
+
+    assert meta["status"] == "delegatedtosubagent"
+  end
+
+  test "agent task payloads stay in waiting state instead of becoming questions" do
+    text =
+      Ourocode.Json.encode!(%{
+        agent: "Socratic Interview",
+        general: "Run the interview outside the parent TUI.",
+        context: "The parent should not render this status payload as the question.",
+        action: "Question start"
+      })
+      |> IO.iodata_to_binary()
+
+    assert {:waiting, "starting Socratic Interview", meta, "existing-session"} =
+             LoopBindingInterviewRound.action({:ok, parent_result(text)}, "existing-session")
+
+    assert meta["agent"] == "Socratic Interview"
+  end
+
   test "initial-context-too-large meta asks the main session to summarize instead of asking user" do
     result =
       parent_result("Please summarize the initial context.",

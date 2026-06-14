@@ -78,6 +78,7 @@ defmodule Ourocode.Runtime.RouteTerms do
   @spec ouroboros_adapter_route([String.t()]) ::
           :auto
           | :interview
+          | :pm
           | :seed
           | :evolve
           | :ralph
@@ -101,8 +102,13 @@ defmodule Ourocode.Runtime.RouteTerms do
       Enum.any?(tokens, &(&1 in ["auto", "ouroboros:auto"])) ->
         :auto
 
-      Enum.any?(tokens, &(&1 in ["interview", "pm", "ouroboros:interview", "ouroboros:pm"])) ->
+      Enum.any?(tokens, &(&1 in ["interview", "ouroboros:interview"])) ->
         :interview
+
+      # PM requests run the interview loop but call the dedicated
+      # `ouroboros_pm_interview` tool instead of `ouroboros_interview`.
+      Enum.any?(tokens, &(&1 in ["pm", "ouroboros:pm"])) ->
+        :pm
 
       Enum.any?(tokens, &(&1 in ["seed", "ouroboros:seed"])) ->
         :seed
@@ -137,8 +143,13 @@ defmodule Ourocode.Runtime.RouteTerms do
       Enum.any?(tokens, &(&1 in ["workflow", "ouroboros:workflow"])) ->
         :workflow
 
+      # Conservative fallback: an `ooo <natural language>` request with no
+      # explicit action token is an ambiguous goal, so it is absorbed into the
+      # Socratic interview flow (the product intent is to clarify vague
+      # requirements) instead of an unmapped :workflow route that previously
+      # always dispatch-failed.
       true ->
-        :workflow
+        :interview
     end
   end
 

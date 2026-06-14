@@ -9,6 +9,7 @@ defmodule Ourocode.Runtime.Dispatcher.RouteResolution do
   @supported_adapter_routes [
     :auto,
     :interview,
+    :pm,
     :seed,
     :run,
     :evolve,

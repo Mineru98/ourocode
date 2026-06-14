@@ -56,20 +56,23 @@ defmodule Ourocode.Dashboard.ChildSessionStreamEntry do
     candidates = stream_payload_candidates(event)
 
     Enum.find(candidates, &stream_payload?/1) ||
-      cursorless_opencode_stream_payload(event, candidates) ||
+      cursorless_stream_payload(event, candidates) ||
       %{}
   end
 
-  defp cursorless_opencode_stream_payload(event, candidates) do
-    if cursorless_opencode_stream_event?(event) do
+  defp cursorless_stream_payload(event, candidates) do
+    if cursorless_stream_event?(event) do
       Enum.find(candidates, &direct_child_stream_payload?/1) ||
         Enum.find(candidates, &child_stream_payload?/1)
     end
   end
 
-  defp cursorless_opencode_stream_event?(event) do
+  # OpenCode and Ouroboros child notifications may carry only a childID (no
+  # seq/token/delta/content); accept them so the child pane still gets an
+  # entry instead of silently dropping the event.
+  defp cursorless_stream_event?(event) do
     Map.get(event, :type) == :parent_call_event and
-      Map.get(event, :runtime_source) == "opencode"
+      Map.get(event, :runtime_source) in ["opencode", "ouroboros"]
   end
 
   defp child_stream_payload?(payload) when is_map(payload) do

@@ -1,6 +1,7 @@
 defmodule Ourocode.Runtime.InterviewStateTest do
   use ExUnit.Case, async: true
 
+  alias Ourocode.MCP.LifecycleEvent
   alias Ourocode.Runtime.InterviewState
 
   test "add_dialogue trims text, skips blanks, deduplicates latest turn, and caps the log" do
@@ -105,6 +106,80 @@ defmodule Ourocode.Runtime.InterviewStateTest do
     assert state.interview.seed_ready == false
     refute Map.has_key?(state.interview, :answered)
     refute Map.has_key?(state.interview, :question_options)
+  end
+
+  test "detect ignores parent call lifecycle start events as interview questions" do
+    event =
+      LifecycleEvent.new(:parent_call_started, %{
+        event_seq: 1,
+        transport: :streamable_http,
+        parent_call_id: "parent-1",
+        runtime_source: "ouroboros",
+        external_ids: %{},
+        occurred_at_ms: 1_000,
+        request_id: "req-1",
+        method: "tools/call",
+        payload: %{"token" => "(ambiguity: 0.64) Question start"}
+      })
+
+    assert InterviewState.detect(%{}, event) == %{}
+  end
+
+  test "merge question clears stale waiting timer once the user can answer" do
+    state = %{
+      interview: %{
+        question: "",
+        status: "waiting for MCP interview question",
+        waiting: true,
+        waiting_started_monotonic_ms: 123
+      }
+    }
+
+    updated =
+      InterviewState.merge_question(
+        state,
+        "parent-1",
+        "(ambiguity: 0.42) Which workflow should change?",
+        %{},
+        "iv-1"
+      )
+
+    assert updated.interview.question == "Which workflow should change?"
+    assert updated.interview.waiting == false
+    refute Map.has_key?(updated.interview, :waiting_started_monotonic_ms)
+  end
+
+  test "merge status does not overwrite an active question waiting for the user" do
+    state = %{
+      interview: %{
+        parent_call_id: "parent-1",
+        question: "Which workflow should change?",
+        status: "waiting for your answer",
+        waiting: false,
+        question_options: [%{"label" => "Onboarding", "description" => "First-run flow"}]
+      }
+    }
+
+    assert InterviewState.merge_status(
+             state,
+             "parent-1",
+             "starting Socratic Interview",
+             %{},
+             "iv-1"
+           ) == state
+  end
+
+  test "detect does not create a question from reasoning-only progress metadata" do
+    state =
+      InterviewState.detect(%{}, %{
+        type: :parent_call_event,
+        payload: %{
+          "token" => "Question start",
+          "meta" => %{"interview_reasoning" => %{"phase" => "start"}}
+        }
+      })
+
+    assert state == %{}
   end
 
   test "detect merges meta-only interview updates into an active interview" do

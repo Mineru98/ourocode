@@ -236,7 +236,11 @@ defmodule Ourocode.Acp.Server do
           end)
 
         {:error, reason} ->
-          write(state, Protocol.error(turn.id, @internal_error, "turn failed: #{inspect(reason)}"))
+          write(
+            state,
+            Protocol.error(turn.id, @internal_error, "turn failed: #{inspect(reason)}")
+          )
+
           state
       end
 
@@ -283,8 +287,8 @@ defmodule Ourocode.Acp.Server do
   def model_id_from_env(value) do
     case value do
       "codex" -> :codex
-      "claude" -> :claude
-      "codex_cli" -> :codex_cli
+      "claude" -> :claude_api
+      "claude_api" -> :claude_api
       "gemini" -> :gemini
       _other -> nil
     end

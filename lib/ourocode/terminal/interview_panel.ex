@@ -3,7 +3,6 @@ defmodule Ourocode.Terminal.InterviewPanel do
   Pure text rendering helpers for interview, wonderTool, and MCP activity panes.
   """
 
-  alias Ourocode.Runtime.InterviewOptionSynthesizer
   alias Ourocode.Terminal.InterviewPanel.Dialogue
   alias Ourocode.Terminal.InterviewPanel.Hints
   alias Ourocode.Terminal.InterviewPanel.QuestionLedger
@@ -235,7 +234,7 @@ defmodule Ourocode.Terminal.InterviewPanel do
 
   defp question_detection(question, interview) do
     question = plain_line(question)
-    options = question_options(interview, question)
+    options = question_options(interview)
 
     %{
       request: %{
@@ -251,11 +250,8 @@ defmodule Ourocode.Terminal.InterviewPanel do
     }
   end
 
-  defp question_options(%{question_options: [_first | _rest] = options}, _question), do: options
-
-  defp question_options(_interview, question) do
-    InterviewOptionSynthesizer.options([], question)
-  end
+  defp question_options(%{question_options: [_first | _rest] = options}), do: options
+  defp question_options(_interview), do: []
 
   defp answered_current_question?(%{answered: text}) when is_binary(text) do
     String.trim(text) != ""

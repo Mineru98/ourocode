@@ -2,6 +2,7 @@ defmodule Ourocode.Terminal.RendererOverlay do
   @moduledoc false
 
   alias Ourocode.Model
+  alias Ourocode.Model.Profile
 
   alias Ourocode.Terminal.{
     CommandPaletteDetail,
@@ -35,10 +36,7 @@ defmodule Ourocode.Terminal.RendererOverlay do
   end
 
   def draw_model(screen, width, anchor_bottom, %{models: models, index: index}) do
-    draw_overlay(screen, width, anchor_bottom, "model", models, index, fn m ->
-      status = if Model.ready?(m), do: "ready", else: "sign in required"
-      "#{String.pad_trailing(m.label, 20)} #{status}"
-    end)
+    draw_model_overlay(screen, width, anchor_bottom, models, index)
   end
 
   def draw_ooo_suggestions(screen, width, anchor_bottom, suggestions, index) do
@@ -173,6 +171,117 @@ defmodule Ourocode.Terminal.RendererOverlay do
         Screen.put_text(acc, @left + 1, list_y + row, pad(line, inner), style)
     end)
   end
+
+  defp draw_model_overlay(screen, width, anchor_bottom, models, index) do
+    box_w = width - 2 * @left
+    inner = box_w - 2
+    detail_rows = model_profile_rows(models, inner)
+    gap_rows = 1
+    list_rows = max(min(@overlay_rows, anchor_bottom - length(detail_rows) - gap_rows - 1), 1)
+    {_offset, windowed} = OverlayWindow.visible(models, index, list_rows)
+    box_h = length(detail_rows) + gap_rows + list_rows + 2
+    y = max(anchor_bottom - box_h + 1, 0)
+
+    screen = draw_panel(screen, y, box_w, box_h, model_title(inner))
+
+    screen =
+      detail_rows
+      |> Enum.with_index()
+      |> Enum.reduce(screen, fn {row, offset}, acc ->
+        style = if offset == 0, do: :p_accent, else: :p_dim
+        Screen.put_text(acc, @left + 1, y + 1 + offset, pad(row, inner), style)
+      end)
+
+    list_y = y + 1 + length(detail_rows) + gap_rows
+
+    model_rows =
+      if windowed == [] do
+        [{:empty, nil}]
+      else
+        Enum.map(windowed, fn {item, abs_i} -> {:item, {item, abs_i}} end)
+      end
+
+    model_rows
+    |> pad_rows(list_rows)
+    |> Enum.with_index()
+    |> Enum.reduce(screen, fn
+      {{:empty, _none}, row}, acc ->
+        Screen.put_text(
+          acc,
+          @left + 1,
+          list_y + row,
+          pad("  no selectable backends", inner),
+          :p_muted
+        )
+
+      {{:blank, _none}, row}, acc ->
+        Screen.put_text(acc, @left + 1, list_y + row, pad("", inner), :p_dim)
+
+      {{:item, {model, abs_i}}, row}, acc ->
+        selected? = abs_i == index
+        marker = if selected?, do: "● >", else: "  "
+        line = " #{marker} #{model_row(model, inner)}"
+        style = if selected?, do: :p_accent, else: :p_dim
+        Screen.put_text(acc, @left + 1, list_y + row, pad(line, inner), style)
+    end)
+  end
+
+  defp model_title(inner) when inner < 58, do: "models + roles"
+  defp model_title(_inner), do: "models · Ouroboros role profiles"
+
+  defp model_profile_rows(models, inner) do
+    rows =
+      if inner < 58 do
+        [
+          "Ouroboros picks by role",
+          "Socratic   " <> profile_model(:interview, models),
+          "Execute    " <> profile_model(:evolve, models),
+          "Verify     " <> profile_model(:qa, models)
+        ]
+      else
+        [
+          "Ouroboros profiles choose the runtime for each workflow stage",
+          "Socratic Interview  " <> profile_model(:interview, models),
+          "Execute/Evolve  " <> profile_model(:evolve, models),
+          "Verify/QA       " <> profile_model(:qa, models)
+        ]
+      end
+
+    Enum.map(rows, &Screen.truncate(&1, inner))
+  end
+
+  defp profile_model(route, models) do
+    route
+    |> Profile.for_route(models: models)
+    |> Map.fetch!(:model_label)
+    |> Profile.short_model_label()
+  end
+
+  defp model_row(%Model{} = model, inner) do
+    status = if Model.ready?(model), do: "ready", else: auth_status(model)
+    role_hint = model_role_hint(model)
+
+    label_width = if inner < 58, do: 16, else: 24
+    status_width = if inner < 58, do: 10, else: 14
+
+    [
+      String.pad_trailing(Profile.short_model_label(model.label), label_width),
+      String.pad_trailing(status, status_width),
+      role_hint
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" ")
+  end
+
+  defp auth_status(%Model{status: {:needs_auth, hint}}), do: "sign in " <> hint
+  defp auth_status(_model), do: "unavailable"
+
+  defp model_role_hint(%Model{id: :claude_api}), do: "socratic/verify"
+
+  defp model_role_hint(%Model{id: :codex}), do: "execute/evolve"
+
+  defp model_role_hint(%Model{id: :gemini}), do: "fallback"
+  defp model_role_hint(_model), do: ""
 
   defp workflow_title(inner) when inner < 58, do: "ooo workflows"
   defp workflow_title(_inner), do: "ooo structured work"

@@ -35,6 +35,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiter do
         status: "waiting for your answer"
       })
       |> Map.delete(:answered)
+      |> Map.delete(:waiting_started_monotonic_ms)
 
     state
     |> Map.put(:interview, iv)

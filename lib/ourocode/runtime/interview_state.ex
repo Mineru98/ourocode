@@ -41,6 +41,32 @@ defmodule Ourocode.Runtime.InterviewState do
     InterviewDialogue.add_dialogue(state, role, text)
   end
 
+  @spec merge_status(map(), term(), String.t(), map(), term()) :: map()
+  def merge_status(state, parent_call_id, status, meta, session_id) when is_map(state) do
+    prev = Map.get(state, :interview) || %{}
+
+    if active_question_waiting?(prev, parent_call_id) do
+      state
+    else
+      interview =
+        prev
+        |> Map.merge(%{
+          question: "",
+          parent_call_id: parent_call_id || prev[:parent_call_id],
+          waiting: true,
+          status: status,
+          waiting_started_monotonic_ms: System.monotonic_time(:millisecond)
+        })
+        |> maybe_put(:session_id, session_id)
+        |> merge_meta(meta)
+        |> reset_waiting_question_state()
+
+      state
+      |> Map.put(:interview, interview)
+      |> Map.put(:paused, false)
+    end
+  end
+
   @spec prepend_dialogue_turn([map()], atom(), String.t()) :: [map()]
   def prepend_dialogue_turn(log, role, text) do
     InterviewDialogue.prepend_turn(log, role, text)
@@ -57,6 +83,15 @@ defmodule Ourocode.Runtime.InterviewState do
     do: InterviewDialogue.ensure_answer_prefix(payload, source)
 
   @spec detect(map(), map()) :: map()
+  def detect(state, %{type: type}) when type in [:parent_call_started, :parent_call_result] do
+    state
+  end
+
+  def detect(state, %{event_type: event_type})
+      when event_type in [:parent_call_started, :parent_call_result] do
+    state
+  end
+
   def detect(state, event) when is_map(state) and is_map(event) do
     text = InterviewResponse.interview_text(event)
     meta = InterviewResponse.interview_meta(event)
@@ -111,7 +146,7 @@ defmodule Ourocode.Runtime.InterviewState do
       prev ->
         Map.put(state, :interview, merge_meta(prev, meta))
 
-      interview_meta?(meta) and String.trim(text) != "" ->
+      interview_question_candidate?(text, meta) ->
         interview =
           %{}
           |> Map.merge(%{
@@ -132,11 +167,30 @@ defmodule Ourocode.Runtime.InterviewState do
     end
   end
 
-  defp interview_meta?(meta) when is_map(meta) do
+  defp interview_question_meta?(meta) when is_map(meta) do
     Enum.any?(
-      ["internal_reasoning", "interview_reasoning", "ambiguity_score", "milestone", "seed_ready"],
+      ["ambiguity_score", "milestone", "seed_ready"],
       &(not is_nil(InterviewResponse.meta_value(meta, &1)))
     )
+  end
+
+  defp interview_question_candidate?(text, meta) when is_binary(text) and is_map(meta) do
+    String.trim(text) != "" and
+      (interview_question_meta?(meta) or
+         (reasoning_meta?(meta) and question_text?(text)))
+  end
+
+  defp interview_question_candidate?(_text, _meta), do: false
+
+  defp reasoning_meta?(meta) when is_map(meta) do
+    not is_nil(InterviewResponse.meta_value(meta, "internal_reasoning")) or
+      not is_nil(InterviewResponse.meta_value(meta, "interview_reasoning"))
+  end
+
+  defp question_text?(text) do
+    text
+    |> InterviewResponse.question_from()
+    |> String.contains?("?")
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -147,5 +201,22 @@ defmodule Ourocode.Runtime.InterviewState do
     interview
     |> Map.delete(:answered)
     |> Map.delete(:question_options)
+    |> Map.delete(:waiting_started_monotonic_ms)
+  end
+
+  defp reset_waiting_question_state(interview) do
+    interview
+    |> Map.delete(:answered)
+    |> Map.delete(:question_options)
+  end
+
+  defp active_question_waiting?(prev, parent_call_id) do
+    same_parent? =
+      is_nil(parent_call_id) or is_nil(Map.get(prev, :parent_call_id)) or
+        Map.get(prev, :parent_call_id) == parent_call_id
+
+    same_parent? and String.trim(to_string(Map.get(prev, :question, ""))) != "" and
+      Map.get(prev, :waiting) == false and
+      String.downcase(to_string(Map.get(prev, :status, ""))) == "waiting for your answer"
   end
 end

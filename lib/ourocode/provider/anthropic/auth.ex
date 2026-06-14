@@ -1,12 +1,11 @@
 defmodule Ourocode.Provider.Anthropic.Auth do
   @moduledoc """
-  Anthropic (Claude Pro/Max) OAuth: PKCE authorization-code flow with a
-  manual code-paste fallback, so no local web server is needed.
+  Anthropic (Claude Pro/Max) OAuth: PKCE authorization-code flow matching
+  Claude Code's browser + manual code-paste flow.
 
   This connects the main session to a user's Claude subscription through the
-  same OAuth client the Claude CLI uses. The browser step returns an
-  authorization code the user pastes back; tokens are minted and refreshed
-  against `api.anthropic.com/v1/oauth/token`.
+  same OAuth client the Claude CLI uses. Tokens are minted and refreshed
+  against `platform.claude.com/v1/oauth/token`.
   """
 
   alias Ourocode.Provider.Anthropic.HTTP
@@ -15,12 +14,10 @@ defmodule Ourocode.Provider.Anthropic.Auth do
 
   # The OAuth client id the Claude CLI ships, base64 as in upstream clients.
   @client_id Base.decode64!("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl")
-  @authorize_url "https://claude.ai/oauth/authorize"
-  @token_url "https://api.anthropic.com/v1/oauth/token"
-  # Manual-paste redirect: the browser lands on a page that shows the code
-  # instead of calling back to a local listener.
-  @redirect_uri "https://console.anthropic.com/oauth/code/callback"
-  @scopes "org:create_api_key user:profile user:inference"
+  @authorize_url "https://claude.com/cai/oauth/authorize"
+  @token_url "https://platform.claude.com/v1/oauth/token"
+  @redirect_uri "https://platform.claude.com/oauth/code/callback"
+  @scopes "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
   @refresh_skew_ms 5 * 60_000
 
   @type pkce :: %{verifier: String.t(), challenge: String.t()}
@@ -28,7 +25,7 @@ defmodule Ourocode.Provider.Anthropic.Auth do
   @doc "Generates a PKCE verifier/challenge pair (S256)."
   @spec generate_pkce() :: pkce()
   def generate_pkce do
-    verifier = :crypto.strong_rand_bytes(96) |> Base.url_encode64(padding: false)
+    verifier = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
     challenge = :crypto.hash(:sha256, verifier) |> Base.url_encode64(padding: false)
     %{verifier: verifier, challenge: challenge}
   end
@@ -39,17 +36,24 @@ defmodule Ourocode.Provider.Anthropic.Auth do
   """
   @spec authorize_url(String.t(), String.t()) :: String.t()
   def authorize_url(challenge, state) when is_binary(challenge) and is_binary(state) do
+    authorize_url(challenge, state, @redirect_uri)
+  end
+
+  @doc false
+  @spec authorize_url(String.t(), String.t(), String.t()) :: String.t()
+  def authorize_url(challenge, state, redirect_uri)
+      when is_binary(challenge) and is_binary(state) and is_binary(redirect_uri) do
     query =
-      URI.encode_query(%{
-        "code" => "true",
-        "client_id" => @client_id,
-        "response_type" => "code",
-        "redirect_uri" => @redirect_uri,
-        "scope" => @scopes,
-        "code_challenge" => challenge,
-        "code_challenge_method" => "S256",
-        "state" => state
-      })
+      URI.encode_query([
+        {"code", "true"},
+        {"client_id", @client_id},
+        {"response_type", "code"},
+        {"redirect_uri", redirect_uri},
+        {"scope", @scopes},
+        {"code_challenge", challenge},
+        {"code_challenge_method", "S256"},
+        {"state", state}
+      ])
 
     @authorize_url <> "?" <> query
   end
@@ -60,6 +64,14 @@ defmodule Ourocode.Provider.Anthropic.Auth do
   """
   @spec exchange(String.t(), String.t(), String.t()) :: {:ok, Token.tokens()} | {:error, term()}
   def exchange(pasted_code, verifier, state) do
+    exchange(pasted_code, verifier, state, @redirect_uri)
+  end
+
+  @doc false
+  @spec exchange(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Token.tokens()} | {:error, term()}
+  def exchange(pasted_code, verifier, state, redirect_uri)
+      when is_binary(redirect_uri) do
     {code, code_state} = split_code(pasted_code, state)
 
     body = %{
@@ -67,7 +79,7 @@ defmodule Ourocode.Provider.Anthropic.Auth do
       "client_id" => @client_id,
       "code" => code,
       "state" => code_state,
-      "redirect_uri" => @redirect_uri,
+      "redirect_uri" => redirect_uri,
       "code_verifier" => verifier
     }
 

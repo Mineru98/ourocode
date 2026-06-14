@@ -38,7 +38,14 @@ defmodule Ourocode.Terminal.HudModelTest do
     workflow = %{
       latest_run_id: "run-1",
       runs: %{
-        "run-1" => %{adapter_route: :run, status: :dispatching}
+        "run-1" => %{
+          adapter_route: :run,
+          status: :dispatching,
+          model_profile: %{
+            label: "execute/codex",
+            model_label: "codex  (ChatGPT)"
+          }
+        }
       }
     }
 
@@ -67,6 +74,7 @@ defmodule Ourocode.Terminal.HudModelTest do
     assert hud.placeholder =~ "Up/Dn, j/k"
     assert hud.center_status =~ "run"
     assert hud.center_status =~ "exec"
+    assert hud.center_status =~ "Execute · Codex Runtime"
     assert hud.center_status =~ "evidence recorded"
     assert hud.center_status =~ "mcp"
     assert hud.center_status =~ "session-a active"
@@ -87,7 +95,7 @@ defmodule Ourocode.Terminal.HudModelTest do
         70
       )
 
-    assert hud.center_status =~ "run interview*"
+    assert hud.center_status =~ "run socratic*"
     assert hud.center_status =~ "plan"
     assert hud.center_status =~ "exec*"
     assert hud.center_status =~ "verify*"

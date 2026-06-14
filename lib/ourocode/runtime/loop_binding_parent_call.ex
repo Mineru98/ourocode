@@ -17,41 +17,66 @@ defmodule Ourocode.Runtime.LoopBindingParentCall do
       Keyword.get(opts, :execute_parent_call, &StreamableHTTP.execute_parent_call/2)
 
     flush = Keyword.get(opts, :flush, &WorkflowRelay.flush/1)
+    timeout_ms = Keyword.get(opts, :timeout, 30_000)
 
     fn payload ->
       relay = self()
+      call_ref = make_ref()
 
-      spawn(fn ->
-        result =
-          execute_parent_call.(
-            [
-              url: mcp_url,
-              parent_call_id: parent_call_id,
-              runtime_source: "ouroboros",
-              subscriber: relay,
-              mcp_session: true,
-              timeout: 30_000
-            ],
-            payload
-          )
+      worker =
+        spawn(fn ->
+          result =
+            execute_parent_call.(
+              [
+                url: mcp_url,
+                parent_call_id: parent_call_id,
+                runtime_source: "ouroboros",
+                subscriber: relay,
+                mcp_session: true,
+                timeout: timeout_ms
+              ],
+              payload
+            )
 
-        send(relay, {:relay_worker_done, result})
-      end)
+          send(relay, {:relay_worker_done, call_ref, result})
+        end)
 
-      drain_until_done(agent, runtime, flush)
+      monitor_ref = Process.monitor(worker)
+
+      drain_until_done(agent, runtime, flush, worker, monitor_ref, call_ref, timeout_ms)
     end
   end
 
-  defp drain_until_done(agent, runtime, flush) do
+  defp drain_until_done(agent, runtime, flush, worker, monitor_ref, call_ref, timeout_ms) do
     receive do
       {:ourocode_event, event} ->
         LoopBindingEventFlow.enqueue(agent, event)
         McpCapabilities.maybe_ingest(runtime, event)
-        drain_until_done(agent, runtime, flush)
+        drain_until_done(agent, runtime, flush, worker, monitor_ref, call_ref, timeout_ms)
 
-      {:relay_worker_done, result} ->
+      {:relay_worker_done, ^call_ref, result} ->
+        Process.demonitor(monitor_ref, [:flush])
         flush.(agent)
         result
+
+      {:DOWN, ^monitor_ref, :process, ^worker, reason} ->
+        flush.(agent)
+        {:error, {:parent_call_worker_exit, reason}}
+    after
+      timeout_ms ->
+        Process.demonitor(monitor_ref, [:flush])
+        Process.exit(worker, :kill)
+        drop_late_worker_done(call_ref)
+        flush.(agent)
+        {:error, {:parent_call_timeout, timeout_ms}}
+    end
+  end
+
+  defp drop_late_worker_done(call_ref) do
+    receive do
+      {:relay_worker_done, ^call_ref, _result} -> :ok
+    after
+      0 -> :ok
     end
   end
 end

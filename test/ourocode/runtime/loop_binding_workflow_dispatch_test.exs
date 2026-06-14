@@ -29,14 +29,35 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatchTest do
            })
   end
 
-  test "interview_task? detects interview adapter route only" do
+  test "interview_task? detects interview-shaped adapter routes only" do
     assert LoopBindingWorkflowDispatch.interview_task?(%{
              routing_decision: %{adapter_route: :interview}
+           })
+
+    assert LoopBindingWorkflowDispatch.interview_task?(%{
+             routing_decision: %{adapter_route: :pm}
+           })
+
+    assert LoopBindingWorkflowDispatch.interview_task?(%{
+             routing_decision: %{adapter_route: :workflow}
            })
 
     refute LoopBindingWorkflowDispatch.interview_task?(%{
              routing_decision: %{adapter_route: :run}
            })
+  end
+
+  test "adapter registry maps pm and workflow routes onto the interview invocation" do
+    registry = LoopBindingWorkflowDispatch.adapter_registry()
+
+    assert registry[{:ouroboros_workflow, :pm}] == Ourocode.Runtime.InterviewWorkflowInvocation
+    assert registry[{:ouroboros, :pm}] == Ourocode.Runtime.InterviewWorkflowInvocation
+    assert registry[:ouroboros_pm] == Ourocode.Runtime.InterviewWorkflowInvocation
+
+    assert registry[{:ouroboros_workflow, :workflow}] ==
+             Ourocode.Runtime.InterviewWorkflowInvocation
+
+    assert registry[{:ouroboros, :workflow}] == Ourocode.Runtime.InterviewWorkflowInvocation
   end
 
   test "direct_task? detects non-MCP control routes" do
@@ -70,6 +91,39 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatchTest do
     assert LoopBindingWorkflowDispatch.input_event_model(%{active_model: model}) == model
     assert LoopBindingWorkflowDispatch.input_event_model(%{"active_model" => model}) == model
     assert LoopBindingWorkflowDispatch.input_event_model(%{}) == nil
+  end
+
+  test "workflow_profile chooses an Ouroboros stage model instead of blindly reusing the active model" do
+    active = model(:codex, "codex")
+
+    task_request = %{
+      routing_decision: %{
+        execution_route: :ouroboros_workflow,
+        adapter_route: :interview
+      }
+    }
+
+    profile = LoopBindingWorkflowDispatch.workflow_profile(task_request, %{active_model: active})
+
+    assert profile.label == "interview/precision"
+    assert profile.model_id in [:claude_api, :codex, :gemini]
+  end
+
+  test "workflow_model keeps direct/user-level routes on the active model" do
+    active = model(:codex, "codex")
+
+    task_request = %{
+      routing_decision: %{
+        execution_route: :ouroboros_workflow,
+        adapter_route: :cancel
+      }
+    }
+
+    assert LoopBindingWorkflowDispatch.workflow_profile(task_request, %{active_model: active}) ==
+             nil
+
+    assert LoopBindingWorkflowDispatch.workflow_model(task_request, %{active_model: active}) ==
+             active
   end
 
   test "workflow_context includes only available carry-forward values" do
@@ -182,5 +236,9 @@ defmodule Ourocode.Runtime.LoopBindingWorkflowDispatchTest do
       })
 
     capability
+  end
+
+  defp model(id, label) do
+    %Model{id: id, label: label, kind: :cli, status: :ready, run: fn _, _, _ -> :ok end}
   end
 end

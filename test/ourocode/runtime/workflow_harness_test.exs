@@ -9,7 +9,11 @@ defmodule Ourocode.Runtime.WorkflowHarnessTest do
       routing_decision: %{execution_route: :ouroboros_workflow, adapter_route: :interview}
     }
 
-    started = WorkflowHarness.run_started_event("parent-task-1", task, occurred_at_ms: 10)
+    started =
+      WorkflowHarness.run_started_event("parent-task-1", task,
+        occurred_at_ms: 10,
+        model_profile: %{label: "interview/precision", model_label: "claude"}
+      )
 
     state = WorkflowHarness.apply_event(%{workflow: %{}}, started)
 
@@ -17,7 +21,8 @@ defmodule Ourocode.Runtime.WorkflowHarnessTest do
              status: :dispatching,
              parent_call_id: "parent-task-1",
              route: :ouroboros_workflow,
-             adapter_route: :interview
+             adapter_route: :interview,
+             model_profile: %{label: "interview/precision", model_label: "claude"}
            } = state.workflow.runs["workflow-run:parent-task-1"]
 
     failed = WorkflowHarness.failure_event("parent-task-1", :boom, occurred_at_ms: 20)

@@ -1,14 +1,13 @@
 defmodule Ourocode.Model.Cli do
   @moduledoc """
-  Streams a turn through a locally-installed agent CLI.
+  Streams a turn through a locally-installed CLI backend.
 
-  These backends need no login: if the developer already uses `claude`,
-  `codex`, or `gemini` from their terminal, that CLI carries its own
-  session. We just run it non-interactively for one prompt and stream its
-  stdout through the same render path as everything else.
+  Agent CLIs such as Claude and Codex are deliberately excluded: spawning
+  them per turn is too slow for ourocode's interactive path. Direct API
+  transports own those providers.
   """
 
-  @bins %{claude: "claude", codex_cli: "codex", gemini: "gemini"}
+  @bins %{gemini: "gemini"}
 
   # Replay-safe retry only: a CLI that exits non-zero before emitting any
   # chunk can be relaunched without the user seeing duplicate output. Once a
@@ -22,27 +21,10 @@ defmodule Ourocode.Model.Cli do
   def specs, do: @bins
 
   @doc """
-  Non-interactive argv for a one-shot prompt, per CLI. `system` is the
-  ourocode identity prompt; claude takes it via --append-system-prompt so the
-  CLI answers as ourocode. codex/gemini have no equivalent flag and prefer
-  the direct-API path for identity, so they ignore it here.
+  Non-interactive argv for a one-shot prompt, per CLI.
   """
   @spec args(atom(), String.t(), String.t() | nil) :: [String.t()]
   def args(id, prompt, system \\ nil)
-
-  def args(:claude, prompt, system) do
-    append =
-      case system do
-        text when is_binary(text) and text != "" -> ["--append-system-prompt", text]
-        _none -> []
-      end
-
-    ["-p", "--verbose", "--output-format", "stream-json", "--include-partial-messages"] ++
-      append ++ [prompt]
-  end
-
-  def args(:codex_cli, prompt, _system),
-    do: ["exec", "--json", "--color", "never", "--ephemeral", "--skip-git-repo-check", prompt]
 
   def args(:gemini, prompt, _system), do: ["-p", prompt]
 
@@ -73,8 +55,7 @@ defmodule Ourocode.Model.Cli do
 
       path ->
         delay = Keyword.get(opts, :retry_base_delay_ms, @retry_base_delay_ms)
-        system = Keyword.get(opts, :system, Ourocode.Prompt.system())
-        run_with_retry(id, path, args(id, prompt, system), on_chunk, delay, 1)
+        run_with_retry(id, path, args(id, prompt, nil), on_chunk, delay, 1)
     end
   end
 
@@ -102,10 +83,8 @@ defmodule Ourocode.Model.Cli do
 
   defp run(id, path, args, on_chunk) do
     # Spawn through `sh -c 'exec "$0" "$@" </dev/null'` so the CLI's stdin is
-    # /dev/null, not the BEAM port pipe. Otherwise `claude -p` / `codex exec`
-    # block waiting for piped stdin (codex hangs on "Reading additional
-    # input from stdin..."). Args are passed positionally, so the prompt
-    # needs no shell escaping.
+    # /dev/null, not the BEAM port pipe. Args are passed positionally, so the
+    # prompt needs no shell escaping.
     shell = System.find_executable("sh") || "/bin/sh"
 
     port =
@@ -139,54 +118,10 @@ defmodule Ourocode.Model.Cli do
     end
   end
 
-  defp handle_output(:codex_cli, data, acc, on_chunk) do
-    {lines, partial} = complete_lines(data)
-
-    acc =
-      Enum.reduce(lines, acc, fn line, acc ->
-        case codex_agent_text(line) do
-          nil ->
-            acc
-
-          text ->
-            on_chunk.(text)
-            [text | acc]
-        end
-      end)
-
-    {acc, partial}
-  end
-
-  defp handle_output(:claude, data, acc, on_chunk) do
-    {lines, partial} = complete_lines(data)
-
-    acc =
-      Enum.reduce(lines, acc, fn line, acc ->
-        case claude_stream_text(line) do
-          nil ->
-            acc
-
-          {:delta, text} ->
-            on_chunk.(text)
-            [text | acc]
-
-          {:result, text} ->
-            [{:result, text} | acc]
-        end
-      end)
-
-    {acc, partial}
-  end
-
   defp handle_output(_id, data, acc, on_chunk) do
     on_chunk.(data)
     {[data | acc], ""}
   end
-
-  defp flush_output(id, "", acc, _on_chunk) when id in [:codex_cli, :claude], do: {acc, ""}
-
-  defp flush_output(id, partial, acc, on_chunk) when id in [:codex_cli, :claude],
-    do: handle_output(id, partial <> "\n", acc, on_chunk)
 
   defp flush_output(_id, partial, acc, on_chunk) do
     if partial != "" do
@@ -197,65 +132,7 @@ defmodule Ourocode.Model.Cli do
     end
   end
 
-  defp final_text(:codex_cli, [latest | _rest]), do: latest
-
-  # Streamed text deltas are the answer; the final `result` event is a
-  # fallback for runs that produced no partial chunks.
-  defp final_text(:claude, acc) do
-    deltas = acc |> Enum.reject(&match?({:result, _}, &1)) |> Enum.reverse()
-
-    case IO.iodata_to_binary(deltas) do
-      "" -> Enum.find_value(acc, "", &result_text/1)
-      text -> text
-    end
-  end
-
   defp final_text(_id, acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
-
-  defp result_text({:result, text}), do: text
-  defp result_text(_entry), do: nil
-
-  defp claude_stream_text(line) do
-    case Ourocode.Json.decode(line) do
-      {:ok,
-       %{
-         "type" => "stream_event",
-         "event" => %{
-           "type" => "content_block_delta",
-           "delta" => %{"type" => "text_delta", "text" => text}
-         }
-       }}
-      when is_binary(text) ->
-        {:delta, text}
-
-      {:ok, %{"type" => "result", "result" => text}} when is_binary(text) ->
-        {:result, text}
-
-      _other ->
-        nil
-    end
-  end
-
-  defp complete_lines(data) do
-    parts = String.split(data, "\n")
-
-    case parts do
-      [partial] ->
-        {[], partial}
-
-      _ ->
-        {Enum.drop(parts, -1), List.last(parts)}
-    end
-  end
-
-  defp codex_agent_text(line) do
-    with {:ok, %{"type" => "item.completed", "item" => item}} <- Ourocode.Json.decode(line),
-         %{"type" => "agent_message", "text" => text} when is_binary(text) <- item do
-      text
-    else
-      _other -> nil
-    end
-  end
 
   defp safe_close(port) do
     if is_port(port) and Port.info(port) != nil, do: Port.close(port)

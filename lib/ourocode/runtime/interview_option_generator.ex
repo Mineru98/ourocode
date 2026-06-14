@@ -2,10 +2,9 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
   @moduledoc """
   Uses the active main-session model to generate suggested interview answers.
 
-  The deterministic `InterviewOptionSynthesizer` remains a final fallback. This
-  module is the preferred path when the router or MCP server did not provide
-  `question_options`: ask the main session to produce a small answer sheet for
-  the user instead of guessing from string parsing.
+  When the MCP server did not provide `question_options`, ask the main session
+  to produce ACP-compatible choices for the exact MCP interview question.
+  Callers should surface no-choice/free-text state if generation fails.
   """
 
   alias Ourocode.Model
@@ -79,17 +78,19 @@ defmodule Ourocode.Runtime.InterviewOptionGenerator do
     """
     You are the main session helping an Ouroboros interview UI.
 
-    Create 2-4 suggested answers for the user to choose from for this interview
-    question. Do not answer the question yourself. Offer plausible user choices.
+    Create 2-4 suggested answers for an ACP request_user_input / wonderTool
+    decision. The choices must answer the exact MCP interview question below.
+    Do not answer the question yourself. Offer plausible user choices.
 
     Rules:
     - Output only option lines.
     - Each line must be exactly: - <short label> | <one-line description>
     - Labels must be concrete choices, not generic placeholders.
+    - Every label must be a plausible direct answer to the MCP question.
     - Match the user's language.
     - Do not include prose, numbering, markdown headings, or JSON.
 
-    Interview question:
+    MCP interview question:
     #{question}
     """
   end

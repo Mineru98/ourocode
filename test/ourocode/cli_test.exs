@@ -1273,9 +1273,9 @@ defmodule Ourocode.CLITest do
     assert evidence["result"] =~ "round 1:"
     assert evidence["result"] =~ ">> [1]"
     assert evidence["result"] =~ "round 2:"
-    assert evidence["result"] =~ "First guided run succeeds"
-    assert evidence["result"] =~ "Plugin tools verify cleanly"
-    assert evidence["result"] =~ "Next action is obvious"
+    assert evidence["result"] =~ "First PM brief is actionable"
+    assert evidence["result"] =~ "Interview can continue"
+    assert evidence["result"] =~ "Seed inputs are ready"
 
     refute evidence["result"] =~
              "round 2:\nWhat completion signal proves the interview produced the right onboarding result?\n\npreview scope"
@@ -1307,9 +1307,9 @@ defmodule Ourocode.CLITest do
       Enum.find(evidence["events"], &(&1["type"] == "question" and &1["round"] == 2))
 
     assert Enum.map(second_question_event["options"], & &1["label"]) == [
-             "First guided run succeeds",
-             "Plugin tools verify cleanly",
-             "Next action is obvious"
+             "First PM brief is actionable",
+             "Interview can continue",
+             "Seed inputs are ready"
            ]
 
     refute evidence["result"] =~ "I can"

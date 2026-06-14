@@ -20,7 +20,9 @@ defmodule Ourocode.Runtime.McpDaemon.CommandTest do
                "--host",
                "127.0.0.1",
                "--port",
-               "4321"
+               "4321",
+               "--runtime",
+               "claude"
              ]
   end
 
@@ -37,7 +39,9 @@ defmodule Ourocode.Runtime.McpDaemon.CommandTest do
              "--host",
              "0.0.0.0",
              "--port",
-             "4000"
+             "4000",
+             "--runtime",
+             "claude"
            ]
   end
 
@@ -48,17 +52,20 @@ defmodule Ourocode.Runtime.McpDaemon.CommandTest do
     assert Enum.slice(args, -4, 4) == ["--runtime", "codex", "--llm-backend", "codex"]
 
     assert {_exe, args} = Command.build("127.0.0.1", 4001, "opencode", finder)
-    assert Enum.slice(args, -4, 4) == ["--runtime", "opencode", "--llm-backend", "opencode"]
+    assert Enum.slice(args, -4, 4) == ["--runtime", "claude", "--llm-backend", "opencode"]
 
     assert {_exe, args} = Command.build("127.0.0.1", 4001, "claude_code", finder)
-    assert Enum.slice(args, -2, 2) == ["--llm-backend", "claude_code"]
+    assert Enum.slice(args, -4, 4) == ["--runtime", "claude", "--llm-backend", "claude_code"]
+
+    assert {_exe, args} = Command.build("127.0.0.1", 4001, "gemini", finder)
+    assert Enum.slice(args, -4, 4) == ["--runtime", "claude", "--llm-backend", "gemini"]
   end
 
   test "adds generic backend args and reports unavailable commands" do
     assert {_exe, args} =
              Command.build("127.0.0.1", 4002, :custom, finder(%{"uvx" => "/bin/uvx"}))
 
-    assert Enum.slice(args, -2, 2) == ["--llm-backend", "custom"]
+    assert Enum.slice(args, -4, 4) == ["--runtime", "claude", "--llm-backend", "custom"]
 
     assert Command.build("127.0.0.1", 4002, nil, finder(%{})) == :none
   end

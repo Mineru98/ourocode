@@ -90,7 +90,7 @@ defmodule Ourocode.Terminal.ShellRendererTest do
     assert frame =~ "ooo interview <goal>"
     assert frame =~ "ooo auto <goal>"
     assert frame =~ "Ready:"
-    assert frame =~ "model: codex cli"
+    assert frame =~ "model: codex  (ChatGPT)"
     assert frame =~ "safety preview: /preflight <command>"
     assert frame =~ "active work: /sessions"
     assert frame =~ "Automation:"

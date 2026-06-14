@@ -5,6 +5,7 @@ defmodule Ourocode.Runtime.McpDaemonBinding do
 
   alias Ourocode.Model
   alias Ourocode.Model.Catalog
+  alias Ourocode.Model.Profile
   alias Ourocode.Runtime.McpDaemon
   alias Ourocode.Runtime.OuroborosLogTailer
 
@@ -62,8 +63,7 @@ defmodule Ourocode.Runtime.McpDaemonBinding do
   end
 
   @spec llm_backend(Model.t() | term()) :: String.t() | nil
-  def llm_backend(%Model{id: id}) when id in [:codex, :codex_cli], do: "codex"
-  def llm_backend(%Model{id: :claude}), do: "claude_code"
+  def llm_backend(%Model{} = model), do: Profile.llm_backend(model)
   def llm_backend(_model), do: System.get_env("OUROCODE_MCP_LLM_BACKEND")
 
   defp default_url do

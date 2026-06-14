@@ -7,12 +7,11 @@ defmodule Ourocode.Model.Catalog do
     * `:codex_signed_in` boolean (default: `Provider.Codex.signed_in?/0`)
     * `:which`           `name -> path | nil` (default: `System.find_executable/1`)
 
-  Codex is always listed (selecting it triggers OAuth when not yet signed
-  in). CLI backends are listed only when their binary is installed.
+  Codex and Claude are listed through direct transports. Slow agent CLI
+  subprocess backends are intentionally not used for those providers.
   """
 
   alias Ourocode.Model
-  alias Ourocode.Model.Cli
   alias Ourocode.Model.Conversation
   alias Ourocode.Provider.Anthropic
   alias Ourocode.Provider.Anthropic.Client, as: AnthropicClient
@@ -22,11 +21,7 @@ defmodule Ourocode.Model.Catalog do
 
   @ouroboros_config_path Path.expand("~/.ouroboros/config.yaml")
 
-  @cli_labels %{
-    claude: "claude cli",
-    codex_cli: "codex cli",
-    gemini: "gemini cli"
-  }
+  @cli_labels %{gemini: "gemini cli"}
 
   @doc "All backends with detected status: direct-API providers, then CLIs."
   @spec list(keyword()) :: [Model.t()]
@@ -44,7 +39,8 @@ defmodule Ourocode.Model.Catalog do
   When Ouroboros has a configured runtime backend, ourocode follows that
   backend first so the main session and MCP interview runtime do not silently
   split across providers. If no shared preference is available, fall back to
-  Codex when ready, then any ready CLI, then Codex for `/login`.
+  Codex when ready, then any remaining ready non-agent CLI, then Codex for
+  `/login`.
   """
   @spec default(keyword()) :: Model.t()
   def default(opts \\ []) do
@@ -112,11 +108,11 @@ defmodule Ourocode.Model.Catalog do
   end
 
   defp cli_models(which) do
-    Cli.specs()
+    Ourocode.Model.Cli.specs()
     |> Map.keys()
     |> Enum.sort()
     |> Enum.map(fn id ->
-      installed? = Cli.resolve(id, which) != nil
+      installed? = Ourocode.Model.Cli.resolve(id, which) != nil
 
       %Model{
         id: id,
@@ -132,7 +128,7 @@ defmodule Ourocode.Model.Catalog do
               _none -> prompt
             end
 
-          Cli.stream(id, prompt, Keyword.put(opts, :which, which), on_chunk)
+          Ourocode.Model.Cli.stream(id, prompt, Keyword.put(opts, :which, which), on_chunk)
         end
       }
     end)
@@ -265,10 +261,9 @@ defmodule Ourocode.Model.Catalog do
 
   defp normalize_backend(_value), do: nil
 
-  defp backend_model_ids("codex"), do: [:codex, :codex_cli]
-  defp backend_model_ids("codex_cli"), do: [:codex, :codex_cli]
-  defp backend_model_ids("claude"), do: [:claude_api, :claude]
-  defp backend_model_ids("claude_cli"), do: [:claude_api, :claude]
+  defp backend_model_ids("codex"), do: [:codex]
+  defp backend_model_ids("claude"), do: [:claude_api]
+  defp backend_model_ids("claude_api"), do: [:claude_api]
   defp backend_model_ids("gemini"), do: [:gemini]
   defp backend_model_ids("gemini_cli"), do: [:gemini]
   defp backend_model_ids(_backend), do: []

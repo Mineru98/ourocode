@@ -8,14 +8,12 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     InterviewProgress,
     InterviewAnswerRefiner,
     InterviewOptionGenerator,
-    LoopBindingQuestionRouter,
     InterviewResponse,
     InterviewState,
     InterviewWonderPrompt,
     InterviewWorkflowInvocation,
     LoopBindingInterviewAwaiter,
     LoopBindingInterviewRound,
-    LoopBindingRouterDecision,
     LoopBindingInterviewSessionConfig,
     LoopBindingInterviewText
   }
@@ -59,11 +57,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   end
 
   defp interview_round(agent, st) do
-    if optimistic_first_round?(st) do
-      optimistic_interview_round(agent, st)
-    else
-      regular_interview_round(agent, st)
-    end
+    regular_interview_round(agent, st)
   end
 
   defp regular_interview_round(agent, st) do
@@ -89,6 +83,10 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       {:server_error, message, session_id} ->
         enqueue_server_error(agent, st.parent_call_id, message, session_id, st.callbacks)
         :ok
+
+      {:waiting, message, meta, session_id} ->
+        SessionIO.merge_status(agent, st.parent_call_id, message, meta, session_id)
+        maybe_poll_waiting_status(agent, %{st | session_id: session_id})
 
       {:summarize_initial_context, meta, session_id} ->
         answer =
@@ -160,204 +158,6 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     end
   end
 
-  defp optimistic_interview_round(agent, st) do
-    prompt = optimistic_prompt(st.payload)
-    options = generated_question_options(agent, st, prompt, [])
-    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, options)
-
-    SessionIO.push_dialogue(agent, :main, "→ asking you: " <> prompt)
-    SessionIO.enqueue(agent, event, st.callbacks)
-
-    waiter = self()
-
-    Agent.update(agent, fn state ->
-      LoopBindingInterviewAwaiter.wait_state(
-        state,
-        st.parent_call_id,
-        prompt,
-        waiter,
-        event_options(event)
-      )
-    end)
-
-    case take_pending_interview_answer(agent) do
-      nil ->
-        :ok
-
-      text ->
-        send(waiter, {:interview_answer, text})
-    end
-
-    task = Task.async(fn -> st.pcf.(st.payload) end)
-
-    receive do
-      {:interview_answer, text} ->
-        _ = take_pending_interview_answer(agent)
-
-        handle_optimistic_answer(
-          agent,
-          st,
-          task,
-          LoopBindingInterviewAwaiter.classify_answer(text)
-        )
-
-      {ref, result} when ref == task.ref ->
-        Process.demonitor(task.ref, [:flush])
-
-        case take_pending_interview_answer(agent) do
-          nil -> handle_round_action(agent, st, result)
-          text -> relay_optimistic_answer(agent, st, result, text)
-        end
-
-      {:DOWN, ref, :process, _pid, reason} when ref == task.ref ->
-        enqueue_failure(agent, st, {:transport_failed, reason})
-        :ok
-    after
-      120_000 ->
-        Task.shutdown(task, :brutal_kill)
-
-        enqueue_failure(
-          agent,
-          st,
-          :interview_initial_question_timeout
-        )
-
-        :ok
-    end
-  end
-
-  defp handle_optimistic_answer(agent, st, task, {:done, text}) do
-    Task.shutdown(task, :brutal_kill)
-    SessionIO.push_dialogue(agent, :user, text)
-
-    SessionIO.enqueue_complete(agent, st.parent_call_id, :user_done, st.callbacks,
-      run_id: st.workflow_run_id
-    )
-
-    :ok
-  end
-
-  defp handle_optimistic_answer(agent, st, task, {:answer, user_text}) do
-    InterviewProgress.mark_answer_sync(agent, "opening interview session to send answer")
-
-    case await_task_result(task) do
-      {:ok, result} ->
-        unless cancelled?(agent, st.parent_call_id) do
-          relay_optimistic_answer(agent, st, result, user_text)
-        end
-
-      {:error, reason} ->
-        unless cancelled?(agent, st.parent_call_id) do
-          enqueue_failure(agent, st, {:transport_failed, reason})
-        end
-
-        :ok
-    end
-  end
-
-  defp await_task_result(task) do
-    receive do
-      {ref, result} when ref == task.ref ->
-        Process.demonitor(task.ref, [:flush])
-        {:ok, result}
-
-      {:DOWN, ref, :process, _pid, reason} when ref == task.ref ->
-        {:error, reason}
-    after
-      120_000 ->
-        Task.shutdown(task, :brutal_kill)
-        {:error, :interview_initial_question_timeout}
-    end
-  end
-
-  defp take_pending_interview_answer(agent) do
-    Agent.get_and_update(agent, fn state ->
-      {Map.get(state, :pending_interview_answer), Map.put(state, :pending_interview_answer, nil)}
-    end)
-  end
-
-  defp relay_optimistic_answer(agent, st, result, user_text) do
-    if cancelled?(agent, st.parent_call_id) do
-      :ok
-    else
-      relay_live_optimistic_answer(agent, st, result, user_text)
-    end
-  end
-
-  defp relay_live_optimistic_answer(agent, st, result, user_text) do
-    case LoopBindingInterviewRound.action(result, st.session_id) do
-      {:question, _question, _text, _meta, session_id} ->
-        refined_text = refine_user_answer(agent, st, user_text)
-        SessionIO.push_dialogue(agent, :user, refined_text)
-        InterviewProgress.mark_answer_sync(agent, "answer sent - generating next question")
-
-        followup(
-          agent,
-          %{st | session_id: session_id, user_routed?: true},
-          LoopBindingInterviewText.ensure_user_prefix(refined_text),
-          0
-        )
-
-      {:complete, text, meta, session_id} ->
-        SessionIO.merge_interview(agent, st.parent_call_id, text, meta, session_id)
-        SessionIO.push_dialogue(agent, :user, refine_user_answer(agent, st, user_text))
-
-        SessionIO.enqueue_complete(agent, st.parent_call_id, :seed_ready, st.callbacks,
-          run_id: st.workflow_run_id
-        )
-
-        :ok
-
-      {:summarize_initial_context, meta, session_id} ->
-        answer =
-          st.payload
-          |> LoopBindingInterviewText.initial_context_from_payload()
-          |> LoopBindingInterviewText.summarize_initial_context(max_context_chars(meta))
-
-        followup(agent, %{st | session_id: session_id}, "[from-user] " <> answer, st.streak)
-
-      {:server_error, message, session_id} ->
-        enqueue_server_error(agent, st.parent_call_id, message, session_id, st.callbacks)
-        :ok
-
-      :missing_session_id ->
-        enqueue_failure(agent, st, :interview_session_id_missing)
-        :ok
-
-      {:transport_failed, reason} ->
-        enqueue_failure(agent, st, {:transport_failed, reason})
-        :ok
-    end
-  end
-
-  defp optimistic_first_round?(%{round: 1, session_id: nil, payload: payload}) do
-    payload
-    |> LoopBindingInterviewText.initial_context_from_payload()
-    |> String.trim()
-    |> String.downcase()
-    |> String.starts_with?("ooo pm")
-  end
-
-  defp optimistic_first_round?(_st), do: false
-
-  defp optimistic_prompt(payload) do
-    context =
-      payload
-      |> LoopBindingInterviewText.initial_context_from_payload()
-      |> String.trim()
-
-    goal =
-      context
-      |> String.replace(~r/\Aooo\s+pm\s*/iu, "")
-      |> String.trim()
-
-    if goal == "" do
-      "What outcome should this PM interview produce?"
-    else
-      "What outcome should this PM interview produce for #{goal}?"
-    end
-  end
-
   defp enqueue_server_error(agent, parent_call_id, message, session_id, callbacks) do
     status = InterviewEvents.server_error_status(message)
 
@@ -398,7 +198,8 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
         ask_user(agent, st, question, [])
 
       true ->
-        route_question_with_router(agent, st, question)
+        SessionIO.push_router_trace(agent, "router: asking user directly")
+        ask_user(agent, st, question, [])
     end
   end
 
@@ -417,50 +218,6 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   end
 
   defp cancelled?(_agent, _parent_call_id), do: false
-
-  defp route_question_with_router(agent, st, question) do
-    ctx = %{project_dir: st.project_dir, streak: st.streak}
-    on_trace = fn line -> SessionIO.push_router_trace(agent, line) end
-    on_reason = fn chunk -> SessionIO.push_reasoning(agent, chunk) end
-
-    question
-    |> LoopBindingQuestionRouter.decide(ctx, st.model, st.router_decision_timeout_ms,
-      on_trace: on_trace,
-      on_reason: on_reason
-    )
-    |> LoopBindingRouterDecision.action(question, st.streak)
-    |> case do
-      {:followup, payload_text, new_streak, dialogue_text} ->
-        if cancelled?(agent, st.parent_call_id) do
-          :ok
-        else
-          SessionIO.push_dialogue(agent, :main, dialogue_text)
-          followup(agent, st, payload_text, new_streak)
-        end
-
-      {:ask_user, prompt, options, :leaked_prompt} ->
-        if cancelled?(agent, st.parent_call_id) do
-          :ok
-        else
-          SessionIO.push_router_trace(
-            agent,
-            "router: discarded echoed prompt and asked user"
-          )
-
-          ask_user(agent, st, prompt, options)
-        end
-
-      {:ask_user, prompt, options, :router} ->
-        ask_user(agent, st, prompt, options)
-
-      {:error, reason} ->
-        unless cancelled?(agent, st.parent_call_id) do
-          enqueue_failure(agent, st, {:router_failed, reason})
-        end
-
-        :ok
-    end
-  end
 
   defp ask_user(agent, st, prompt, options) do
     if cancelled?(agent, st.parent_call_id) do
@@ -481,9 +238,9 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
 
     event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, options)
 
-    SessionIO.enqueue(agent, event, st.callbacks)
+    maybe_enqueue_wonder_event(agent, event, options, st.callbacks)
 
-    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, event_options(event)) do
+    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, options) do
       {:done, text} ->
         SessionIO.push_dialogue(agent, :user, text)
 
@@ -519,10 +276,26 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     end
   end
 
+  defp maybe_enqueue_wonder_event(agent, event, [_first, _second | _rest], callbacks) do
+    SessionIO.enqueue(agent, event, callbacks)
+  end
+
+  defp maybe_enqueue_wonder_event(agent, _event, _options, _callbacks) do
+    SessionIO.push_router_trace(
+      agent,
+      "ACP answer choices unavailable; waiting for free-text answer"
+    )
+
+    :ok
+  end
+
   defp generated_question_options(_agent, _st, _prompt, [_first | _rest] = options), do: options
 
   defp generated_question_options(agent, st, prompt, _options) do
-    timeout_ms = min(max(st.router_decision_timeout_ms, 250), 1_500)
+    # Honor the configured router decision timeout (no upper clamp): the old
+    # `min(1_500)` silently overrode the 3_000ms default and made option
+    # generation fall back to free-text far too often. Keep the 250ms floor.
+    timeout_ms = st |> Map.get(:router_decision_timeout_ms, 1_500) |> max(250)
 
     case InterviewOptionGenerator.generate(prompt, st.model,
            timeout_ms: timeout_ms,
@@ -531,7 +304,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       {:ok, options} ->
         SessionIO.push_router_trace(
           agent,
-          "main session generated #{length(options)} answer choices"
+          "ACP answer choices generated from MCP question"
         )
 
         options
@@ -539,7 +312,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
       {:error, reason} ->
         SessionIO.push_router_trace(
           agent,
-          "answer choices fallback: #{inspect(reason)}"
+          "ACP answer choices unavailable: #{inspect(reason)}"
         )
 
         []
@@ -591,10 +364,11 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
   end
 
   defp collect_refine_followup(agent, st, prompt, original_answer) do
-    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, [])
-    SessionIO.enqueue(agent, event, st.callbacks)
+    options = []
+    event = InterviewWonderPrompt.event(st.parent_call_id, st.round, prompt, options)
+    maybe_enqueue_wonder_event(agent, event, options, st.callbacks)
 
-    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, event_options(event)) do
+    case LoopBindingInterviewAwaiter.await(agent, st.parent_call_id, prompt, options) do
       {:done, _text} -> InterviewAnswerRefiner.payload(original_answer)
       {:answer, text} -> InterviewAnswerRefiner.payload(original_answer <> "\n" <> text)
     end
@@ -632,17 +406,73 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSession do
     end
   end
 
+  defp maybe_poll_waiting_status(agent, %{session_id: session_id} = st)
+       when is_binary(session_id) and session_id != "" do
+    if Map.get(st, :status_poll_count, 0) < Map.get(st, :max_status_polls, 0) do
+      poll_waiting_status(agent, st)
+    else
+      fail_exhausted_status_polling(agent, st)
+    end
+  end
+
+  defp maybe_poll_waiting_status(_agent, _st), do: :ok
+
+  defp poll_waiting_status(agent, st) do
+    poll_count = Map.get(st, :status_poll_count, 0) + 1
+
+    case InterviewWorkflowInvocation.build_resume_request_payload(st.session_id,
+           request_id: st.parent_call_id <> "-status-" <> Integer.to_string(poll_count),
+           mcp_tool: Map.get(st, :mcp_tool)
+         ) do
+      {:ok, payload} ->
+        SessionIO.push_router_trace(
+          agent,
+          "status payload: polling interview session #{poll_count}"
+        )
+
+        sleep_status_poll_delay(st)
+        interview_round(agent, %{st | payload: payload, status_poll_count: poll_count})
+
+      {:error, reason} ->
+        enqueue_failure(agent, st, {:resume_payload_failed, reason})
+        :ok
+    end
+  end
+
+  defp sleep_status_poll_delay(st) do
+    delay_ms =
+      st
+      |> Map.get(:status_poll_delay_ms, 1_000)
+      |> min(5_000)
+      |> max(0)
+
+    if delay_ms > 0, do: Process.sleep(delay_ms)
+  end
+
+  defp fail_exhausted_status_polling(agent, st) do
+    SessionIO.push_router_trace(agent, "status payload: real question was not produced")
+
+    enqueue_failure(
+      agent,
+      st,
+      {:interview_question_unavailable,
+       "Ouroboros returned delegated status payloads instead of an inline Socratic Interview question"}
+    )
+  end
+
   defp followup_live(agent, st, answer_text, new_streak) do
     case InterviewWorkflowInvocation.build_followup_request_payload(
            st.session_id,
            answer_text,
-           request_id: st.parent_call_id <> "-r" <> Integer.to_string(st.round)
+           request_id: st.parent_call_id <> "-r" <> Integer.to_string(st.round),
+           mcp_tool: Map.get(st, :mcp_tool)
          ) do
       {:ok, payload} ->
         interview_round(agent, %{
           st
           | payload: payload,
             round: st.round + 1,
+            status_poll_count: 0,
             streak: new_streak
         })
 

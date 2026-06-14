@@ -132,8 +132,16 @@ defmodule Ourocode.Dashboard.ChildSessionPaneEvent do
     Map.get(event, :type) in [:parent_call_started, :parent_call_event, :parent_call_result]
   end
 
+  # Child pane status vocabulary is `:working | :completed` (see
+  # `ChildSessionMetadata.status/2`), so terminal failure statuses
+  # (failed/cancelled/interrupted) also land the pane in the completed bucket;
+  # the failure detail stays visible in the pane's stream entries. Without
+  # this, a job-backed pane whose final poll reports `failed` would spin in
+  # `:working` forever.
   defp status_for(%{type: :parent_call_result} = event) do
-    if completed_result?(event), do: :completed, else: :working
+    if completed_result?(event) or terminal_failure_result?(event),
+      do: :completed,
+      else: :working
   end
 
   defp status_for(_event), do: :working
@@ -167,6 +175,26 @@ defmodule Ourocode.Dashboard.ChildSessionPaneEvent do
   end
 
   defp completed_status?(_status), do: false
+
+  defp terminal_failure_result?(event) do
+    event
+    |> completion_candidates()
+    |> Enum.any?(&terminal_failure_status?/1)
+  end
+
+  defp terminal_failure_status?(status) when status in [:failed, :cancelled, :interrupted],
+    do: true
+
+  defp terminal_failure_status?(status) when is_binary(status) do
+    status
+    |> String.trim()
+    |> String.downcase()
+    |> then(
+      &(&1 in ["failed", "cancelled", "canceled", "interrupted", "poll_budget_exhausted"])
+    )
+  end
+
+  defp terminal_failure_status?(_status), do: false
 
   defp pane_id(child_id), do: ChildSessionIdentity.pane_id(child_id)
 end

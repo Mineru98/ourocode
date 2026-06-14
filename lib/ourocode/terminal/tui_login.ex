@@ -3,6 +3,7 @@ defmodule Ourocode.Terminal.TuiLogin do
 
   alias Ourocode.Provider.Anthropic
   alias Ourocode.Provider.Codex
+  alias Ourocode.Terminal.TuiEnvironment
   alias Ourocode.Terminal.TuiState
 
   @max_login_polls 80
@@ -13,36 +14,85 @@ defmodule Ourocode.Terminal.TuiLogin do
   arms a paste-the-code step handled by the next submitted line.
   """
   @spec start(atom(), map(), pid(), pid(), pos_integer(), pos_integer(), function()) :: :ok
-  def start(provider, result, output, state, cols, rows, redraw)
+  def start(provider, result, output, state, cols, rows, redraw),
+    do: start(provider, result, output, state, cols, rows, redraw, [])
 
-  def start(:claude_api, result, output, state, cols, rows, redraw)
+  @doc false
+  @spec start(atom(), map(), pid(), pid(), pos_integer(), pos_integer(), function(), keyword()) ::
+          :ok
+  def start(provider, result, output, state, cols, rows, redraw, opts)
+
+  def start(:claude_api, result, output, state, cols, rows, redraw, opts)
       when is_function(redraw, 6) do
-    pkce = Anthropic.generate_pkce()
-    login_state = Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
-    url = Anthropic.authorize_url(pkce.challenge, login_state)
+    if Anthropic.signed_in?() do
+      TuiState.put_model_id(state, :claude_api)
+      log(output, "Already signed in. model: claude (Claude Pro/Max).")
+      redraw.(result, output, state, "", cols, rows)
+    else
+      pkce = Anthropic.generate_pkce()
+      login_state = pkce.verifier
 
-    TuiState.put_pending_login(state, %{
-      provider: :claude_api,
-      verifier: pkce.verifier,
-      state: login_state
-    })
+      redirect_uri = Anthropic.redirect_uri()
+      url = Anthropic.authorize_url(pkce.challenge, login_state, redirect_uri)
 
-    log(output, "Open this URL, approve, then paste the code back here:")
-    log(output, url)
-    log(output, "(paste the authorization code and press Enter; /cancel to abort)")
-    redraw.(result, output, state, "", cols, rows)
+      TuiState.put_pending_login(state, %{
+        provider: :claude_api,
+        verifier: pkce.verifier,
+        state: login_state,
+        redirect_uri: redirect_uri
+      })
+
+      case assist_browser(output, url, "sign-in link", url, opts) do
+        {true, true} ->
+          log(output, "Approve Claude access in the opened browser.")
+
+        {true, false} ->
+          log(output, "Approve Claude access in the opened browser. Clipboard copy failed.")
+
+        {false, true} ->
+          log(output, "Could not open the browser. The Claude sign-in link was copied.")
+
+        {false, false} ->
+          log(
+            output,
+            "Could not open the browser or copy the Claude sign-in link. Open this URL:"
+          )
+
+          log(output, url)
+      end
+
+      log(output, "(paste the authorization code or final redirect URL and press Enter)")
+      redraw.(result, output, state, "", cols, rows)
+    end
   end
 
-  def start(_codex, result, output, state, cols, rows, redraw) when is_function(redraw, 6) do
-    case Codex.start_device_login() do
-      {:ok, dev} ->
-        TuiState.put_login(state, %{code: dev.user_code, url: dev.verification_uri})
-        redraw.(result, output, state, "", cols, rows)
-        poll(dev, 0, result, output, state, cols, rows, redraw)
+  def start(_codex, result, output, state, cols, rows, redraw, opts)
+      when is_function(redraw, 6) do
+    if Codex.signed_in?() do
+      TuiState.put_model_id(state, :codex)
+      log(output, "Already signed in. model: codex (ChatGPT).")
+      redraw.(result, output, state, "", cols, rows)
+    else
+      case Codex.start_device_login() do
+        {:ok, dev} ->
+          entry_code = codex_entry_code(dev.user_code)
+          TuiState.put_login(state, %{code: entry_code, url: dev.verification_uri})
 
-      {:error, reason} ->
-        log(output, "Login could not start: #{inspect(reason)}")
-        redraw.(result, output, state, "", cols, rows)
+          assist_browser(
+            output,
+            dev.verification_uri,
+            "9-character device code",
+            entry_code,
+            opts
+          )
+
+          redraw.(result, output, state, "", cols, rows)
+          poll(dev, 0, result, output, state, cols, rows, redraw)
+
+        {:error, reason} ->
+          log(output, "Login could not start: #{inspect(reason)}")
+          redraw.(result, output, state, "", cols, rows)
+      end
     end
   end
 
@@ -105,11 +155,12 @@ defmodule Ourocode.Terminal.TuiLogin do
   @spec complete_paste(String.t(), pid(), pid()) :: :handled | :not_pending
   def complete_paste(line, output, state) do
     case TuiState.pending_login(state) do
-      %{provider: :claude_api, verifier: verifier, state: login_state} ->
+      %{provider: :claude_api, verifier: verifier, state: login_state} = pending ->
         TuiState.put_pending_login(state, nil)
         code = line |> String.trim() |> strip_url_to_code()
+        redirect_uri = Map.get(pending, :redirect_uri, Anthropic.redirect_uri())
 
-        case Anthropic.exchange(code, verifier, login_state) do
+        case Anthropic.exchange(code, verifier, login_state, redirect_uri) do
           {:ok, tokens} ->
             TuiState.put_model_id(state, :claude_api)
             who = tokens.email || tokens.account_id || "your Claude account"
@@ -124,6 +175,14 @@ defmodule Ourocode.Terminal.TuiLogin do
       _none ->
         :not_pending
     end
+  end
+
+  @doc false
+  @spec codex_entry_code(String.t()) :: String.t()
+  def codex_entry_code(code) when is_binary(code) do
+    code
+    |> String.replace(~r/[^A-Za-z0-9]/, "")
+    |> String.upcase()
   end
 
   # Accept either a bare code or the full redirect URL the browser landed on.
@@ -165,6 +224,76 @@ defmodule Ourocode.Terminal.TuiLogin do
       after
         remaining -> :timeout
       end
+    end
+  end
+
+  defp assist_browser(output, url, clipboard_label, clipboard_text, opts) do
+    open_url = Keyword.get(opts, :open_url, &default_open_url/1)
+    copy_to_clipboard = Keyword.get(opts, :copy_to_clipboard, &default_copy_to_clipboard/1)
+
+    opened? = open_url.(url) == :ok
+    copied? = copy_to_clipboard.(clipboard_text) == :ok
+
+    status = {opened?, copied?}
+
+    case status do
+      {true, true} ->
+        log(output, "Opened browser and copied the #{clipboard_label} to clipboard.")
+
+      {true, false} ->
+        log(output, "Opened browser for sign-in.")
+
+      {false, true} ->
+        log(output, "Could not open browser; #{clipboard_label} copied to clipboard.")
+
+      {false, false} ->
+        :ok
+    end
+
+    status
+  end
+
+  defp default_open_url(url) do
+    if TuiEnvironment.test_run?() do
+      {:error, :test_run}
+    else
+      opener = System.find_executable("open") || System.find_executable("xdg-open")
+
+      case opener do
+        nil -> {:error, :not_found}
+        command -> system_ok(command, [url])
+      end
+    end
+  rescue
+    exception -> {:error, exception}
+  end
+
+  defp default_copy_to_clipboard(text) do
+    if TuiEnvironment.test_run?() do
+      {:error, :test_run}
+    else
+      case clipboard_command() do
+        nil -> {:error, :not_found}
+        command -> copy_with_stdin(command, text)
+      end
+    end
+  rescue
+    exception -> {:error, exception}
+  end
+
+  defp clipboard_command do
+    System.find_executable("pbcopy") ||
+      if(File.exists?("/usr/bin/pbcopy"), do: "/usr/bin/pbcopy")
+  end
+
+  defp copy_with_stdin(command, text) do
+    system_ok("/bin/sh", ["-c", "printf %s \"$1\" | \"$2\"", "ourocode-copy", text, command])
+  end
+
+  defp system_ok(command, args, opts \\ []) do
+    case System.cmd(command, args, Keyword.put(opts, :stderr_to_stdout, true)) do
+      {_out, 0} -> :ok
+      {out, status} -> {:error, {status, out}}
     end
   end
 

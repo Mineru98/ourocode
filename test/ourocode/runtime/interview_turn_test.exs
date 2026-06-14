@@ -39,4 +39,32 @@ defmodule Ourocode.Runtime.InterviewTurnTest do
              (ambiguity: 0.42) Which workflow should we improve first?
              """)
   end
+
+  test "classifies delegated subagent JSON status payloads as waiting state, not questions" do
+    text =
+      Ourocode.Json.encode!(%{
+        status: "delegated_to_subagent",
+        session_id: "interview_123",
+        pending_question: false,
+        next_action: "wait for OpenCode child interview"
+      })
+      |> IO.iodata_to_binary()
+
+    assert InterviewTurn.classify_response(text) ==
+             {:waiting, "wait for OpenCode child interview"}
+  end
+
+  test "classifies agent task JSON payloads as waiting state, not questions" do
+    text =
+      Ourocode.Json.encode!(%{
+        agent: "Socratic Interview",
+        general: "Run the interview in a delegated child session.",
+        context: "The parent UI should wait for the child result.",
+        action: "Question start"
+      })
+      |> IO.iodata_to_binary()
+
+    assert InterviewTurn.classify_response(text) ==
+             {:waiting, "starting Socratic Interview"}
+  end
 end

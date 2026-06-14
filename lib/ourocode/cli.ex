@@ -33,7 +33,6 @@ defmodule Ourocode.CLI do
   alias Ourocode.Terminal.VisualArtifacts
   alias Ourocode.Terminal.WorkspaceModel
   alias Ourocode.Terminal.WorkspaceText
-  alias Ourocode.Runtime.InterviewOptionSynthesizer
   alias Ourocode.Runtime.LoopBindingInterviewAwaiter
   alias Ourocode.Runtime.LoopBindingInterviewSessionIO
   alias Ourocode.Runtime.LoopBindings
@@ -648,7 +647,7 @@ defmodule Ourocode.CLI do
       "  ooo auto <goal>       plan, verify, then execute",
       "",
       "Work state:",
-      "  model: codex cli",
+      "  model: codex  (ChatGPT)",
       "  #{plugin_line(plugin_text)}",
       "  live verify available",
       "",
@@ -1231,7 +1230,9 @@ defmodule Ourocode.CLI do
 
     passed? =
       case Ourocode.TaskRequest.parse("ooo pm build onboarding") do
-        {:ok, %{routing_decision: %{adapter_route: :interview}}} ->
+        # `ooo pm` routes through its dedicated :pm adapter route (the
+        # interview flow that calls `ouroboros_pm_interview`).
+        {:ok, %{routing_decision: %{adapter_route: :pm}}} ->
           product_output?(text) and String.contains?(text, ">> [1]") and
             String.contains?(text, "developer/builder onboarding workflow")
 
@@ -2118,12 +2119,12 @@ defmodule Ourocode.CLI do
   end
 
   defp tty_frame(prompt, activity, opts, cols, rows) do
-    opts = Map.put_new(opts, :auth, {"model: codex cli", :ok})
+    opts = Map.put_new(opts, :auth, {"model: codex  (ChatGPT)", :ok})
     Tui.frame_lines(verification_tty_base_frame(), activity, prompt, cols, rows, opts)
   end
 
   defp live_tty_frame(prompt, activity, opts, cols, rows) do
-    opts = Map.put_new(opts, :auth, {"model: codex cli", :ok})
+    opts = Map.put_new(opts, :auth, {"model: codex  (ChatGPT)", :ok})
     Tui.frame_lines(verification_tty_live_frame(), activity, prompt, cols, rows, opts)
   end
 
@@ -2139,7 +2140,7 @@ defmodule Ourocode.CLI do
         activity_opts: %{activity_status: "latest", activity_status_style: :p_accent}
       },
       mcp_activity: ["Answer choices are visible"],
-      auth: {"model: codex cli", :ok}
+      auth: {"model: codex  (ChatGPT)", :ok}
     }
   end
 
@@ -3326,7 +3327,21 @@ defmodule Ourocode.CLI do
       }
     ]
 
-    second_options = InterviewOptionSynthesizer.options([], second_question)
+    second_options = [
+      %{
+        label: "First PM brief is actionable",
+        description: "the output names audience, outcome, and next decision",
+        recommended?: true
+      },
+      %{
+        label: "Interview can continue",
+        description: "the next question follows from the previous answer"
+      },
+      %{
+        label: "Seed inputs are ready",
+        description: "the answers can be turned into requirements and criteria"
+      }
+    ]
 
     first_picker =
       workflow_question_text(first_question, "headless-ooo-pm-first-question", first_options)

@@ -3,7 +3,7 @@ defmodule Ourocode.Runtime.InterviewProgress do
   Updates live interview progress state for the terminal renderer.
   """
 
-  alias Ourocode.Runtime.{InterviewState, InterviewWonderPrompt, WonderDetection}
+  alias Ourocode.Runtime.InterviewState
 
   @spec mark_dispatching(pid(), map(), String.t()) :: :ok
   def mark_dispatching(agent, task_request, parent_call_id) when is_pid(agent) do
@@ -39,7 +39,6 @@ defmodule Ourocode.Runtime.InterviewProgress do
 
       state
       |> Map.merge(%{interview: iv, interview_session: session, paused: false})
-      |> maybe_open_optimistic_picker(prompt, parent_call_id)
     end)
   end
 
@@ -117,37 +116,4 @@ defmodule Ourocode.Runtime.InterviewProgress do
   end
 
   defp monotonic_ms, do: System.monotonic_time(:millisecond)
-
-  defp maybe_open_optimistic_picker(state, prompt, parent_call_id) do
-    if optimistic_pm_prompt?(prompt) do
-      prompt
-      |> optimistic_question()
-      |> then(&InterviewWonderPrompt.event(parent_call_id, 1, &1, []))
-      |> then(&WonderDetection.apply(state, &1))
-    else
-      state
-    end
-  end
-
-  defp optimistic_pm_prompt?(prompt) when is_binary(prompt) do
-    prompt
-    |> String.trim()
-    |> String.downcase()
-    |> String.starts_with?("ooo pm")
-  end
-
-  defp optimistic_pm_prompt?(_prompt), do: false
-
-  defp optimistic_question(prompt) do
-    goal =
-      prompt
-      |> String.replace(~r/\Aooo\s+pm\s*/iu, "")
-      |> String.trim()
-
-    if goal == "" do
-      "What outcome should this PM interview produce?"
-    else
-      "What outcome should this PM interview produce for #{goal}?"
-    end
-  end
 end

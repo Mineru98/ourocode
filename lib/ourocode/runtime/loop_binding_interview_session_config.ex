@@ -25,6 +25,17 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfig do
           :router_decision_timeout_ms,
           Keyword.fetch!(defaults, :router_decision_timeout_ms)
         ),
+      initial_context: initial_context(Keyword.fetch!(opts, :initial_payload)),
+      mcp_tool: mcp_tool(Keyword.fetch!(opts, :initial_payload)),
+      max_status_polls:
+        Keyword.get(opts, :max_status_polls, Keyword.get(defaults, :max_status_polls, 8)),
+      status_poll_delay_ms:
+        Keyword.get(
+          opts,
+          :status_poll_delay_ms,
+          Keyword.get(defaults, :status_poll_delay_ms, 1_000)
+        ),
+      status_poll_count: 0,
       user_routed?: user_routed?(Keyword.fetch!(opts, :initial_payload)),
       streak: 0,
       session_id: nil
@@ -33,9 +44,25 @@ defmodule Ourocode.Runtime.LoopBindingInterviewSessionConfig do
 
   defp user_routed?(payload) when is_map(payload) do
     payload
-    |> Ourocode.Runtime.LoopBindingInterviewText.initial_context_from_payload()
+    |> initial_context()
     |> String.trim()
     |> String.downcase()
     |> String.starts_with?("ooo pm")
   end
+
+  defp initial_context(payload) do
+    Ourocode.Runtime.LoopBindingInterviewText.initial_context_from_payload(payload)
+  end
+
+  # Followup/resume rounds must keep calling the tool that opened the session
+  # (`ouroboros_interview` or `ouroboros_pm_interview`), so the session state
+  # pins the tool name from the initial tools/call payload.
+  defp mcp_tool(payload) when is_map(payload) do
+    case get_in(payload, ["params", "name"]) do
+      tool when is_binary(tool) and tool != "" -> tool
+      _none -> nil
+    end
+  end
+
+  defp mcp_tool(_payload), do: nil
 end

@@ -24,6 +24,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   alias Ourocode.Plugin.UserLevel.Registry, as: UserLevelRegistry
 
   alias Ourocode.Runtime.{
+    ChildSessionCancelDispatcher,
     LoopBindingEventFlow,
     LoopBindingAnswers,
     LoopBindingInterviewSession,
@@ -76,7 +77,8 @@ defmodule Ourocode.Runtime.LoopBindings do
          [
            on_prompt_input: on_prompt_input_fun(agent, runtime),
            poll_runtime_event: poll_runtime_event_fun(agent),
-           on_runtime_event: on_runtime_event_fun(agent)
+           on_runtime_event: on_runtime_event_fun(agent),
+           command_dispatch_options: command_dispatch_options()
          ]}
 
       _error ->
@@ -171,7 +173,7 @@ defmodule Ourocode.Runtime.LoopBindings do
   Cancels the active wonderTool checkpoint without selecting an option.
 
   This is distinct from Esc pause: cancel/decline is an explicit user answer
-  that closes the checkpoint and, for synthesized interview ASK_USER prompts,
+  that closes the checkpoint and, for interview ACP answer-choice prompts,
   unblocks the interview relay with a terminating answer.
   """
   @spec cancel_wonder(pid(), String.t()) :: {:ok, map()} | {:error, :no_active_wonder}
@@ -273,8 +275,27 @@ defmodule Ourocode.Runtime.LoopBindings do
 
   # --- helpers -------------------------------------------------------------
 
-  defp mcp_url do
+  @doc """
+  Resolves the Ouroboros MCP base url used by all loop-binding transports.
+  """
+  @spec mcp_url() :: String.t()
+  def mcp_url do
     System.get_env("OUROCODE_MCP_URL") || "http://127.0.0.1:4000/mcp"
+  end
+
+  # Production seam for the builtin `/interrupt` and `/cancel` slash commands.
+  # `EventLoopState.build/3` stores these under `:command_dispatch_options`,
+  # and `CommandChildControlCommands.dispatch_options/1` merges them with the
+  # live focus state + pane model on every dispatch. Both actions deliver via
+  # the same cancellation dispatcher because the live server only exposes
+  # `ouroboros_cancel_job`/`ouroboros_cancel_execution` (no interrupt tool).
+  defp command_dispatch_options do
+    dispatcher = ChildSessionCancelDispatcher.build(mcp_url: mcp_url())
+
+    %{
+      child_session_interrupt_dispatcher: dispatcher,
+      child_session_cancel_dispatcher: dispatcher
+    }
   end
 
   defp refine_user_level_route(task_request, runtime) do

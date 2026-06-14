@@ -73,11 +73,11 @@ defmodule Ourocode.Runtime.LoopBindingAnswersTest do
 
     enqueue = fn _agent, event -> send(parent, {:enqueued, event}) end
 
-    assert {:ok, %{selected_label: "B"}} = LoopBindingAnswers.answer_wonder(agent, 2, enqueue)
+    assert {:ok, %{selected_label: "Beta"}} = LoopBindingAnswers.answer_wonder(agent, 2, enqueue)
     assert_receive {:interview_answer, handback}
-    assert handback =~ "B"
+    assert handback =~ "Beta"
     assert_receive {:enqueued, %{type: :child_event}}
-    assert_receive {:enqueued, %{type: :decision_answered, selected_label: "B"}}
+    assert_receive {:enqueued, %{type: :decision_answered, selected_label: "Beta"}}
 
     assert Agent.get(agent, & &1.wonder) == nil
     assert Agent.get(agent, & &1.interview_waiter) == nil
@@ -93,14 +93,14 @@ defmodule Ourocode.Runtime.LoopBindingAnswersTest do
 
     enqueue = fn _agent, event -> send(parent, {:enqueued, event}) end
 
-    assert {:ok, %{selected_label: "A"}} = LoopBindingAnswers.answer_wonder(agent, 1, enqueue)
+    assert {:ok, %{selected_label: "Alpha"}} = LoopBindingAnswers.answer_wonder(agent, 1, enqueue)
     assert_receive {:enqueued, %{type: :child_event}}
-    assert_receive {:enqueued, %{type: :decision_answered, selected_label: "A"}}
+    assert_receive {:enqueued, %{type: :decision_answered, selected_label: "Alpha"}}
     refute_receive {:interview_answer, _answer}, 50
 
     state = Agent.get(agent, & &1)
     assert state.wonder == nil
-    assert state.pending_interview_answer =~ "A"
+    assert state.pending_interview_answer =~ "Alpha"
   end
 
   test "answer_wonder keeps an accepted interview transition visible", %{agent: agent} do
@@ -118,13 +118,13 @@ defmodule Ourocode.Runtime.LoopBindingAnswersTest do
 
     enqueue = fn _agent, event -> send(parent, {:enqueued, event}) end
 
-    assert {:ok, %{selected_label: "B"}} = LoopBindingAnswers.answer_wonder(agent, 2, enqueue)
+    assert {:ok, %{selected_label: "Beta"}} = LoopBindingAnswers.answer_wonder(agent, 2, enqueue)
 
     state = Agent.get(agent, & &1)
     assert state.wonder == nil
     assert state.interview.waiting == true
     assert state.interview.question == ""
-    assert state.interview.last_answer =~ "B"
+    assert state.interview.last_answer =~ "Beta"
     assert state.interview.last_answered_question == "Choose?"
     assert state.interview.status == "answer accepted - preparing next question"
   end
@@ -182,8 +182,8 @@ defmodule Ourocode.Runtime.LoopBindingAnswersTest do
   defp wonder_detection do
     event =
       InterviewWonderPrompt.event("parent-1", 1, "Choose?", [
-        %{"label" => "A", "description" => "first"},
-        %{"label" => "B", "description" => "second"}
+        %{"label" => "Alpha", "description" => "first"},
+        %{"label" => "Beta", "description" => "second"}
       ])
 
     assert {:ok, detection} = InteractionDetector.detect(event.payload)

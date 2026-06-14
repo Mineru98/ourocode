@@ -17,7 +17,7 @@ defmodule Ourocode.Runtime.OuroborosSkillCoverageTest do
     "evolve" => {"ooo evolve --status lin-1", :evolve, OuroborosWorkflowInvocation},
     "help" => {"ooo help", :help, OuroborosDirectInvocation},
     "interview" => {"ooo interview clarify routing", :interview, InterviewWorkflowInvocation},
-    "pm" => {"ooo pm write product requirements", :interview, InterviewWorkflowInvocation},
+    "pm" => {"ooo pm write product requirements", :pm, InterviewWorkflowInvocation},
     "publish" => {"ooo publish seed.yaml", :publish, OuroborosDirectInvocation},
     "qa" => {"ooo qa artifact.md", :qa, OuroborosWorkflowInvocation},
     "ralph" => {"ooo ralph --lineage-id lin-1", :ralph, OuroborosWorkflowInvocation},

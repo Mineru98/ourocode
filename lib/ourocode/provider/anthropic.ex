@@ -5,8 +5,8 @@ defmodule Ourocode.Provider.Anthropic do
   ourocode hosts no model. This connects the main session to a user's Claude
   subscription through the OAuth client the Claude CLI uses, so `claude` can
   answer over the direct Messages API without spawning the CLI on each turn.
-  Only the manual code-paste PKCE flow is implemented, keeping the terminal
-  baseline free of a local web server.
+  The browser flow uses Claude's hosted callback and accepts a pasted code or
+  redirect URL.
   """
 
   alias Ourocode.Provider.Anthropic.Auth
@@ -23,9 +23,12 @@ defmodule Ourocode.Provider.Anthropic do
 
   defdelegate generate_pkce, to: Auth
   defdelegate authorize_url(challenge, state), to: Auth
+  defdelegate authorize_url(challenge, state, redirect_uri), to: Auth
   defdelegate exchange(code, verifier, state), to: Auth
+  defdelegate exchange(code, verifier, state, redirect_uri), to: Auth
   defdelegate refresh(tokens), to: Auth
   defdelegate authorization, to: Auth
+  defdelegate redirect_uri, to: Auth
 
   defdelegate from_response(resp, now_ms), to: Token
   defdelegate expired?(tokens, now_ms), to: Token

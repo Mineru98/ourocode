@@ -47,6 +47,7 @@ defmodule Ourocode.Runtime.WorkflowRun do
       updated_at_ms: now
     }
     |> maybe_put(:cwd, Keyword.get(opts, :cwd))
+    |> maybe_put(:model_profile, Keyword.get(opts, :model_profile))
   end
 
   @spec apply_event(t() | map() | nil, map()) :: t() | map()

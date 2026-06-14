@@ -32,19 +32,46 @@ defmodule Ourocode.Terminal.RendererOverlayTest do
   test "draw_model distinguishes ready and auth-needed models" do
     models = [
       model(:codex, "Codex", :ready),
-      model(:claude, "Claude", {:needs_auth, "/login"})
+      model(:claude_api, "Claude", {:needs_auth, "/login-claude"})
     ]
 
     lines =
-      Screen.new(70, 12)
-      |> RendererOverlay.draw_model(70, 10, %{models: models, index: 1})
+      Screen.new(92, 12)
+      |> RendererOverlay.draw_model(92, 10, %{models: models, index: 1})
       |> Screen.to_lines()
 
     text = Enum.join(lines, "\n")
 
-    assert text =~ "model"
-    assert text =~ "Codex                ready"
-    assert text =~ "● > Claude               sign in required"
+    assert text =~ "models · Ouroboros role profiles"
+    assert text =~ "Ouroboros profiles choose the runtime"
+    assert text =~ "Socratic Interview  Codex"
+    assert text =~ "Execute/Evolve  Codex"
+    assert text =~ "Codex"
+    assert text =~ "ready"
+    assert text =~ "execute/evolve"
+    assert text =~ "● > Claude"
+    assert text =~ "sign in /login-claude"
+    assert text =~ "socratic/verify"
+  end
+
+  test "draw_model uses compact role profile rows on narrow terminals" do
+    models = [
+      model(:codex, "codex  (ChatGPT)", :ready),
+      model(:claude_api, "claude  (Claude Pro/Max)", :ready)
+    ]
+
+    text =
+      Screen.new(56, 14)
+      |> RendererOverlay.draw_model(56, 12, %{models: models, index: 0})
+      |> Screen.to_lines()
+      |> Enum.join("\n")
+
+    assert text =~ "models + roles"
+    assert text =~ "Socratic"
+    assert text =~ "Execute"
+    assert text =~ "Verify"
+    assert text =~ "execute/evolve"
+    assert text =~ "socratic/verify"
   end
 
   test "draw_ooo_suggestions windows long lists around the selected row" do

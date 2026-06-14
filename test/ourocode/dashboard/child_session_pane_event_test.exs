@@ -77,6 +77,36 @@ defmodule Ourocode.Dashboard.ChildSessionPaneEventTest do
            ] = pane.pane_state.stream_entries
   end
 
+  test "parent_call_result terminal statuses flip the pane out of :working" do
+    base_event = %{
+      event_seq: 9,
+      type: :parent_call_result,
+      transport: :streamable_http,
+      parent_call_id: "parent-1",
+      runtime_source: "ouroboros",
+      external_ids: %{"childID" => "child-1"},
+      occurred_at_ms: 900
+    }
+
+    # Pane status vocabulary is :working | :completed, so terminal failures
+    # land in :completed too; the failure detail lives in the stream entries.
+    for terminal_status <- ["completed", "failed", "cancelled", "interrupted"] do
+      assert {:ok, pane} =
+               base_event
+               |> Map.put(:status, terminal_status)
+               |> ChildSessionPaneEvent.from_lifecycle_event()
+
+      assert pane.status == :completed, "expected #{terminal_status} to complete the pane"
+    end
+
+    assert {:ok, pane} =
+             base_event
+             |> Map.put(:status, "running")
+             |> ChildSessionPaneEvent.from_lifecycle_event()
+
+    assert pane.status == :working
+  end
+
   test "builds child panes from persisted pane lifecycle records" do
     event = %{
       type: :child_pane_completed,

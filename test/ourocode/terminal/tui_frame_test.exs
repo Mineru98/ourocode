@@ -520,9 +520,9 @@ defmodule Ourocode.Terminal.TuiFrameTest do
         run: fn _, _, _ -> {:ok, ""} end
       },
       %Ourocode.Model{
-        id: :claude,
-        label: "claude cli",
-        kind: :cli,
+        id: :claude_api,
+        label: "claude  (Claude Pro/Max)",
+        kind: :oauth,
         status: :ready,
         run: fn _, _, _ -> {:ok, ""} end
       }
@@ -532,16 +532,18 @@ defmodule Ourocode.Terminal.TuiFrameTest do
       render("", [], %{
         mode: :model,
         model: %{models: models, index: 1},
-        auth: {"model: claude cli", :ok}
+        auth: {"model: claude  (Claude Pro/Max)", :ok}
       })
       |> Enum.join("\n")
 
-    assert text =~ "model"
-    assert text =~ "codex  (ChatGPT)"
-    assert text =~ "sign in required"
-    assert text =~ "claude cli"
+    assert text =~ "models · Ouroboros role profiles"
+    assert text =~ "Socratic Interview  claude"
+    assert text =~ "Execute/Evolve  claude"
+    assert text =~ "codex"
+    assert text =~ "sign in /login"
+    assert text =~ "claude"
     assert text =~ "ready"
-    assert text =~ "model: claude cli"
+    assert text =~ "model: claude  (Claude Pro/Max)"
   end
 
   test "login focal card centres the device code and url" do

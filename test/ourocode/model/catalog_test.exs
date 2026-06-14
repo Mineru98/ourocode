@@ -8,22 +8,22 @@ defmodule Ourocode.Model.CatalogTest do
     fn bin -> if bin in installed, do: "/usr/bin/#{bin}", else: nil end
   end
 
-  test "lists direct-API providers first, then only installed CLI backends" do
+  test "lists direct-API providers first and excludes slow agent CLI backends" do
     models =
-      Catalog.list(codex_signed_in: false, anthropic_signed_in: false, which: which(["claude"]))
+      Catalog.list(
+        codex_signed_in: false,
+        anthropic_signed_in: false,
+        which: which(["claude", "codex", "gemini"])
+      )
 
     assert [%{id: :codex}, %{id: :claude_api} | _] = models
     ids = Enum.map(models, & &1.id)
     assert :codex in ids
     assert :claude_api in ids
-    assert :claude in ids
-    assert :codex_cli in ids
     assert :gemini in ids
 
-    claude = Catalog.fetch(models, :claude)
     gemini = Catalog.fetch(models, :gemini)
-    assert claude.status == :ready
-    assert gemini.status == :unavailable
+    assert gemini.status == :ready
   end
 
   test "claude_api status reflects Anthropic sign-in and stays selectable" do
@@ -46,7 +46,7 @@ defmodule Ourocode.Model.CatalogTest do
     assert Model.ready?(inn)
   end
 
-  test "default prefers the direct Claude API over the claude CLI when signed in" do
+  test "default never falls back to the Claude CLI" do
     assert Catalog.default(
              codex_signed_in: false,
              anthropic_signed_in: true,
@@ -54,13 +54,14 @@ defmodule Ourocode.Model.CatalogTest do
              ouroboros_backend: "claude"
            ).id == :claude_api
 
-    # Not signed in to the subscription: fall back to the installed CLI.
+    # Not signed in to the subscription: stay on direct Claude so the UI can
+    # show /login-claude instead of spawning the slow CLI.
     assert Catalog.default(
              codex_signed_in: false,
              anthropic_signed_in: false,
              which: which(["claude"]),
              ouroboros_backend: "claude"
-           ).id == :claude
+           ).id == :claude_api
   end
 
   test "codex status reflects sign-in state and stays selectable" do
@@ -73,21 +74,34 @@ defmodule Ourocode.Model.CatalogTest do
     assert Model.ready?(inn)
   end
 
-  test "default prefers a ready CLI, else falls back to codex" do
+  test "default can use remaining non-agent CLIs, else falls back to codex" do
     with_cli =
       Catalog.default(
         codex_signed_in: false,
-        which: which(["claude"]),
+        anthropic_signed_in: false,
+        which: which(["gemini"]),
         ouroboros_config_path: nil
       )
 
-    assert with_cli.id == :claude
+    assert with_cli.id == :gemini
 
-    no_cli = Catalog.default(codex_signed_in: false, which: which([]), ouroboros_config_path: nil)
+    no_cli =
+      Catalog.default(
+        codex_signed_in: false,
+        anthropic_signed_in: false,
+        which: which([]),
+        ouroboros_config_path: nil
+      )
+
     assert no_cli.id == :codex
 
     signed =
-      Catalog.default(codex_signed_in: true, which: which(["claude"]), ouroboros_config_path: nil)
+      Catalog.default(
+        codex_signed_in: true,
+        anthropic_signed_in: false,
+        which: which(["gemini"]),
+        ouroboros_config_path: nil
+      )
 
     assert signed.id == :codex
   end
@@ -97,10 +111,8 @@ defmodule Ourocode.Model.CatalogTest do
              codex_signed_in: false,
              which: which(["claude", "codex"]),
              ouroboros_backend: "codex"
-           ).id == :codex_cli
+           ).id == :codex
 
-    # Signed in to ChatGPT: the direct-API transport beats spawning the
-    # codex CLI on every turn for the same account.
     assert Catalog.default(
              codex_signed_in: true,
              which: which(["claude", "codex"]),
@@ -117,7 +129,7 @@ defmodule Ourocode.Model.CatalogTest do
              codex_signed_in: true,
              which: which(["claude", "codex"]),
              ouroboros_backend: "claude"
-           ).id == :claude
+           ).id == :claude_api
   end
 
   test "default reads Ouroboros config.yaml backend as a read-only preference" do
@@ -143,7 +155,7 @@ defmodule Ourocode.Model.CatalogTest do
              codex_signed_in: false,
              which: which(["claude", "codex"]),
              ouroboros_config_path: path
-           ).id == :codex_cli
+           ).id == :codex
   end
 
   test "selectable hides unavailable backends" do
@@ -157,7 +169,9 @@ defmodule Ourocode.Model.CatalogTest do
   test "cli runner replays conversation history into the one-shot prompt" do
     alias Ourocode.Model.Conversation
 
-    dir = Path.join(System.tmp_dir!(), "ourocode-catalog-cli-#{System.unique_integer([:positive])}")
+    dir =
+      Path.join(System.tmp_dir!(), "ourocode-catalog-cli-#{System.unique_integer([:positive])}")
+
     on_exit(fn -> File.rm_rf!(dir) end)
     File.mkdir_p!(dir)
 

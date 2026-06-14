@@ -85,9 +85,9 @@ defmodule Ourocode.Acp.ServerTest do
   end
 
   test "model_id_from_env maps known backend names only" do
-    assert Server.model_id_from_env("claude") == :claude
+    assert Server.model_id_from_env("claude") == :claude_api
+    assert Server.model_id_from_env("claude_api") == :claude_api
     assert Server.model_id_from_env("codex") == :codex
-    assert Server.model_id_from_env("codex_cli") == :codex_cli
     assert Server.model_id_from_env("gemini") == :gemini
     assert Server.model_id_from_env("gpt-99") == nil
     assert Server.model_id_from_env(nil) == nil

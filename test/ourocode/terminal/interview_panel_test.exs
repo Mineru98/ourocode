@@ -40,7 +40,7 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     assert hint == "Tab switches question"
   end
 
-  test "interview block falls back to a synthesized picker when wonder request is incomplete" do
+  test "interview block falls back to free text when wonder request is incomplete" do
     result = %{
       wonder_tool: %{request_id: "bad-wt", request: %{"questions" => []}},
       interview: %{
@@ -53,7 +53,7 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
              InterviewPanel.interview_block_lines(result, nil, 0)
 
     assert "Which scope should we inspect first?" in lines
-    assert ">> [1] Clarify the first priority - Choose the highest-impact decision first" in lines
+    assert ">> [Custom answer] type any text, then Enter" in lines
   end
 
   test "interview block renders dialogue and dim working status for plain interview state" do
@@ -152,7 +152,7 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
            end)
   end
 
-  test "interview block synthesizes a picker as soon as a question is ready" do
+  test "interview block does not synthesize a picker as soon as a question is ready" do
     result = %{
       interview: %{
         dialogue: [
@@ -181,8 +181,9 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
       end)
 
     assert text =~ "What outcome should validate plugin install flow produce"
-    assert text =~ ">> [1] a testable requirements seed"
-    assert text =~ "   [2] an investigation checklist"
+    refute text =~ ">> [1] a testable requirements seed"
+    refute text =~ "   [2] an investigation checklist"
+    assert text =~ ">> [Custom answer] type any text, then Enter"
     refute text =~ "Answer  validate plugin install flow"
     refute text =~ "Question  What outcome"
     refute text =~ "preparing interview question"
@@ -329,7 +330,7 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
              InterviewPanel.interview_block_lines(result, nil, 0)
 
     assert "Which first user outcome should this interview clarify?" in lines
-    assert ">> [1] Clarify the first priority - Choose the highest-impact decision first" in lines
+    assert ">> [Custom answer] type any text, then Enter" in lines
   end
 
   test "interview block renders sticky live session hints while no question is pending" do
@@ -471,6 +472,9 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
             question_options: [
               %{label: "Setup docs", description: "Clarify first-run setup"}
             ],
+            status: "waiting for your answer",
+            waiting: false,
+            waiting_started_monotonic_ms: System.monotonic_time(:millisecond) - 20_000,
             router: ["PATH"]
           },
           paused: false
@@ -479,5 +483,17 @@ defmodule Ourocode.Terminal.InterviewPanelTest do
     }
 
     assert InterviewPanel.interview_working_lines(result, 0) == []
+
+    assert {"INTERVIEW", lines, _hint} = InterviewPanel.interview_block_lines(result, nil, 0)
+
+    text =
+      Enum.map_join(lines, "\n", fn
+        {line, _style} -> line
+        :rule -> "----"
+        line -> line
+      end)
+
+    refute text =~ "still building choices"
+    refute text =~ "building answer choices"
   end
 end

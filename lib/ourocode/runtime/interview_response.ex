@@ -38,7 +38,7 @@ defmodule Ourocode.Runtime.InterviewResponse do
 
   @spec extract_session_id(String.t(), map()) :: String.t() | nil
   def extract_session_id(text, meta) do
-    case meta_value(meta, "session_id") do
+    case meta_value(meta, "session_id") || normalized_meta_value(meta, "session_id") do
       id when is_binary(id) and id != "" ->
         id
 
@@ -146,5 +146,22 @@ defmodule Ourocode.Runtime.InterviewResponse do
       {f, _rest} -> f
       :error -> nil
     end
+  end
+
+  defp normalized_meta_value(meta, wanted_key) when is_map(meta) do
+    wanted = normalize_key(wanted_key)
+
+    Enum.find_value(meta, fn {key, value} ->
+      if normalize_key(key) == wanted, do: value
+    end)
+  end
+
+  defp normalized_meta_value(_meta, _wanted_key), do: nil
+
+  defp normalize_key(value) do
+    value
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "")
   end
 end

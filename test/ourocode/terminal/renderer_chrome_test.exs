@@ -27,7 +27,7 @@ defmodule Ourocode.Terminal.RendererChromeTest do
       90
       |> Screen.new(4)
       |> RendererChrome.draw_header(90, %{"status" => "healthy"}, %{
-        auth: {"model: codex cli", :ok}
+        auth: {"model: codex  (ChatGPT)", :ok}
       })
       |> Screen.to_lines()
 

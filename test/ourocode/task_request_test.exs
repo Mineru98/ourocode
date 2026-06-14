@@ -185,7 +185,8 @@ defmodule Ourocode.TaskRequestTest do
     cases = [
       {"ooo auto improve startup", :auto},
       {"ooo interview clarify cleanup policy", :interview},
-      {"ooo pm build onboarding", :interview},
+      {"ooo pm build onboarding", :pm},
+      {"ooo build me a thing", :interview},
       {"ouroboros seed create dispatcher contract", :seed},
       {"ooo run seed_abc123.yaml", :run},
       {"Run Ouroboros workflow evolve for the plugin renderer", :evolve},

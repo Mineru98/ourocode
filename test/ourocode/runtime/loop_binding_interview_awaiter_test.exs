@@ -27,10 +27,7 @@ defmodule Ourocode.Runtime.LoopBindingInterviewAwaiterTest do
     assert updated.interview.waiting == false
     assert updated.interview.status == "waiting for your answer"
 
-    assert Enum.map(updated.interview.question_options, & &1["label"]) == [
-             "Define the desired outcome",
-             "Clarify the target user"
-           ]
+    assert updated.interview.question_options == []
 
     refute Map.has_key?(updated.interview, :answered)
     assert updated.interview_waiter == self()

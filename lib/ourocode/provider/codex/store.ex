@@ -10,6 +10,7 @@ defmodule Ourocode.Provider.Codex.Store do
   alias Ourocode.Provider.Codex.Token
 
   @type tokens :: Token.tokens()
+  @key "codex"
 
   @doc "Absolute path of the credential file."
   @spec store_path() :: String.t()
@@ -21,7 +22,7 @@ defmodule Ourocode.Provider.Codex.Store do
   @spec load() :: {:ok, tokens()} | :error
   def load do
     with {:ok, body} <- File.read(store_path()),
-         {:ok, %{"codex" => %{} = codex}} <- Json.decode(body) do
+         {:ok, %{@key => %{} = codex}} <- Json.decode(body) do
       {:ok, Token.atomize(codex)}
     else
       _not_signed_in -> :error
@@ -33,7 +34,21 @@ defmodule Ourocode.Provider.Codex.Store do
   def save(%{} = tokens) do
     path = store_path()
     File.mkdir_p!(Path.dirname(path))
-    payload = %{"codex" => Token.stringify(tokens)}
+
+    existing =
+      case File.read(path) do
+        {:ok, body} ->
+          case Json.decode(body),
+            do: (
+              {:ok, %{} = m} -> m
+              _ -> %{}
+            )
+
+        _error ->
+          %{}
+      end
+
+    payload = Map.put(existing, @key, Token.stringify(tokens))
 
     with :ok <- File.write(path, Json.encode!(payload)) do
       _ = File.chmod(path, 0o600)
@@ -44,7 +59,19 @@ defmodule Ourocode.Provider.Codex.Store do
   @doc "Removes stored credentials (sign out)."
   @spec clear() :: :ok
   def clear do
-    _ = File.rm(store_path())
+    path = store_path()
+
+    case File.read(path) do
+      {:ok, body} ->
+        case Json.decode(body) do
+          {:ok, %{} = map} -> File.write(path, Json.encode!(Map.delete(map, @key)))
+          _other -> :ok
+        end
+
+      _error ->
+        :ok
+    end
+
     :ok
   end
 

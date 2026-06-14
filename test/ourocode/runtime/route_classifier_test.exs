@@ -51,8 +51,15 @@ defmodule Ourocode.Runtime.RouteClassifierTest do
              adapter_route: :run
            }
 
-    assert %{adapter_route: :interview} =
+    assert %{adapter_route: :pm} =
              RouteClassifier.routing_decision("ooo pm build onboarding")
+
+    assert %{adapter_route: :interview} =
+             RouteClassifier.routing_decision("ooo interview clarify cleanup policy")
+
+    # No explicit action token falls back to the interview flow.
+    assert %{adapter_route: :interview, execution_route: :ouroboros_workflow} =
+             RouteClassifier.routing_decision("ooo build me a thing")
 
     assert %{adapter_route: :status} =
              RouteClassifier.routing_decision("ooo status session sess-123")

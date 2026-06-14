@@ -2,7 +2,7 @@ defmodule Ourocode.Terminal.WorkflowRail do
   @moduledoc false
 
   @stages [
-    {:interview, "deep-interview"},
+    {:interview, "socratic"},
     {:plan, "plan"},
     {:execute, "execute"},
     {:verify, "verify"},

@@ -40,6 +40,7 @@ defmodule Ourocode.Runtime.WorkflowHarness do
     }
     |> maybe_put(:task_id, Map.get(run, :task_id))
     |> maybe_put(:cwd, Map.get(run, :cwd))
+    |> maybe_put(:model_profile, Keyword.get(opts, :model_profile))
   end
 
   @spec failure_event(String.t(), term(), keyword()) :: map()
@@ -110,6 +111,7 @@ defmodule Ourocode.Runtime.WorkflowHarness do
         attempt: Map.get(event, :attempt, 1),
         max_attempts: Map.get(event, :max_attempts, 1),
         cwd: Map.get(event, :cwd),
+        model_profile: Map.get(event, :model_profile),
         occurred_at_ms: Map.get(event, :occurred_at_ms, System.system_time(:millisecond))
       )
 
