@@ -8,10 +8,14 @@ defmodule Ourocode.Terminal.TtyDriver do
   @doc "Absolute path of the built tty helper, or nil if it is not present."
   @spec helper_path() :: String.t() | nil
   def helper_path do
+    cwd = File.cwd!()
+
     [
       System.get_env("OUROCODE_TTY"),
-      Path.join(File.cwd!(), "rust/ourocode_ipc/target/release/ourocode_tty"),
-      Path.join(File.cwd!(), "bin/ourocode_tty")
+      Path.join(cwd, "bin/ourocode_tty.exe"),
+      Path.join(cwd, "bin/ourocode_tty"),
+      Path.join(cwd, "rust/ourocode_ipc/target/release/ourocode_tty.exe"),
+      Path.join(cwd, "rust/ourocode_ipc/target/release/ourocode_tty")
     ]
     |> helper_path()
   end
