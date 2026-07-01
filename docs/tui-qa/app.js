@@ -1,65 +1,4 @@
 
-const fallbackFrames = [
-  {
-    title: "Guided starts",
-    duration_ms: 1200,
-    text: `+-- ourocode terminal region=header_status x=0 y=0 w=88 h=5
-| app=ourocode status=healthy runtime=ready
-| project=/Users/dev/Project/ourocode
-| cwd=/Users/dev/Project/ourocode
-+--
-+-- Start Modes
-| ● ooo pm <goal>        product requirements
-|   ooo interview        clarify decisions
-|   ooo auto             plan and verify
-|   / for commands
-+--
-> Message ourocode, / for commands
-ready · / commands · ooo work`,
-    checks: [
-      { label: "offline fallback frame", status: "trace" },
-      { label: "start modes visible", status: "trace" },
-    ],
-  },
-  {
-    title: "PM picker",
-    duration_ms: 1400,
-    text: `+-- ourocode terminal region=interview x=0 y=0 w=100 h=24
-| INTERVIEW
-| Round 1 · PM interview
-| What outcome should this PM interview produce?
-| ● >> [1] Define the target user - anchor the PM brief around the primary audience
-| ○ [2] Define the activation outcome - focus on the proof moment
-| ○ [3] Audit the existing flow - start from the current path
-|
-| Enter confirm   Esc pause   /cancel stop
-+--`,
-    checks: [
-      { label: "offline fallback frame", status: "trace" },
-      { label: "keyboard controls visible", status: "trace" },
-    ],
-  },
-  {
-    title: "Agents and verification",
-    duration_ms: 1500,
-    text: `+-- Agents Workspace
-| Status · running · 2 records
-| >> PM interview waiting · live
-| Health checks ready · ready
-| step · generating answer choices
-| progress · answer accepted
-| controls · Esc pause, /cancel, /sessions
-+-- Verify
-| checks: 22/22 passed
-| evidence: real terminal replay, visual captures, theme RGB, guided PM flow
-+--`,
-    checks: [
-      { label: "offline fallback frame", status: "trace" },
-      { label: "verify evidence visible", status: "trace" },
-    ],
-  },
-];
-
 const state = {
   frames: [],
   index: 0,
@@ -82,11 +21,6 @@ const elements = {
   viewportButtons: document.querySelectorAll("[data-width]"),
 };
 
-
-function canUseFallback() {
-  const params = new URLSearchParams(window.location.search);
-  return window.location.protocol === "file:" || params.get("demo") === "1";
-}
 
 function validateFrames(value) {
   if (!Array.isArray(value)) {
@@ -120,14 +54,6 @@ async function loadFrames() {
     renderScenarioList();
     renderFrame();
   } catch (error) {
-    if (canUseFallback()) {
-      state.frames = fallbackFrames;
-      elements.status.textContent = `${state.frames.length} offline demo frames loaded; run mix server for live renderer frames`;
-      renderScenarioList();
-      renderFrame();
-      return;
-    }
-
     elements.status.textContent = `Live frame load failed: ${error.message}`;
     elements.terminal.textContent = "Start with: mix run --no-start scripts/tui_qa_server.exs";
   }
