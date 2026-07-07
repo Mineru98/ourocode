@@ -164,6 +164,7 @@ function Copy-PackageInputs {
     if (Test-Path -LiteralPath $PrebuiltHelper -PathType Leaf) {
         Copy-Item -LiteralPath $PrebuiltHelper -Destination (Join-Path $BinDir "ourocode_tty.exe") -Force
         Write-Host "  helper: included prebuilt bin\ourocode_tty.exe"
+        Copy-BuiltLauncher -PackageRoot $PackageRoot -IncludeBuiltHelper $IncludeBuiltHelper
         return
     }
 
@@ -172,9 +173,26 @@ function Copy-PackageInputs {
         Assert-RequiredFile $BuiltHelper "built Windows TTY helper"
         Copy-Item -LiteralPath $BuiltHelper -Destination (Join-Path $BinDir "ourocode_tty.exe") -Force
         Write-Host "  helper: included built bin\ourocode_tty.exe"
+        Copy-BuiltLauncher -PackageRoot $PackageRoot -IncludeBuiltHelper $IncludeBuiltHelper
     } else {
         Write-Host "  helper: bin\ourocode_tty.exe not present; package will omit it"
     }
+}
+
+function Copy-BuiltLauncher {
+    param(
+        [string]$PackageRoot,
+        [bool]$IncludeBuiltHelper
+    )
+
+    if (-not $IncludeBuiltHelper) {
+        return
+    }
+
+    $BuiltLauncher = Join-Path $RepoRoot "rust\ourocode_ipc\target\release\ourocode.exe"
+    Assert-RequiredFile $BuiltLauncher "built Windows launcher"
+    Copy-Item -LiteralPath $BuiltLauncher -Destination (Join-Path $PackageRoot "ourocode.exe") -Force
+    Write-Host "  launcher: included built ourocode.exe"
 }
 
 try {
@@ -228,6 +246,9 @@ try {
 
             Write-Step "building Rust helper"
             Invoke-Checked "cargo" @("build", "--release", "--manifest-path", ".\rust\ourocode_ipc\Cargo.toml", "--bin", "ourocode_tty")
+
+            Write-Step "building Windows launcher"
+            Invoke-Checked "cargo" @("build", "--release", "--manifest-path", ".\rust\ourocode_ipc\Cargo.toml", "--bin", "ourocode")
 
             Write-Step "building Elixir escript"
             Invoke-Checked "mix" @("escript.build")
