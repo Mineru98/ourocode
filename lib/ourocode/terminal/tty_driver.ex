@@ -100,10 +100,10 @@ defmodule Ourocode.Terminal.TtyDriver do
   end
 
   @doc false
-  def enter_sequence, do: "\e[?1049h\e[?1006h\e[?1003h\e[?25l\e[2J\e[H"
+  def enter_sequence, do: "\e[?1049h\e[?1006h\e[?1003h\e[?2004h\e[?25l\e[2J\e[H"
 
   @doc false
-  def exit_sequence, do: "\e[?1003l\e[?1006l\e[?25h\e[?1049l"
+  def exit_sequence, do: "\e[?2004l\e[?1003l\e[?1006l\e[?25h\e[?1049l"
 
   @doc false
   @spec parse_header(binary()) ::
