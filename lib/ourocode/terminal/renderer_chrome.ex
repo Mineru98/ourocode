@@ -129,6 +129,10 @@ defmodule Ourocode.Terminal.RendererChrome do
     end
   end
 
+  defp put_composer_text(screen, x, y, text, style, width) do
+    Screen.put_text(screen, x, y, clip(text, width), style)
+  end
+
   # Paints "<indent :text><token token_style><rest :text>", advancing by
   # display width so multibyte args after the token stay aligned.
   defp put_highlighted_token(screen, x, y, lead, token, token_style, rest) do
@@ -139,10 +143,6 @@ defmodule Ourocode.Terminal.RendererChrome do
     |> Screen.put_text(x, y, lead, :text)
     |> Screen.put_text(x + lead_w, y, token, token_style)
     |> Screen.put_text(x + lead_w + token_w, y, rest, :text)
-  end
-
-  defp put_composer_text(screen, x, y, text, style, width) do
-    Screen.put_text(screen, x, y, clip(text, width), style)
   end
 
   # Reverse-i-search line: "(reverse-i-search)`query`: match". The query is

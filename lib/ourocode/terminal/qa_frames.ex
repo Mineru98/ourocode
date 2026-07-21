@@ -48,7 +48,7 @@ defmodule Ourocode.Terminal.QaFrames do
   end
 
   @spec all_json() :: String.t()
-  def all_json, do: Ourocode.Json.encode!(all())
+  def all_json, do: all() |> Ourocode.Json.encode!() |> IO.iodata_to_binary()
 
   defp frame(title, duration_ms, prompt, activity, opts) do
     %{
