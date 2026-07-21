@@ -62,7 +62,10 @@ jobs:
             if ($updatedUserPath -notlike "*$expectedBin*") {
               throw "installer did not add the stable shim directory to the user PATH"
             }
-            $env:Path = "$updatedUserPath;$([Environment]::GetEnvironmentVariable("Path", "Machine"))"
+            # Keep the current process PATH (setup-beam put escript.exe there) so the
+            # ourocode.cmd launcher can resolve escript; a real user has Erlang on a
+            # persistent PATH, but on CI it only lives in this job's process PATH.
+            $env:Path = "$updatedUserPath;$([Environment]::GetEnvironmentVariable("Path", "Machine"));$env:Path"
             powershell -NoProfile -Command "ourocode --version"
             cmd.exe /c "ourocode --version"
           }
