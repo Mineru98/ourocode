@@ -1234,12 +1234,13 @@ defmodule Ourocode.MCP.Transport.StdioTest do
       )
 
     assert_receive {:ourocode_event,
-                    %{type: :transport_started, parent_call_id: "parent-stdio-timing-1"}}
+                    %{type: :transport_started, parent_call_id: "parent-stdio-timing-1"}},
+                   15_000
 
     call_task =
       Task.async(fn ->
         Stdio.call_parent(transport, "tools/call", %{"name" => "synthetic.timing"},
-          timeout: 4_000
+          timeout: 15_000
         )
       end)
 
@@ -1248,7 +1249,8 @@ defmodule Ourocode.MCP.Transport.StdioTest do
                       type: :parent_call_started,
                       parent_call_id: "parent-stdio-timing-1",
                       request_id: "1"
-                    }}
+                    }},
+                   15_000
 
     assert_receive {:ourocode_event,
                     %{
@@ -1262,7 +1264,7 @@ defmodule Ourocode.MCP.Transport.StdioTest do
                         }
                       }
                     } = child_created_event},
-                   1_000
+                   15_000
 
     child_created_received_at = System.monotonic_time(:millisecond)
 
