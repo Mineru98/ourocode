@@ -37,20 +37,11 @@ defmodule Ourocode.Test.PortPrograms do
   end
 
   def echo_line_command(prefix) when is_binary(prefix) do
-    elixir_program("""
-    IO.stream(:stdio, :line)
-    |> Enum.each(fn line ->
-      line = line |> String.trim_trailing("\\n") |> String.trim_trailing("\\r")
-      IO.puts(#{inspect(prefix)} <> line)
-    end)
-    """)
+    ops_command([{:echo_line, prefix}])
   end
 
   def read_once_and_exit_command do
-    elixir_program("""
-    IO.read(:stdio, :line)
-    System.halt(0)
-    """)
+    erl_eval(~S|io:get_line(""), init:stop().|)
   end
 
   def shell_script(script) when is_binary(script) do
@@ -60,35 +51,29 @@ defmodule Ourocode.Test.PortPrograms do
       |> String.split("\n")
       |> Enum.flat_map(&parse_shell_line/1)
 
-    elixir_program("""
-    operations = #{inspect(operations, limit: :infinity, printable_limit: :infinity)}
-
-    IO.stream(:stdio, :line)
-    |> Enum.each(fn line ->
-      line = line |> String.trim_trailing("\\n") |> String.trim_trailing("\\r")
-
-      Enum.each(operations, fn
-        {:print, value} -> IO.puts(value)
-        {:echo_line, prefix} -> IO.puts(prefix <> line)
-        {:sleep, ms} -> Process.sleep(ms)
-      end)
-    end)
-    """)
+    ops_command(operations)
   end
 
-  defp elixir_program(source) do
-    elixir = System.find_executable("elixir") || System.find_executable("elixir.bat")
-    assert is_binary(elixir), "expected elixir executable for portable port test helper"
+  # Runs an operation list ({:print, bin} | {:echo_line, bin} | {:sleep, ms}) for
+  # every stdin line. Spawns `erl` directly instead of `elixir`: on Windows the
+  # `elixir.bat` shim breaks the port's stdout pipe ("The pipe is being closed")
+  # and adds boot latency that fails timing-sensitive port tests. Operations travel
+  # as a base64 term so no Erlang string escaping is needed.
+  defp ops_command(operations) do
+    ops64 = operations |> :erlang.term_to_binary() |> Base.encode64()
 
-    path =
-      Path.join(
-        System.tmp_dir!(),
-        "ourocode-port-program-#{System.unique_integer([:positive])}.exs"
-      )
+    code =
+      ~s|Ops = binary_to_term(base64:decode(<<"#{ops64}">>)), | <>
+        ~S|Loop = fun Self() -> case io:get_line("") of eof -> ok; {error, _} -> ok; L0 -> L = string:trim(L0, trailing, "\r\n"), lists:foreach(fun ({print, V}) -> io:put_chars([V, "\n"]); ({echo_line, P}) -> io:put_chars([P, L, "\n"]); ({sleep, Ms}) -> timer:sleep(Ms) end, Ops), Self() end end, Loop(), init:stop().|
 
-    File.write!(path, "File.rm(__ENV__.file)\n" <> source)
+    erl_eval(code)
+  end
 
-    {elixir, [path]}
+  defp erl_eval(code) when is_binary(code) do
+    erl = System.find_executable("erl") || System.find_executable("erl.exe")
+    assert is_binary(erl), "expected erl executable for portable port test helper"
+
+    {erl, ["-noshell", "-eval", code]}
   end
 
   defp normalize_printf_newlines(script) do

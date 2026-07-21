@@ -330,13 +330,13 @@ defmodule Ourocode.Command.RegistryTest do
 
     assert entry.run_spec == %{
              kind: :local_skill,
-             skill_path: skill_dir,
-             skill_file: Path.join(skill_dir, "SKILL.md"),
+             skill_path: Path.expand(skill_dir),
+             skill_file: Path.expand(Path.join(skill_dir, "SKILL.md")),
              mcp_tool: "release_planner"
            }
 
-    assert entry.metadata.skill_path == skill_dir
-    assert entry.metadata.skill_file == Path.join(skill_dir, "SKILL.md")
+    assert entry.metadata.skill_path == Path.expand(skill_dir)
+    assert entry.metadata.skill_file == Path.expand(Path.join(skill_dir, "SKILL.md"))
     assert entry.metadata.frontmatter_keys == ["description", "mcp_tool", "name"]
   after
     cleanup_tmp_dir()
@@ -374,13 +374,13 @@ defmodule Ourocode.Command.RegistryTest do
 
     assert entry.run_spec == %{
              kind: :bundled_skill,
-             skill_path: skill_dir,
-             skill_file: Path.join(skill_dir, "SKILL.md"),
+             skill_path: Path.expand(skill_dir),
+             skill_file: Path.expand(Path.join(skill_dir, "SKILL.md")),
              mcp_tool: "replay_journal"
            }
 
-    assert entry.metadata.skill_path == skill_dir
-    assert entry.metadata.skill_file == Path.join(skill_dir, "SKILL.md")
+    assert entry.metadata.skill_path == Path.expand(skill_dir)
+    assert entry.metadata.skill_file == Path.expand(Path.join(skill_dir, "SKILL.md"))
     assert entry.metadata.distribution == :bundled
     assert entry.metadata.frontmatter_keys == ["description", "mcp_tool", "name"]
   after
@@ -475,7 +475,7 @@ defmodule Ourocode.Command.RegistryTest do
     assert {:ok, dupe} = Registry.fetch(registry, "/dupe")
     assert dupe.source == :local
     assert dupe.summary == "First deterministic duplicate winner."
-    assert dupe.metadata.skill_path == Path.join(skill_root, "alpha")
+    assert dupe.metadata.skill_path == Path.expand(Path.join(skill_root, "alpha"))
 
     assert Enum.count(registry.ordered, &(&1.slash == "/dupe")) == 1
     assert registry.duplicate_count == 1
