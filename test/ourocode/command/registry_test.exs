@@ -490,8 +490,8 @@ defmodule Ourocode.Command.RegistryTest do
              }
            ] = registry.duplicates
 
-    assert winner_path == Path.join(skill_root, "alpha")
-    assert loser_path == Path.join(skill_root, "beta")
+    assert winner_path == Path.expand(Path.join(skill_root, "alpha"))
+    assert loser_path == Path.expand(Path.join(skill_root, "beta"))
   after
     cleanup_tmp_dir()
   end
