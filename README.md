@@ -6,7 +6,7 @@ Ourocode is a terminal workbench for planning real work, delegating it to guided
 
 Product site draft: [docs/site](docs/site/index.html)
 
-The current release is optimized for local macOS development and guided workflow testing.
+The current release supports local macOS and Linux (x86_64/arm64) development and guided workflow testing.
 
 ## What It Does
 
@@ -69,6 +69,10 @@ Unix installer installs it best-effort (Homebrew on macOS, `apt`/`dnf` on
 Linux); if that is not possible it stops with manual instructions. Install it
 yourself with `brew install erlang`, `sudo apt-get install erlang`, or `sudo dnf
 install erlang`. Set `OUROCODE_SKIP_ERLANG=1` to bypass the check on Unix.
+
+Prebuilt release tarballs are published for **Linux** (`x86_64`, `arm64`) and
+**macOS** (`arm64`). On other platforms, install from a source checkout or set
+`OUROCODE_BUILD_FROM_SOURCE=1` to build locally (needs Elixir + Rust).
 
 Optional model backends:
 
@@ -210,18 +214,23 @@ install.sh
 README.md
 ```
 
-Generated artifacts:
+Generated artifacts (named for the host platform, for example):
 
 ```text
-dist/ourocode-v0.1.13-darwin-arm64.tar.gz
-dist/ourocode-v0.1.13-darwin-arm64.tar.gz.sha256
+dist/ourocode-v0.1.14-linux-x86_64.tar.gz
+dist/ourocode-v0.1.14-linux-x86_64.tar.gz.sha256
 ```
+
+`scripts/package.sh` builds a tarball for the machine it runs on. The `release`
+workflow (`.github/workflows/release.yml`) runs it on `ubuntu-latest`,
+`ubuntu-24.04-arm`, and `macos-14` and attaches `linux-x86_64`, `linux-arm64`,
+and `darwin-arm64` tarballs (plus `.sha256`) to each published GitHub Release.
 
 Install from an unpacked release:
 
 ```bash
-tar -xzf dist/ourocode-v0.1.13-darwin-arm64.tar.gz
-cd ourocode-v0.1.13-darwin-arm64
+tar -xzf dist/ourocode-v0.1.14-linux-x86_64.tar.gz
+cd ourocode-v0.1.14-linux-x86_64
 ./install.sh
 ourocode
 ```
