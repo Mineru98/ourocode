@@ -2,6 +2,11 @@
 # Install ourocode from either a release tarball directory or a source checkout.
 set -euo pipefail
 
+# Last-resort fallback, used only when there is no OUROCODE_VERSION override, no
+# source checkout to read mix.exs from, and the GitHub latest-release lookup
+# fails. Keep this on the newest *stable* tag: pre-releases (0.1.15-beta-N) are
+# published as GitHub pre-releases and are excluded from /releases/latest on
+# purpose, so pinning one here would push beta bits to users who hit this path.
 OUROCODE_DEFAULT_VERSION="0.1.14"
 INSTALL_ROOT="${OUROCODE_INSTALL_ROOT:-$HOME/.local/ourocode}"
 BIN_DIR="${OUROCODE_BIN_DIR:-$HOME/.local/bin}"
