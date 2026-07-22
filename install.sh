@@ -2,10 +2,15 @@
 # Install ourocode from either a release tarball directory or a source checkout.
 set -euo pipefail
 
+# Last-resort fallback, used only when there is no OUROCODE_VERSION override, no
+# source checkout to read mix.exs from, and the GitHub latest-release lookup
+# fails. Keep this on the newest *stable* tag: pre-releases (0.1.15-beta-N) are
+# published as GitHub pre-releases and are excluded from /releases/latest on
+# purpose, so pinning one here would push beta bits to users who hit this path.
 OUROCODE_DEFAULT_VERSION="0.1.14"
 INSTALL_ROOT="${OUROCODE_INSTALL_ROOT:-$HOME/.local/ourocode}"
 BIN_DIR="${OUROCODE_BIN_DIR:-$HOME/.local/bin}"
-REPO="${OUROCODE_REPO:-Q00/ourocode}"
+REPO="${OUROCODE_REPO:-Ouro-labs/ourocode}"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DOWNLOAD_TMP=""
@@ -78,10 +83,22 @@ download_release() {
 }
 
 resolve_version() {
-  # Resolve the ourocode version without drift:
-  # 1) explicit override, 2) source checkout mix.exs, 3) latest release tag, 4) pinned fallback.
+  # Resolve the ourocode version without drift: 1) explicit override,
+  # 2) unpacked release directory name, 3) source checkout mix.exs,
+  # 4) latest release tag, 5) pinned fallback.
   if [ -n "${OUROCODE_VERSION:-}" ]; then
     printf '%s' "$OUROCODE_VERSION"
+    return 0
+  fi
+
+  # Unpacked release tarball: ourocode-v<version>-<os>-<arch> names the exact
+  # build sitting next to this script, so it wins over any remote lookup —
+  # otherwise a release install lands in a directory named for whatever the
+  # fallback happens to be. Mirrors Get-VersionFromZipName in install.ps1.
+  local dir_name
+  dir_name="$(basename "$ROOT")"
+  if [[ "$dir_name" =~ ^ourocode-v(.+)-(linux|darwin)-(x86_64|arm64)$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
     return 0
   fi
 
