@@ -83,10 +83,22 @@ download_release() {
 }
 
 resolve_version() {
-  # Resolve the ourocode version without drift:
-  # 1) explicit override, 2) source checkout mix.exs, 3) latest release tag, 4) pinned fallback.
+  # Resolve the ourocode version without drift: 1) explicit override,
+  # 2) unpacked release directory name, 3) source checkout mix.exs,
+  # 4) latest release tag, 5) pinned fallback.
   if [ -n "${OUROCODE_VERSION:-}" ]; then
     printf '%s' "$OUROCODE_VERSION"
+    return 0
+  fi
+
+  # Unpacked release tarball: ourocode-v<version>-<os>-<arch> names the exact
+  # build sitting next to this script, so it wins over any remote lookup —
+  # otherwise a release install lands in a directory named for whatever the
+  # fallback happens to be. Mirrors Get-VersionFromZipName in install.ps1.
+  local dir_name
+  dir_name="$(basename "$ROOT")"
+  if [[ "$dir_name" =~ ^ourocode-v(.+)-(linux|darwin)-(x86_64|arm64)$ ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
     return 0
   fi
 
