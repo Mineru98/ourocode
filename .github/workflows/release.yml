@@ -10,9 +10,6 @@ name: release
 on:
   release:
     types: [published]
-  # TEMPORARY: verify the release build on the integration branch. Remove before merge.
-  push:
-    branches: ["feat/v0.1.15"]
   workflow_dispatch:
     inputs:
       ref:
