@@ -10,7 +10,7 @@ set -euo pipefail
 OUROCODE_DEFAULT_VERSION="0.1.14"
 INSTALL_ROOT="${OUROCODE_INSTALL_ROOT:-$HOME/.local/ourocode}"
 BIN_DIR="${OUROCODE_BIN_DIR:-$HOME/.local/bin}"
-REPO="${OUROCODE_REPO:-Q00/ourocode}"
+REPO="${OUROCODE_REPO:-Ouro-labs/ourocode}"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DOWNLOAD_TMP=""
