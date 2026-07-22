@@ -25,7 +25,7 @@ The current release is optimized for local macOS development and guided workflow
 Install the latest prerelease build on macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Ouro-labs/ourocode/release/bootstrap/install.sh | bash
 ```
 
 Install a Windows release from PowerShell:
@@ -128,7 +128,7 @@ Ctrl-G          show active key help
 Install from GitHub without cloning on macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Q00/ourocode/release/bootstrap/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Ouro-labs/ourocode/release/bootstrap/install.sh | bash
 ourocode
 ```
 
@@ -229,7 +229,7 @@ ourocode
 Homebrew is planned but not yet the supported install path:
 
 ```bash
-brew tap Q00/ourocode
+brew tap Ouro-labs/ourocode
 brew install ourocode
 ```
 

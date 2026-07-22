@@ -5,7 +5,7 @@ param(
     [string]$Sha256,
     [string]$InstallRoot,
     [switch]$NoPathUpdate,
-    [string]$Repo = "Q00/ourocode",
+    [string]$Repo = "Ouro-labs/ourocode",
     [string]$ReleaseUrl,
     [string]$Sha256Url,
     [switch]$SkipPrerequisiteCheckForTest
