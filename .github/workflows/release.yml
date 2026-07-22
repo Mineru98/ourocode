@@ -10,6 +10,9 @@ name: release
 on:
   release:
     types: [published]
+  # TEMPORARY: verify the release build on the integration branch. Remove before merge.
+  push:
+    branches: ["feat/v0.1.15"]
   workflow_dispatch:
     inputs:
       ref:
@@ -179,7 +182,7 @@ jobs:
             dist/*.zip.sha256
 
       - name: Upload dry-run artifacts
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: ourocode-windows-x64
