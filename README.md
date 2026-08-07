@@ -217,8 +217,8 @@ README.md
 Generated artifacts (named for the host platform, for example):
 
 ```text
-dist/ourocode-v0.1.15-beta-1-linux-x86_64.tar.gz
-dist/ourocode-v0.1.15-beta-1-linux-x86_64.tar.gz.sha256
+dist/ourocode-v0.1.15-beta-2-linux-x86_64.tar.gz
+dist/ourocode-v0.1.15-beta-2-linux-x86_64.tar.gz.sha256
 ```
 
 `scripts/package.sh` builds a tarball for the machine it runs on. The `release`
@@ -228,23 +228,23 @@ and `darwin-arm64` tarballs (plus `.sha256`) to each published GitHub Release.
 A `windows-latest` job runs `scripts/package-windows.ps1` and attaches
 `ourocode-v<version>-windows-x64.zip` (plus `.sha256`) to the same release.
 
-Pre-releases such as `v0.1.15-beta-1` are published as GitHub *pre-releases*,
+Pre-releases such as `v0.1.15-beta-2` are published as GitHub *pre-releases*,
 so `install.sh` keeps resolving the latest **stable** tag by default. Opt into a
 beta explicitly:
 
 ```bash
-OUROCODE_VERSION=0.1.15-beta-1 ./install.sh
+OUROCODE_VERSION=0.1.15-beta-2 ./install.sh
 ```
 
 ```powershell
-.\install.ps1 -Version 0.1.15-beta-1
+.\install.ps1 -Version 0.1.15-beta-2
 ```
 
 Install from an unpacked release:
 
 ```bash
-tar -xzf dist/ourocode-v0.1.15-beta-1-linux-x86_64.tar.gz
-cd ourocode-v0.1.15-beta-1-linux-x86_64
+tar -xzf dist/ourocode-v0.1.15-beta-2-linux-x86_64.tar.gz
+cd ourocode-v0.1.15-beta-2-linux-x86_64
 ./install.sh
 ourocode
 ```
