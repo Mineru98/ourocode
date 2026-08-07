@@ -26,7 +26,7 @@
 
 #[cfg(unix)]
 mod unix {
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Once;
     use std::{mem, process, ptr, thread};
 
     const TTY_IN: libc::c_int = 0;
@@ -35,31 +35,52 @@ mod unix {
     const PROTO_OUT: libc::c_int = 4;
 
     static mut SAVED: Option<libc::termios> = None;
-    static RESTORED: AtomicBool = AtomicBool::new(false);
+    static RESTORE_ONCE: Once = Once::new();
+
+    const RESTORE_SEQUENCE: &[u8] = b"\x1b[?2004l\x1b[?1003l\x1b[?1006l\x1b[?25h\x1b[?1049l";
+
+    fn exit_after_restore(status: libc::c_int) -> ! {
+        RESTORE_ONCE.call_once(|| unsafe { restore() });
+        process::exit(status)
+    }
 
     unsafe fn restore() {
-        if RESTORED.swap(true, Ordering::SeqCst) {
-            return;
-        }
         if let Some(saved) = SAVED {
             libc::tcsetattr(TTY_IN, libc::TCSANOW, &saved);
         }
-        let seq = b"\x1b[?25h\x1b[?1049l";
-        libc::write(TTY_OUT, seq.as_ptr() as *const libc::c_void, seq.len());
+        libc::write(
+            TTY_OUT,
+            RESTORE_SEQUENCE.as_ptr() as *const libc::c_void,
+            RESTORE_SEQUENCE.len(),
+        );
     }
 
-    extern "C" fn on_signal(_sig: libc::c_int) {
-        unsafe { restore() };
-        process::exit(0);
-    }
+    const EXIT_SIGNALS: [libc::c_int; 5] = [
+        libc::SIGTERM,
+        libc::SIGINT,
+        libc::SIGHUP,
+        libc::SIGPIPE,
+        libc::SIGQUIT,
+    ];
 
-    fn install_signal(sig: libc::c_int) {
+    fn block_exit_signals() -> Option<libc::sigset_t> {
         unsafe {
-            let mut sa: libc::sigaction = mem::zeroed();
-            sa.sa_sigaction = on_signal as *const () as usize;
-            libc::sigemptyset(&mut sa.sa_mask);
-            libc::sigaction(sig, &sa, ptr::null_mut());
+            let mut set: libc::sigset_t = mem::zeroed();
+            libc::sigemptyset(&mut set);
+            for signal in EXIT_SIGNALS {
+                libc::sigaddset(&mut set, signal);
+            }
+
+            (libc::pthread_sigmask(libc::SIG_BLOCK, &set, ptr::null_mut()) == 0).then_some(set)
         }
+    }
+
+    fn wait_for_exit_signal(set: libc::sigset_t) {
+        let mut signal = 0;
+        if unsafe { libc::sigwait(&set, &mut signal) } != 0 {
+            exit_after_restore(1);
+        }
+        exit_after_restore(128 + signal);
     }
 
     fn write_all(fd: libc::c_int, buf: &[u8]) -> bool {
@@ -87,20 +108,31 @@ mod unix {
             process::exit(1);
         }
 
-        unsafe {
+        let term = unsafe {
             let mut term: libc::termios = mem::zeroed();
             if libc::tcgetattr(TTY_IN, &mut term) != 0 {
                 process::exit(1);
             }
             SAVED = Some(term);
+            term
+        };
 
+        let signal_set = block_exit_signals().unwrap_or_else(|| process::exit(1));
+
+        unsafe {
             let mut raw = term;
             libc::cfmakeraw(&mut raw);
-            libc::tcsetattr(TTY_IN, libc::TCSANOW, &raw);
+            if libc::tcsetattr(TTY_IN, libc::TCSANOW, &raw) != 0 {
+                process::exit(1);
+            }
         }
 
-        for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP, libc::SIGPIPE] {
-            install_signal(sig);
+        if thread::Builder::new()
+            .name("ourocode-tty-signals".into())
+            .spawn(move || wait_for_exit_signal(signal_set))
+            .is_err()
+        {
+            exit_after_restore(1);
         }
 
         let (cols, rows) = unsafe {
@@ -114,19 +146,31 @@ mod unix {
                 (120u16, 40u16)
             }
         };
-        write_all(PROTO_OUT, format!("{} {}\n", cols, rows).as_bytes());
+        if !write_all(PROTO_OUT, format!("{} {}\n", cols, rows).as_bytes()) {
+            exit_after_restore(1);
+        }
 
         // terminal input -> Elixir
-        thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            loop {
-                let n =
-                    unsafe { libc::read(TTY_IN, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-                if n <= 0 || !write_all(PROTO_OUT, &buf[..n as usize]) {
-                    process::exit(0);
+        if thread::Builder::new()
+            .name("ourocode-tty-input".into())
+            .spawn(move || {
+                let mut buf = [0u8; 4096];
+                loop {
+                    let n = unsafe {
+                        libc::read(TTY_IN, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
+                    };
+                    if n <= 0 {
+                        exit_after_restore(0);
+                    }
+                    if !write_all(PROTO_OUT, &buf[..n as usize]) {
+                        exit_after_restore(0);
+                    }
                 }
-            }
-        });
+            })
+            .is_err()
+        {
+            exit_after_restore(1);
+        }
 
         // Elixir frames -> terminal. EOF means Elixir is done.
         let mut buf = [0u8; 16384];
@@ -138,8 +182,20 @@ mod unix {
             }
         }
 
-        unsafe { restore() };
-        process::exit(0);
+        exit_after_restore(0);
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn restore_sequence_has_complete_ordered_terminal_cleanup() {
+            assert_eq!(
+                RESTORE_SEQUENCE,
+                b"\x1b[?2004l\x1b[?1003l\x1b[?1006l\x1b[?25h\x1b[?1049l"
+            );
+        }
     }
 }
 

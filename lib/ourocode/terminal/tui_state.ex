@@ -437,6 +437,18 @@ defmodule Ourocode.Terminal.TuiState do
     Agent.get_and_update(state, fn s -> {s.leftover, %{s | leftover: ""}} end)
   end
 
+  @spec take_pending_events(pid()) :: {[map()], :continue | :eof}
+  def take_pending_events(state) do
+    Agent.get_and_update(state, fn s ->
+      {Map.get(s, :pending_events, {[], :continue}), Map.put(s, :pending_events, {[], :continue})}
+    end)
+  end
+
+  @spec put_pending_events(pid(), [map()], :continue | :eof) :: :ok
+  def put_pending_events(state, events, terminal)
+      when is_list(events) and terminal in [:continue, :eof],
+      do: Agent.update(state, &Map.put(&1, :pending_events, {events, terminal}))
+
   @spec put_leftover(pid(), binary()) :: :ok
   def put_leftover(state, leftover),
     do: Agent.update(state, fn s -> %{s | leftover: leftover} end)

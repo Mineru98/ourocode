@@ -48,6 +48,229 @@ defmodule Ourocode.Terminal.TuiInputLoopTest do
     assert_received {:redraw, "a", 80, 24}
   end
 
+  test "consecutive plain keystrokes coalesce into a single composer redraw", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    events = for c <- ["h", "e", "l", "l", "o"], do: %{key: :char, char: c}
+
+    assert TuiInputLoop.handle_events(events, %{}, output, state, 80, 24, callbacks) ==
+             :continue
+
+    assert TuiState.buffer(state) == "hello"
+    # The burst edits and redraws once with the final buffer, not once per char.
+    assert_received {:redraw, "hello", 80, 24}
+    refute_received {:redraw, "h", 80, 24}
+    refute_received {:redraw, "hel", 80, 24}
+  end
+
+  test "a fast multi-byte keystroke burst coalesces without losing graphemes", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    events = for c <- ["안", "녕", "🚀", "a", "字"], do: %{key: :char, char: c}
+
+    assert TuiInputLoop.handle_events(events, %{}, output, state, 80, 24, callbacks) ==
+             :continue
+
+    assert TuiState.buffer(state) == "안녕🚀a字"
+    assert String.length(TuiState.buffer(state)) == 5
+    assert_received {:redraw, "안녕🚀a字", 80, 24}
+  end
+
+  test "a slash within a keystroke run is not coalesced into the leading text", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    events = [
+      %{key: :char, char: "a"},
+      %{key: :char, char: "b"},
+      %{key: :char, char: "/"}
+    ]
+
+    assert TuiInputLoop.handle_events(events, %{}, output, state, 80, 24, callbacks) ==
+             :continue
+
+    assert TuiState.buffer(state) == "ab/"
+    # Events are applied in order while the redraw is deferred to the batch end.
+    assert_received {:redraw, "ab/", 80, 24}
+    refute_received {:redraw, "ab", 80, 24}
+  end
+
+  test "read loop drains fragmented queued chunks before one redraw", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    Process.put(:tui_input_loop_poll, nil)
+
+    {:ok, chunks} =
+      Agent.start_link(fn ->
+        [
+          "a",
+          "e",
+          <<0xCC>>,
+          <<0x81>>,
+          <<0xEC>>,
+          <<0x95, 0x88>>,
+          <<0xF0, 0x9F>>,
+          <<0x91, 0xA9, 0xE2>>,
+          <<0x80, 0x8D, 0xF0, 0x9F, 0x92, 0xBB>>,
+          "\e",
+          "[",
+          "D",
+          "x",
+          <<127>>,
+          :eof
+        ]
+      end)
+
+    callbacks =
+      callbacks
+      |> Map.put(:next_chunk, fn _state, poll_ms ->
+        Agent.get_and_update(chunks, fn
+          [:eof | rest] ->
+            assert poll_ms == Process.get(:tui_input_loop_poll)
+            Process.put(:tui_input_loop_poll, 0)
+            {:eof, rest}
+
+          [chunk | rest] ->
+            assert poll_ms == Process.get(:tui_input_loop_poll)
+            Process.put(:tui_input_loop_poll, 0)
+            {{:ok, chunk}, rest}
+
+          [] ->
+            assert poll_ms == Process.get(:tui_input_loop_poll)
+            Process.put(:tui_input_loop_poll, 0)
+            {:eof, []}
+        end)
+      end)
+      |> Map.update!(:redraw, fn redraw ->
+        fn result, output, state, prompt_buffer, columns, rows ->
+          Process.sleep(1)
+          redraw.(result, output, state, prompt_buffer, columns, rows)
+        end
+      end)
+
+    assert TuiInputLoop.read_line(%{}, output, state, callbacks) == :eof
+    assert TuiState.buffer(state) == "aé안👩‍💻"
+    assert TuiState.cursor(state) == 3
+
+    assert_received {:redraw, "", 120, 40}
+    assert_received {:redraw, "aé안👩‍💻", 120, 40}
+    refute_received {:redraw, _, 120, 40}
+  end
+
+  test "read loop batches more than 64 queued one-byte chunks", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    {:ok, chunks} = Agent.start_link(fn -> List.duplicate("x", 65) ++ [:eof] end)
+    expected = String.duplicate("x", 65)
+
+    callbacks =
+      Map.put(callbacks, :next_chunk, fn _state, poll_ms ->
+        Agent.get_and_update(chunks, fn
+          [:eof | rest] ->
+            assert poll_ms == 0
+            {:eof, rest}
+
+          [chunk | rest] ->
+            assert poll_ms == 0 or poll_ms == nil
+            {{:ok, chunk}, rest}
+        end)
+      end)
+
+    assert TuiInputLoop.read_line(%{}, output, state, callbacks) == :eof
+    assert TuiState.buffer(state) == expected
+    assert_received {:redraw, ^expected, 120, 40}
+  end
+
+  test "input crossing the drain byte budget is rebuffered and resumed losslessly", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    combining_payload = "a" <> String.duplicate("\u0301", 524_284)
+    first_chunk = "\e[200~" <> combining_payload
+    expected = combining_payload <> "b]"
+
+    assert byte_size(first_chunk) == 1_048_575
+
+    {:ok, chunks} = Agent.start_link(fn -> [first_chunk, "b]", "\e[201~", :eof] end)
+
+    callbacks =
+      Map.put(callbacks, :next_chunk, fn _state, poll_ms ->
+        Agent.get_and_update(chunks, fn
+          [:eof | rest] ->
+            assert poll_ms == 0
+            {:eof, rest}
+
+          [chunk | rest] ->
+            assert poll_ms == 0 or poll_ms == nil
+            {{:ok, chunk}, rest}
+        end)
+      end)
+
+    assert TuiInputLoop.read_line(%{}, output, state, callbacks) == :eof
+    assert TuiState.buffer(state) == expected
+    assert_received {:redraw, ^expected, 120, 40}
+  end
+
+  test "split bracketed paste is decoded as one event before redraw", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    {:ok, chunks} =
+      Agent.start_link(fn -> ["\e[20", "0~hello ", "안", "녕\e[20", "1~", :eof] end)
+
+    callbacks =
+      Map.put(callbacks, :next_chunk, fn _state, poll_ms ->
+        Agent.get_and_update(chunks, fn
+          [:eof | rest] ->
+            {:eof, rest}
+
+          [chunk | rest] ->
+            assert poll_ms == 0 or poll_ms == nil
+            {{:ok, chunk}, rest}
+        end)
+      end)
+
+    assert TuiInputLoop.read_line(%{}, output, state, callbacks) == :eof
+    assert TuiState.buffer(state) == "hello 안녕"
+    assert_received {:redraw, "hello 안녕", 120, 40}
+  end
+
+  test "events after submit are preserved for the next read", %{
+    callbacks: callbacks,
+    output: output,
+    state: state
+  } do
+    {:ok, chunks} = Agent.start_link(fn -> ["first\nsecond", :eof] end)
+
+    callbacks =
+      Map.put(callbacks, :next_chunk, fn _state, poll_ms ->
+        Agent.get_and_update(chunks, fn
+          [:eof | rest] ->
+            {:eof, rest}
+
+          [chunk | rest] ->
+            assert poll_ms == 0 or poll_ms == nil
+            {{:ok, chunk}, rest}
+        end)
+      end)
+
+    assert TuiInputLoop.read_line(%{}, output, state, callbacks) == "first"
+    assert TuiState.buffer(state) == ""
+    assert TuiInputLoop.read_line(%{}, output, state, callbacks) == :eof
+    assert TuiState.buffer(state) == "second"
+  end
+
   test "enter submits the trimmed composer line", %{
     callbacks: callbacks,
     output: output,

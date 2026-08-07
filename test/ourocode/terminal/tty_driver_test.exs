@@ -59,6 +59,14 @@ defmodule Ourocode.Terminal.TtyDriverTest do
     assert TtyDriver.exit_sequence() =~ "?1006l"
   end
 
+  test "terminal lifecycle sequences enable and disable modes in restoration order" do
+    assert TtyDriver.enter_sequence() ==
+             "\e[?1049h\e[?1006h\e[?1003h\e[?2004h\e[?25l\e[2J\e[H"
+
+    assert TtyDriver.exit_sequence() ==
+             "\e[?2004l\e[?1003l\e[?1006l\e[?25h\e[?1049l"
+  end
+
   test "parse_header accepts complete helper header and preserves key bytes" do
     assert TtyDriver.parse_header("120 40\nabc") == {:ok, 120, 40, "abc"}
     assert TtyDriver.parse_header("120") == :partial

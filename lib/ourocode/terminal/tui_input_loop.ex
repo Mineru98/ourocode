@@ -24,6 +24,7 @@ defmodule Ourocode.Terminal.TuiInputLoop do
                                         :continue | :exit | {:submit, String.t()}),
           required(:test_run?) => (-> boolean())
         }
+  @drain_byte_budget 1_048_576
 
   @spec read_line(map(), pid(), pid(), callbacks()) :: String.t() | :eof
   def read_line(result, output, state, callbacks) do
@@ -35,16 +36,38 @@ defmodule Ourocode.Terminal.TuiInputLoop do
   @doc false
   @spec handle_events([map()], map(), pid(), pid(), pos_integer(), pos_integer(), callbacks()) ::
           :continue | :exit | {:submit, String.t()}
-  def handle_events(events, result, output, state, columns, rows, callbacks)
-
-  def handle_events([], _result, _output, _state, _columns, _rows, _callbacks), do: :continue
-
-  def handle_events([event | rest], result, output, state, columns, rows, callbacks) do
-    cont = fn -> handle_events(rest, result, output, state, columns, rows, callbacks) end
-
-    draw = fn ->
-      redraw(callbacks, result, output, state, TuiState.buffer(state), columns, rows)
+  def handle_events(events, result, output, state, columns, rows, callbacks) do
+    case handle_events_with_rest(events, result, output, state, columns, rows, callbacks) do
+      {:submit, line, _rest} -> {:submit, line}
+      outcome -> outcome
     end
+  end
+
+  defp handle_events_with_rest(events, result, output, state, columns, rows, callbacks) do
+    redraw_key = {__MODULE__, make_ref()}
+    Process.put(redraw_key, false)
+
+    try do
+      outcome =
+        process_events(events, result, output, state, columns, rows, callbacks, fn ->
+          Process.put(redraw_key, true)
+        end)
+
+      if outcome != :exit and Process.get(redraw_key) do
+        redraw(callbacks, result, output, state, TuiState.buffer(state), columns, rows)
+      end
+
+      outcome
+    after
+      Process.delete(redraw_key)
+    end
+  end
+
+  defp process_events([], _result, _output, _state, _columns, _rows, _callbacks, _draw),
+    do: :continue
+
+  defp process_events([event | rest], result, output, state, columns, rows, callbacks, draw) do
+    cont = fn -> process_events(rest, result, output, state, columns, rows, callbacks, draw) end
 
     cond do
       match?(%{key: :ctrl_c}, event) ->
@@ -78,6 +101,7 @@ defmodule Ourocode.Terminal.TuiInputLoop do
       true ->
         handle_normal_event(event, result, output, state, columns, rows, callbacks, cont, draw)
     end
+    |> preserve_unconsumed_events(rest)
   end
 
   @doc false
@@ -108,7 +132,15 @@ defmodule Ourocode.Terminal.TuiInputLoop do
   end
 
   defp read_key_loop(result, output, state, callbacks) do
-    case TuiDriverSession.next_chunk(state) do
+    case TuiState.take_pending_events(state) do
+      {[], :eof} -> :eof
+      {[], :continue} -> read_chunk_loop(result, output, state, callbacks)
+      {events, terminal} -> handle_read_events(events, terminal, result, output, state, callbacks)
+    end
+  end
+
+  defp read_chunk_loop(result, output, state, callbacks) do
+    case next_chunk(callbacks, state) do
       :eof ->
         :eof
 
@@ -131,15 +163,30 @@ defmodule Ourocode.Terminal.TuiInputLoop do
         read_key_loop(result, output, state, callbacks)
 
       {:ok, chunk} ->
-        {columns, rows} = TuiDriverSession.refresh_size(state)
-        {events, leftover} = KeyReader.decode(TuiState.take_leftover(state) <> chunk)
-        TuiState.put_leftover(state, leftover)
+        {chunks, terminal} =
+          drain_queued_chunks(state, callbacks, [chunk], byte_size(chunk))
 
-        case handle_events(events, result, output, state, columns, rows, callbacks) do
-          {:submit, line} -> line
-          :exit -> :eof
-          :continue -> read_key_loop(result, output, state, callbacks)
-        end
+        events = decode_chunks(chunks, state)
+        handle_read_events(events, terminal, result, output, state, callbacks)
+    end
+  end
+
+  defp handle_read_events(events, terminal, result, output, state, callbacks) do
+    {columns, rows} = TuiDriverSession.refresh_size(state)
+
+    case handle_events_with_rest(events, result, output, state, columns, rows, callbacks) do
+      {:submit, line, rest} ->
+        TuiState.put_pending_events(state, rest, terminal)
+        line
+
+      :exit ->
+        :eof
+
+      :continue when terminal == :eof ->
+        :eof
+
+      :continue ->
+        read_key_loop(result, output, state, callbacks)
     end
   end
 
@@ -157,6 +204,60 @@ defmodule Ourocode.Terminal.TuiInputLoop do
       test_run?: Map.fetch!(callbacks, :test_run?)
     })
   end
+
+  defp next_chunk(callbacks, state, poll_ms \\ nil) do
+    case TuiState.take_inbuf(state) do
+      "" ->
+        case Map.get(callbacks, :next_chunk) do
+          next_chunk when is_function(next_chunk, 2) -> next_chunk.(state, poll_ms)
+          next_chunk when is_function(next_chunk, 1) -> next_chunk.(state)
+          _other when is_nil(poll_ms) -> TuiDriverSession.next_chunk(state)
+          _other -> TuiDriverSession.next_chunk(state, poll_ms)
+        end
+
+      buffered ->
+        {:ok, buffered}
+    end
+  end
+
+  # Drain already-queued messages without waiting for more input. The byte budget
+  # keeps a continuously busy Port from starving redraw while allowing normal
+  # bursts of many small chunks to remain a single frame.
+  defp drain_queued_chunks(_state, _callbacks, chunks, bytes)
+       when bytes >= @drain_byte_budget,
+       do: {Enum.reverse(chunks), :continue}
+
+  defp drain_queued_chunks(state, callbacks, chunks, bytes) do
+    case next_chunk(callbacks, state, 0) do
+      {:ok, chunk} ->
+        if bytes + byte_size(chunk) > @drain_byte_budget do
+          TuiState.put_inbuf(state, chunk)
+          {Enum.reverse(chunks), :continue}
+        else
+          drain_queued_chunks(state, callbacks, [chunk | chunks], bytes + byte_size(chunk))
+        end
+
+      :eof ->
+        {Enum.reverse(chunks), :eof}
+
+      _other ->
+        {Enum.reverse(chunks), :continue}
+    end
+  end
+
+  defp decode_chunks(chunks, state) do
+    {events, leftover} =
+      state
+      |> TuiState.take_leftover()
+      |> Kernel.<>(IO.iodata_to_binary(chunks))
+      |> KeyReader.decode()
+
+    TuiState.put_leftover(state, leftover)
+    events
+  end
+
+  defp preserve_unconsumed_events({:submit, line}, rest), do: {:submit, line, rest}
+  defp preserve_unconsumed_events(outcome, _rest), do: outcome
 
   defp command_submit?(%{key: :enter}, state) do
     state
