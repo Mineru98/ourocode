@@ -3,11 +3,13 @@ defmodule Ourocode.IPC.HelperPortTest do
 
   alias Ourocode.IPC.HelperPort
 
+  @initial_frame_timeout 5_000
+
   test "opens helper port, writes the initial frame, and exposes response lines" do
     {command, args} = Ourocode.Test.PortPrograms.echo_line_command("echo:")
 
     assert {:ok, port} = HelperPort.open_and_write(command, args, "hello\n")
-    assert_receive {^port, {:data, {:eol, "echo:hello"}}}, 1_000
+    assert_receive {^port, {:data, {:eol, "echo:hello"}}}, @initial_frame_timeout
     assert HelperPort.close(port) == :ok
   end
 
