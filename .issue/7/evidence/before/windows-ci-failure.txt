@@ -1,0 +1,10 @@
+GitHub Actions run: https://github.com/Mineru98/ourocode/actions/runs/31476919204
+Workflow: windows-ci
+Job: Windows build + test
+
+1) test opens helper port, writes the initial frame, and exposes response lines (Ourocode.IPC.HelperPortTest)
+   test/ourocode/ipc/helper_port_test.exs:6
+   Assertion failed, no matching message after 1000ms
+   test/ourocode/ipc/helper_port_test.exs:10: (test)
+
+2599 tests, 1 failure

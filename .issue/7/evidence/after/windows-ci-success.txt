@@ -1,0 +1,8 @@
+GitHub Actions run: https://github.com/Mineru98/ourocode/actions/runs/31510519560
+Workflow: windows-ci
+Branch: fix/7-helper-port-initial-frame-timeout
+Commit: a92333595b1a2e4a0167cbd55748dcc2f8936e2e
+
+Windows build + test
+Finished in 55.1 seconds (27.7s async, 27.4s sync)
+2599 tests, 0 failures
