@@ -28,9 +28,14 @@ Install the latest prerelease build on macOS or Linux:
 curl -fsSL https://raw.githubusercontent.com/Ouro-labs/ourocode/release/bootstrap/install.sh | bash
 ```
 
-Install a Windows release from PowerShell:
+Install a Windows release from PowerShell. Replace `<version>` with a tag from
+[GitHub Releases](https://github.com/Ouro-labs/ourocode/releases), including a
+prerelease tag when needed:
 
 ```powershell
+$bootstrap = "https://raw.githubusercontent.com/Ouro-labs/ourocode/release/bootstrap"
+Invoke-WebRequest -Uri "$bootstrap/install.ps1" -OutFile .\install.ps1
+Invoke-WebRequest -Uri "$bootstrap/uninstall.ps1" -OutFile .\uninstall.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version <version>
 ```
 
@@ -161,9 +166,14 @@ Get-Command escript.exe
 erl -eval "erlang:display(erlang:system_info(otp_release)), halt()." -noshell
 ```
 
-Install a release:
+Install a release. Choose `<version>` from
+[GitHub Releases](https://github.com/Ouro-labs/ourocode/releases), then download
+the installer and run it:
 
 ```powershell
+$bootstrap = "https://raw.githubusercontent.com/Ouro-labs/ourocode/release/bootstrap"
+Invoke-WebRequest -Uri "$bootstrap/install.ps1" -OutFile .\install.ps1
+Invoke-WebRequest -Uri "$bootstrap/uninstall.ps1" -OutFile .\uninstall.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Version <version>
 ourocode --version
 ```
